@@ -813,9 +813,15 @@ export function setupPlayerOverlay() {
     const playing = document.getElementById("player-root").dataset.contentId;
     if (!playing || prefetchedFor === playing) return;
     if (activeAudio().currentTime < PREFETCH_AFTER_SECONDS) return;
-    prefetchedFor = playing;
     const upcoming = peekNextId();
-    if (upcoming != null) cacheUpcoming(upcoming);
+    if (upcoming == null) return;
+    // Marked only once the prefetch is actually going out. Setting it before
+    // the queue had been consulted made the guard permanent for that track: a
+    // queue that was momentarily empty at this one second — or a track pinned
+    // at 0 so that this ran at the same instant every time — never got a
+    // second chance, however long it went on playing.
+    prefetchedFor = playing;
+    cacheUpcoming(upcoming);
   });
 
   document.getElementById("prev-track").addEventListener("click", () => playFromQueue(previousId()));
