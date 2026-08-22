@@ -23,6 +23,7 @@ from app.schemas import (
     VideoBatchResult,
     VideoSearchResultOut,
 )
+from app.services.artist_follow import get_or_create_placeholder
 from app.storage import purge_content
 from app.timeutil import utcnow
 from app.youtube.music import search_artists, search_songs
@@ -68,31 +69,6 @@ def search_video_feeds(q: str) -> list[VideoSearchResultOut]:
     return [VideoSearchResultOut(**result.__dict__) for result in search_songs(query)]
 
 
-def _get_or_create_placeholder(
-    db: Session, channel_id: str, channel_title: str | None, user_id: int
-) -> Artist:
-    """An Artist row for someone the user hasn't actually followed — exists
-    only so a single track added via Explore has somewhere to attach
-    (Content.artist_id is required). followed=False keeps it out of Library
-    and the background refresh (see content_query.followed_artists) until the
-    user follows them for real, which upgrades this same row in place (see
-    services/artist_follow.py) instead of creating a duplicate. Keyed by the
-    bare channel id, which is what both paths agree on.
-
-    No avatar fetch: a placeholder artist's avatar is never displayed anywhere
-    (Library and the channel-hero page are the only avatar consumers, and
-    both are followed-only surfaces)."""
-    existing = db.query(Artist).filter(Artist.user_id == user_id, Artist.channel_id == channel_id).first()
-    if existing:
-        return existing
-
-    artist = Artist(user_id=user_id, channel_id=channel_id, name=channel_title, followed=False)
-    db.add(artist)
-    db.commit()
-    db.refresh(artist)
-    return artist
-
-
 @router.post("/tracks", response_model=VideoAddResult, status_code=status.HTTP_201_CREATED)
 def add_single_video(
     payload: VideoAddCreate,
@@ -132,7 +108,7 @@ def add_single_video(
     if existing_content:
         return VideoAddResult(content_id=existing_content.id)
 
-    artist = _get_or_create_placeholder(db, payload.channel_id, payload.channel_title, user.id)
+    artist = get_or_create_placeholder(db, payload.channel_id, payload.channel_title, user.id)
 
     content = Content(
         artist_id=artist.id,
@@ -278,7 +254,7 @@ def _insert_batch(db: Session, user_id: int, items: list) -> VideoBatchResult:
 
     for item in items:
         if item.channel_id not in artists_by_channel:
-            # Same placeholder contract as _get_or_create_placeholder above;
+            # Same placeholder contract as get_or_create_placeholder;
             # built inline here so the whole batch is one flush.
             artist = Artist(
                 user_id=user_id,
