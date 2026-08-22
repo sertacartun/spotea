@@ -432,7 +432,131 @@ def _is_other_recording(title: str | None) -> bool:
     return False
 
 
-def find_song_version(title: str, artist_name: str | None) -> VideoSearchResult | None:
+# Words a *video* title carries that its song's title doesn't — the
+# uploader's own labelling. Only ever consulted for the words left over
+# around an already-matched song title (see _leftover_explained), never to
+# rewrite a title outright: "Video Games" is a song's name and "Official
+# Video" is decoration, and only their position tells the two apart.
+#
+# Left exactly as the 117-track measurement in find_song_version ran it
+# rather than tidied afterwards — that run is the evidence it produces no
+# wrong match, and trimming the list would invalidate it.
+_TITLE_FILLER_WORDS = frozenset(
+    {
+        "official", "oficial", "officiel", "video", "videos", "music", "mv",
+        "pv", "audio", "lyric", "lyrics", "visualizer", "visualiser", "hd",
+        "hq", "4k", "closed", "captioned", "caption", "edit", "performance",
+        "clip", "teaser", "full", "ver", "explicit", "color", "coded",
+        "dance", "practice", "special", "stage", "from", "the", "movie",
+        "soundtrack",
+    }
+)
+
+_YEAR_RE = re.compile(r"^\d{4}$")
+
+# What a video title uses to set the song's name apart from the artist
+# credit in front of it and the "Official MV" tail behind it. Quotes carry
+# the most weight: in "KATSEYE (캣츠아이) 'Hootie Frutti' Official MV"
+# nothing but the quotes says which two words are the song.
+_TITLE_SEGMENT_RE = re.compile("[-–—|/'\"“”‘’()\\[\\]:,.]+")
+
+
+def _title_segments(title: str | None) -> set[str]:
+    """The video title's delimiter-separated parts, each through _match_key."""
+    parts = (_match_key(part) for part in _TITLE_SEGMENT_RE.split(title or ""))
+    return {part for part in parts if part}
+
+
+def _contains_run(words: list[str], run: list[str]) -> bool:
+    """Whether `run` appears in `words` as consecutive whole words. Whole
+    words rather than a substring, so "art" does not match "Artist"."""
+    span = len(run)
+    if not span or span > len(words):
+        return False
+    return any(words[index : index + span] == run for index in range(len(words) - span + 1))
+
+
+def _leftover_explained(words: list[str], run: list[str], allowed: set[str]) -> bool:
+    """Whether everything in `words` other than one occurrence of `run` is
+    accounted for: filler, a year, or part of an artist's name."""
+    span = len(run)
+    for start in range(len(words) - span + 1):
+        if words[start : start + span] != run:
+            continue
+        rest = words[:start] + words[start + span :]
+        if all(word in allowed or _YEAR_RE.match(word) for word in rest):
+            return True
+    return False
+
+
+def _song_title_nested(
+    video_words: list[str], song_key: str, segments: set[str], artist_keys: set[str]
+) -> bool:
+    """Whether a song's title is this video's song title wearing the
+    uploader's decoration.
+
+    Bare containment is not enough on its own, and the measurement says so:
+    alone it matched "Legends" against "VonOff1700 - Hood Legends (Official
+    Video)", a different song by the same artist. One of two stronger things
+    has to hold — either the song's title is one of the video title's
+    delimited parts ("… 'Hootie Frutti' Official MV"), or every word left
+    over once it is removed is decoration ("Video Games Performance Edit,
+    HD, Closed Captioned").
+    """
+    song_words = song_key.split()
+    if not _contains_run(video_words, song_words):
+        return False
+    if song_key in segments:
+        return True
+    allowed = set(_TITLE_FILLER_WORDS)
+    for key in artist_keys:
+        allowed |= set(key.split())
+    return _leftover_explained(video_words, song_words, allowed)
+
+
+def _same_artist(
+    credited: set[str],
+    credited_ids: set[str],
+    wanted_name: str,
+    wanted_channel_id: str | None,
+    video_words: list[str],
+) -> bool:
+    """Whether a candidate is by the artist this video is by.
+
+    Three ways, strongest first, because the two things we know about the
+    artist fail in opposite cases:
+
+    * **The channel id.** YouTube Music gives one artist different display
+      names in different responses — a playlist entry says "Marie Ulven"
+      where search says "girl in red" — but both carry the same
+      UCmNtyqQl03eWyvikCMbO3fA. That is an identity rather than a guess, and
+      it makes a stage name and a legal name the same artist for free.
+    * **The name**, for entries carrying no id to compare.
+    * **A credited name inside the video's own title.** When a label uploads
+      the video the stored artist is the *label* ("HYBE LABELS") and the real
+      artist appears only in the title ("KATSEYE (캣츠아이) 'Animal'
+      Official MV"). Corroboration rather than looseness: a wrong song's
+      artist does not turn up in this video's title.
+
+    Always against the entry's artist *list*, never against
+    VideoSearchResult.channel_title, which is every credited artist joined
+    into one string — comparing a lead artist ("ROSÉ") against the joined
+    form ("ROSÉ, Bruno Mars") failed for every collaboration.
+    """
+    if not wanted_name and not wanted_channel_id:
+        return True
+    if wanted_channel_id and wanted_channel_id in credited_ids:
+        return True
+    if wanted_name and wanted_name in credited:
+        return True
+    return any(name and _contains_run(video_words, name.split()) for name in credited)
+
+
+def find_song_version(
+    title: str,
+    artist_name: str | None,
+    artist_channel_id: str | None = None,
+) -> VideoSearchResult | None:
     """The album version of a track that arrived as a music video, or None.
 
     YouTube Music's curated and mood playlists are *video* playlists almost
@@ -442,17 +566,40 @@ def find_song_version(title: str, artist_name: str | None) -> VideoSearchResult 
     this app is square album art, and it usually has no lyrics either. That
     is the whole of "why do playlist covers look wrong".
 
-    There is no counterpart field to follow: get_watch_playlist and get_song
-    both hand the same video straight back (checked). Searching for the song
-    is what works — measured on ten video entries, all ten resolved to the
-    right song, title and artist matching exactly once punctuation and
-    bracketed asides are dropped.
+    There is no counterpart field to follow. ytmusicapi does parse one, but
+    only when the response carries a playlistPanelVideoWrapperRenderer —
+    YouTube Music's own song/video switcher, which a signed-out client never
+    receives. Ours is signed out (logged_in: 0) and the field came back None
+    in both directions, checked. Searching for the song is what works.
 
-    That last part is the guard. A search is a guess, and playing the wrong
-    recording is worse than playing a music video: a title or artist that
-    doesn't match is a miss, not a near-enough. Duration is deliberately not
-    part of it — a music video with a long intro is 35 seconds longer than
-    its song and still the same track (one of the ten).
+    **Two rounds of measurement, and the second one moved the design.** Run
+    over every track of a chart and of a mood playlist (117 music videos),
+    matching on exact title equality alone against the same with the
+    fallbacks below:
+
+    | list                      | videos | exact only | with fallbacks |
+    |---------------------------|--------|------------|----------------|
+    | Trending 20 United States | 17     | 5  (29%)   | 12 (71%)       |
+    | Fall Hits                 | 100    | 96 (96%)   | 100 (100%)     |
+
+    Playlists were already fine; **charts were the broken case**, because the
+    two carry different titles. A playlist entry has a clean song title
+    ("Bel Air"); a chart entry has the raw uploaded video title ("KATSEYE
+    (캣츠아이) 'Hootie Frutti' Official MV"). _match_key drops bracketed
+    asides, so "(Official Video)" costs nothing while a bare "Official MV"
+    defeats the whole match.
+
+    All 17 chart decisions were then checked by hand: the 12 matches are
+    right, and the 5 misses *should* miss — three of those songs exist on
+    YouTube Music only as some other account's re-upload, one is not there at
+    all, and one is a cover whose search returns the original (Cazzu's "Si
+    Una Vez" finds Selena's). Loosening the artist check to catch them would
+    mean playing the wrong recording, which is the one outcome worth
+    avoiding: a search is a guess, and a music video beats the wrong song.
+    Duration stays out of it — a video with a long intro runs 35 seconds
+    past its song and is still the same track.
+
+    Five candidates is enough: asking for ten changed no result out of 117.
     """
     query = f"{title} {artist_name}".strip() if artist_name else title
     if not query:
@@ -460,32 +607,40 @@ def find_song_version(title: str, artist_name: str | None) -> VideoSearchResult 
 
     wanted_title = _match_key(title)
     wanted_artist = _match_key(artist_name)
+    video_words = wanted_title.split()
+    segments = _title_segments(title)
+
+    nested: VideoSearchResult | None = None
+    nested_words = 0
     for item in _search(query, "songs", SONG_MATCH_CANDIDATES):
         if item.get("videoType") != SONG_VIDEO_TYPE:
             continue
         result = _song_result(item)
         if result is None:
             continue
-        if _match_key(result.title) != wanted_title:
-            continue
         if _is_other_recording(result.title) and not _is_other_recording(title):
             continue
-        # Matched against the entry's artist *list*, not against
-        # VideoSearchResult.channel_title, which is every credited artist
-        # joined into one string. A playlist row names the lead artist alone
-        # ("ROSÉ"), so comparing it to the joined form ("ROSÉ, Bruno Mars")
-        # failed for every collaboration — which is a large share of exactly
-        # the chart-pop these playlists are made of. Measured before the fix:
-        # 3 of 5 sampled tracks resolved, and both misses were feat. credits.
-        #
-        # Only when the caller had an artist to match on. A track stored
-        # without one can still be resolved on its title alone — that is the
-        # weaker check, and it is still stronger than taking the first hit.
-        credited = {_match_key(a.get("name")) for a in (item.get("artists") or []) if a.get("name")}
-        if wanted_artist and wanted_artist not in credited:
+
+        artists = item.get("artists") or []
+        credited = {_match_key(artist.get("name")) for artist in artists if artist.get("name")}
+        credited_ids = {artist.get("id") for artist in artists if artist.get("id")}
+        if not _same_artist(credited, credited_ids, wanted_artist, artist_channel_id, video_words):
             continue
-        return result
-    return None
+
+        song_key = _match_key(result.title)
+        if song_key == wanted_title:
+            return result
+        # Held back rather than returned, and the longest wins: a title that
+        # accounts for more of the video's wording is the more specific
+        # answer ("Hood Legends" over "Legends"). An exact match anywhere in
+        # the list still beats every one of them, which is why this returns
+        # only after the loop.
+        if (
+            _song_title_nested(video_words, song_key, segments, credited | {wanted_artist})
+            and len(song_key.split()) > nested_words
+        ):
+            nested, nested_words = result, len(song_key.split())
+    return nested
 
 
 def search_playlists(query: str, limit: int = SEARCH_RESULT_LIMIT) -> list[PlaylistSearchResult]:

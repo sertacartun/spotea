@@ -19,7 +19,7 @@ def followed_artists(db: Session, user_id: int | None = None) -> Query[Artist]:
     """Feeds actually followed, newest first.
 
     followed=False rows are Explore placeholders auto-created to hold a
-    single video (see routers/explore.py's _get_or_create_placeholder)
+    single video (see services/artist_follow.py's get_or_create_placeholder)
     or artists unfollowed while keeping some content (see delete_feed).
     Either way they're invisible in Library and skipped by the background
     refresh, so every "the user's artists" query has to exclude them —

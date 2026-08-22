@@ -530,3 +530,89 @@ def test_a_song_already_in_the_library_is_not_swapped_into(client, db_session, m
 
     assert res.status_code == 200
     assert res.json()["video_id"] == "downloadvi1"
+
+
+def test_the_stored_channel_id_is_offered_to_the_matcher(client, db_session, monkeypatch):
+    """The id is the strongest thing we know about the artist: YouTube Music
+    gives one artist different display names in different responses — a
+    playlist entry says "Marie Ulven" where search says "girl in red" — and
+    the same channel id in both."""
+    from app.routers import content as content_router
+
+    item = _seed_one(db_session, thumbnail_url=_STILL)
+    seen = {}
+
+    def capture(title, artist_name, artist_channel_id=None):
+        seen.update(title=title, name=artist_name, channel_id=artist_channel_id)
+        return None
+
+    monkeypatch.setattr(content_router, "find_song_version", capture)
+
+    client.post(f"/content/{item.id}/song-version")
+
+    assert seen["channel_id"] == "https://example.com/dl-artist"
+
+
+def test_a_placeholder_attribution_moves_to_the_credited_artist(client, db_session, monkeypatch):
+    """A music video uploaded by a label arrives attributed to the *label* —
+    "HYBE LABELS" owns the channel the chart entry came from — so the
+    player's artist line links there rather than to KATSEYE. The song version
+    names the real artist, and the swap is when we find out who that is."""
+    from app.models import Artist
+    from app.routers import content as content_router
+
+    item = _seed_one(db_session, thumbnail_url=_STILL)
+    label = db_session.get(Artist, item.artist_id)
+    label.followed = False
+    db_session.commit()
+    monkeypatch.setattr(content_router, "find_song_version", lambda *a: _song())
+
+    res = client.post(f"/content/{item.id}/song-version")
+
+    assert res.status_code == 200
+    db_session.refresh(item)
+    assert item.artist_id != label.id
+    moved_to = db_session.get(Artist, item.artist_id)
+    assert moved_to.channel_id == "UCsomethingsomething"
+    # Still a placeholder: knowing who recorded a track isn't a decision to
+    # put them in Library.
+    assert moved_to.followed is False
+
+
+def test_a_followed_artist_keeps_the_track(client, db_session, monkeypatch):
+    """Where the track belongs is the user's own decision once they've
+    followed someone — re-pointing the row would take it off that artist's
+    Library page."""
+    from app.models import Artist
+    from app.routers import content as content_router
+
+    item = _seed_one(db_session, thumbnail_url=_STILL)
+    followed = db_session.get(Artist, item.artist_id)
+    assert followed.followed is True
+    monkeypatch.setattr(content_router, "find_song_version", lambda *a: _song())
+
+    res = client.post(f"/content/{item.id}/song-version")
+
+    assert res.status_code == 200
+    db_session.refresh(item)
+    assert item.artist_id == followed.id
+
+
+def test_the_row_takes_the_song_s_own_title(client, db_session, monkeypatch):
+    """A chart entry arrives named for the video file — "KATSEYE (캣츠아이)
+    'Hootie Frutti' Official MV" — and once the row *is* the song, leaving
+    that in place means every list in the app still announces a music video
+    the player is no longer playing."""
+    from app.routers import content as content_router
+
+    item = _seed_one(db_session, thumbnail_url=_STILL)
+    item.title = "ARTIST 'Song' Official MV"
+    db_session.commit()
+    monkeypatch.setattr(content_router, "find_song_version", lambda *a: _song(title="Song"))
+
+    res = client.post(f"/content/{item.id}/song-version")
+
+    assert res.status_code == 200
+    assert res.json()["title"] == "Song"
+    db_session.refresh(item)
+    assert item.title == "Song"

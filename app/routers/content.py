@@ -14,6 +14,7 @@ from app.models import Content, SwappedVideo, User
 from app.page_context import playlist_filter
 from app.progress import ProgressRegistry
 from app.schemas import ContentOut, FavoriteOut, LyricsOut, QueueOut, StatusOut
+from app.services.artist_follow import get_or_create_placeholder
 from app.services.artist_sync import cache_thumbnail
 from app.services.lyrics import lyrics_for
 from app.timeutil import utcnow
@@ -159,6 +160,28 @@ def get_content(
     return ContentOut.from_content(content)
 
 
+def _credited_artist_id(db: Session, content: Content, song, user_id: int) -> int | None:
+    """The artist a swapped-in song should hang off, or None to keep the one
+    the row already has.
+
+    A music video uploaded by a label arrives attributed to the *label* —
+    "HYBE LABELS" owns the channel the chart entry came from, so that is what
+    the row records, and the player's artist line links there rather than to
+    KATSEYE. The song version names the real artist, and the swap is the
+    moment we find out who that is.
+
+    Only ever moves a row off a **placeholder**. An artist the user actually
+    followed is their own decision about where this track belongs, and
+    re-pointing it would take the track off that artist's Library page.
+    """
+    artist = content.artist
+    if not song.channel_id or artist is None or artist.followed:
+        return None
+    if song.channel_id == artist.channel_id:
+        return None
+    return get_or_create_placeholder(db, song.channel_id, song.channel_title, user_id).id
+
+
 @router.post("/{content_id}/song-version", response_model=ContentOut)
 def swap_in_song_version(
     content_id: int,
@@ -199,7 +222,11 @@ def swap_in_song_version(
         # pointing at audio it no longer names.
         return ContentOut.from_content(content)
 
-    song = find_song_version(content.title, content.artist.name if content.artist else None)
+    song = find_song_version(
+        content.title,
+        content.artist.name if content.artist else None,
+        content.artist.channel_id if content.artist else None,
+    )
     if song is None:
         return ContentOut.from_content(content)
 
@@ -215,6 +242,10 @@ def swap_in_song_version(
     if taken is not None:
         return ContentOut.from_content(content)
 
+    # Resolved before anything is written: get_or_create_placeholder commits,
+    # and calling it mid-mutation would land half of this swap.
+    artist_id = _credited_artist_id(db, content, song, user.id)
+
     # Recorded before it's overwritten. The playlist this row came from still
     # lists the video's id, and POST /explore/tracks/batch looks rows up by
     # exactly that — so without this the next tap on the same row finds
@@ -222,7 +253,16 @@ def swap_in_song_version(
     # the start. See SwappedVideo for the measurements.
     db.add(SwappedVideo(user_id=user.id, video_id=content.video_id, content_id=content.id))
 
+    if artist_id is not None:
+        content.artist_id = artist_id
     content.video_id = song.video_id
+    # The song's own title, not the uploader's. A chart entry arrives named
+    # for the video file ("KATSEYE (캣츠아이) 'Hootie Frutti' Official MV"),
+    # and once the row *is* the song, leaving that in place means every list
+    # in the app still announces a music video the player is no longer
+    # playing. Where the two already agree — which is most of a playlist —
+    # this writes the same string back.
+    content.title = song.title
     content.thumbnail_url = song.thumbnail_url
     if song.duration_seconds:
         content.duration_seconds = song.duration_seconds

@@ -1123,3 +1123,124 @@ def test_a_version_that_is_still_the_song_is_accepted(client):
     client(search=[{**SONG, "title": "Biliyorsun (Sertab Version)"}])
 
     assert music.find_song_version("Biliyorsun", "Sezen Aksu") is not None
+
+
+# --- find_song_version: chart titles ----------------------------------------
+#
+# A second round of measurement, over every track of one chart and one mood
+# playlist (117 music videos), matching on exact title equality alone:
+#
+#   Trending 20 United States   17 videos    5 matched  (29%)
+#   Fall Hits                  100 videos   96 matched  (96%)
+#
+# Playlists were already fine. Charts were the broken case, because the two
+# carry different titles: a playlist entry has a clean song title ("Bel Air"),
+# a chart entry has the raw uploaded video title ("KATSEYE (캣츠아이) 'Hootie
+# Frutti' Official MV"). With the fallbacks below the same run matched 12 and
+# 100 — and all 17 chart decisions were checked by hand, the 5 that still
+# miss being songs that genuinely aren't on YouTube Music under their own
+# artist.
+
+
+def test_a_raw_video_title_still_finds_its_song(client):
+    """The chart case. _match_key drops bracketed asides, so "(Official
+    Video)" costs nothing — but a bare "Official MV" and a leading artist
+    credit survive it and used to defeat the whole match."""
+    client(search=[SONG])
+
+    result = music.find_song_version("SEZEN AKSU 'Biliyorsun' Official MV", "Sezen Aksu")
+
+    assert result is not None
+    assert result.video_id == "_efHZg9D9iE"
+
+
+def test_noise_outside_brackets_no_longer_blocks_a_match(client):
+    """Measured on Lana Del Rey's "Video Games Performance Edit, HD, Closed
+    Captioned" — no brackets anywhere, and every word after the song's title
+    is the uploader's labelling."""
+    client(search=[SONG])
+
+    result = music.find_song_version(
+        "Biliyorsun Performance Edit, HD, Closed Captioned", "Sezen Aksu"
+    )
+
+    assert result is not None
+
+
+def test_a_shorter_song_inside_the_title_is_not_the_answer(client):
+    """The guard, and the reason bare containment isn't enough on its own:
+    measured, it matched "Legends" against "VonOff1700 - Hood Legends
+    (Official Video)" — a different song by the same artist. The song's title
+    has to be a delimited part of the video's, or every word left over once
+    it is removed has to be decoration. "Hood" is neither."""
+    client(search=[{**SONG, "title": "Legends", "videoId": "wrongsong01"}])
+
+    assert music.find_song_version("Sezen Aksu - Hood Legends (Official Video)", "Sezen Aksu") is None
+
+
+def test_the_longest_qualifying_title_wins(client):
+    """When two songs both sit inside one video title, the longer one
+    accounts for more of it and is the more specific answer."""
+    short = {**SONG, "title": "Biliyorsun", "videoId": "shortsong01"}
+    longer = {**SONG, "title": "Biliyorsun Sezen", "videoId": "longsong001"}
+    client(search=[short, longer])
+
+    result = music.find_song_version("Biliyorsun Sezen Official Video", "Sezen Aksu")
+
+    assert result is not None
+    assert result.video_id == "longsong001"
+
+
+def test_an_exact_title_beats_a_nested_one_further_down(client):
+    """Exact equality is still the answer wherever it turns up in the list;
+    the fallback only ever fills in for its absence."""
+    nested = {**SONG, "title": "Biliyorsun", "videoId": "nestedsong1"}
+    exact = {**SONG, "title": "Biliyorsun Official Video", "videoId": "exactsong01"}
+    client(search=[nested, exact])
+
+    result = music.find_song_version("Biliyorsun Official Video", "Sezen Aksu")
+
+    assert result is not None
+    assert result.video_id == "exactsong01"
+
+
+# --- find_song_version: who the artist is -----------------------------------
+
+
+def test_the_same_channel_under_a_different_name_is_the_same_artist(client):
+    """YouTube Music hands one artist different display names in different
+    responses — a Fall Hits entry says "Marie Ulven" where search says "girl
+    in red" — and the same UCmNtyqQl03eWyvikCMbO3fA in both. The id is an
+    identity rather than a guess, and it is what took that playlist from 96
+    of 100 to 100 of 100."""
+    client(search=[SONG])
+
+    result = music.find_song_version("Biliyorsun", "Marie Ulven", "UCNaGLJRPE3ohleIDM7RFtlQ")
+
+    assert result is not None
+    assert result.video_id == "_efHZg9D9iE"
+
+
+def test_a_label_upload_matches_the_artist_named_in_the_title(client):
+    """A label owns the channel a chart entry came from, so the row arrives
+    attributed to the label ("HYBE LABELS") and neither its name nor its id
+    matches the song's. The real artist appears in the video's own title, and
+    that corroborates rather than loosens: a wrong song's artist doesn't turn
+    up there."""
+    client(search=[SONG])
+
+    result = music.find_song_version(
+        "SEZEN AKSU (셀렌) 'Biliyorsun' Official MV", "HYBE LABELS", "UChybelabels00000000"
+    )
+
+    assert result is not None
+    assert result.video_id == "_efHZg9D9iE"
+
+
+def test_a_different_channel_and_name_is_still_not_the_artist(client):
+    """The three ways to recognise an artist are alternatives, not a slope:
+    with none of them holding, the answer is still no match. Measured on
+    Cazzu's "Si Una Vez", whose search returns Selena's original."""
+    client(search=[SONG])
+
+    assert music.find_song_version("Biliyorsun", "Someone Else", "UCsomeoneelse0000000") is None

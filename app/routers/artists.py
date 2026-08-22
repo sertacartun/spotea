@@ -94,7 +94,7 @@ def delete_feed(
     played, favorited, or saved — only content nobody ever touched gets
     purged. Anything kept stays on the artist row, which is downgraded to
     followed=False (same state as an Explore placeholder — see
-    _get_or_create_placeholder) rather than deleted, so it drops out of
+    get_or_create_placeholder) rather than deleted, so it drops out of
     Library/New releases/background refresh but keeps working everywhere else
     (Storage, Recently Played, Favorites/Saved, direct playback — none of
     those filter on Artist.followed). Re-following the same channel later picks

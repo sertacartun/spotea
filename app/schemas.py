@@ -53,7 +53,7 @@ class ContentOut(BaseModel):
     # line links to. The browse id where there is one, the Topic channel it
     # was created from otherwise: a track added from Explore hangs off a
     # placeholder Artist row that was never resolved further (see
-    # routers/explore.py's _get_or_create_placeholder), and the yt-artist
+    # services/artist_follow.py's get_or_create_placeholder), and the yt-artist
     # panel resolves a bare channel id the same way Explore's own artist
     # links do (see services/remote_detail.py). None only when neither
     # exists, which is when the line is drawn as plain text.
