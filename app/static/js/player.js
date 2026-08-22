@@ -106,7 +106,21 @@ let activeVisibilityHandler = null;
 // they're what *every* track produces whether or not anything actually went
 // wrong. The four kept here are exactly the ones that only fire when
 // something didn't happen the way it should have.
-const REPORTED_EVENTS = new Set(["play-rejected", "playback-stalled", "prepare-failed", "outgoing-ended"]);
+// "track-ended" and "retry-rejected" are here despite the noise budget above.
+// Both fire at most once per track, and between them they are the only record
+// of *why* playback stopped: track-ended carries `next` and `prepared`
+// alongside the page's visibility, which is the difference between "the queue
+// was empty" and "the page stopped running" — indistinguishable from the
+// server otherwise, and an ambiguity a real investigation got stuck on for
+// several rounds before this was added.
+const REPORTED_EVENTS = new Set([
+  "play-rejected",
+  "playback-stalled",
+  "prepare-failed",
+  "outgoing-ended",
+  "track-ended",
+  "retry-rejected",
+]);
 
 export function reportPlayback(event, detail = {}) {
   if (!REPORTED_EVENTS.has(event)) return;
@@ -668,11 +682,39 @@ export async function prepareAudio(onStart, onFail) {
     transport.classList.remove("is-disabled");
 
     const audio = activeAudio();
-    audio.src = streamUrl;
 
-    if (onStart) onStart();
+    // Assigning src runs the media element's load algorithm, and that resets
+    // the playback position to the beginning — even when the URL assigned is
+    // the one already loaded. So a second call here for the track that is
+    // already playing does not "make sure it's playing", it silently restarts
+    // it from 0:00.
+    //
+    // Which is not hypothetical. iOS reports a page as visible again when the
+    // screen merely *wakes* at the lock screen, without being unlocked, and
+    // that re-runs the visibility check-in registered at the bottom of this
+    // function. On a real session it re-entered here for the track already
+    // playing, reset it to 0:00, and — the phone still being locked — left it
+    // pinned there: "playing" on the lock screen, never advancing. The track
+    // never reached its end, so it never advanced to the next one either, and
+    // no watchdog saw it (see watchPlaybackStarted). Playback stopping is
+    // also what killed any chance of recovery: a home-screen PWA stays awake
+    // only while sound is actually coming out of it, so iOS froze the app
+    // moments later and nothing ran again until the user unlocked the phone,
+    // at which point the pending play() finally took and it resumed from 0:00.
+    //
+    // `ended` is excluded on purpose: replaying a track that has run out is a
+    // real restart, and does want the reload.
+    const alreadyLoaded = Boolean(streamUrl) && audio.currentSrc.endsWith(streamUrl) && !audio.ended;
+    if (alreadyLoaded && !audio.paused) return;
 
-    const resume = consumeResumeState(contentId);
+    if (!alreadyLoaded) {
+      audio.src = streamUrl;
+      if (onStart) onStart();
+    }
+
+    // Only a fresh load can be seeked into: consuming the record for a track
+    // that is already loaded would spend it on a seek it doesn't need.
+    const resume = alreadyLoaded ? null : consumeResumeState(contentId);
     if (resume) {
       // Waiting for loadedmetadata on an element that has already loaded
       // would wait forever, so a ready one is seeked outright.
@@ -837,8 +879,18 @@ function watchPlaybackStarted(contentId) {
     // A different track since then, or it's playing — either way, done here.
     if (!root || root.dataset.contentId !== contentId) return;
     const audio = activeAudio();
-    if (!audio.paused || audio.currentTime > 0) return;
-    reportPlayback("playback-stalled", { contentId, readyState: audio.readyState });
+    // Still pinned at the start is the symptom, paused or not. Bailing out on
+    // `!audio.paused` let through the worse of the two states: a play() the
+    // browser accepted and then never produced a single frame for leaves the
+    // element unpaused at 0 indefinitely — "playing" on the lock screen with
+    // nothing coming out. A real session died in exactly that state and this
+    // was the only thing that could have noticed.
+    if (audio.currentTime > 0) return;
+    reportPlayback("playback-stalled", { contentId, paused: audio.paused, readyState: audio.readyState });
+    // play() on an element that already believes it is playing does nothing,
+    // so that case needs the resource re-fetched before the retry is worth
+    // anything.
+    if (!audio.paused) audio.load();
     audio.play().catch((err) => reportPlayback("retry-rejected", { contentId, error: String(err?.name || err) }));
   }, PLAYBACK_WATCHDOG_MS);
 }

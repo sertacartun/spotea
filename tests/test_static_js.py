@@ -140,19 +140,35 @@ def test_service_worker_api_prefixes_have_no_trailing_slash() -> None:
 
 def test_report_playback_only_sends_the_unexpected_events() -> None:
     """4 beacons were measured per track played under the old blanket policy
-    — "now-playing", "play-requested" and a successful "playing" for
-    starting a track, "track-ended" for finishing it — none of which are
-    ever useful for debugging, since every track produces them whether or
-    not anything went wrong. Pinned as an exact set rather than "at least
-    these" so a future change to the allowlist is a deliberate edit here,
-    not a silent one in player.js."""
+    — "now-playing", "play-requested" and a successful "playing" for starting
+    a track, "track-ended" for finishing it — and three of those four say
+    nothing, since every track produces them whether or not anything went
+    wrong.
+
+    "track-ended" was cut with them and has since been put back, because it
+    is not like the other three: it carries `next` and `prepared` alongside
+    the page's visibility, and that is precisely what separates "the queue was
+    empty" from "the page stopped running". Without it a track that simply
+    stopped dead leaves no trace at all on the server — one real failure took
+    several rounds of guesswork for exactly that reason. One beacon per track
+    is the price.
+
+    Pinned as an exact set rather than "at least these" so a future change to
+    the allowlist is a deliberate edit here, not a silent one in player.js."""
     source = (JS_DIR / "player.js").read_text()
 
     match = re.search(r"const REPORTED_EVENTS = new Set\(\[(.*?)\]\);", source, re.S)
     assert match, "REPORTED_EVENTS allowlist not found in player.js"
     kept = {name.strip().strip('"') for name in match.group(1).split(",") if name.strip()}
 
-    assert kept == {"play-rejected", "playback-stalled", "prepare-failed", "outgoing-ended"}
+    assert kept == {
+        "play-rejected",
+        "playback-stalled",
+        "prepare-failed",
+        "outgoing-ended",
+        "track-ended",
+        "retry-rejected",
+    }
 
     # The allowlist alone proves nothing if reportPlayback doesn't actually
     # enforce it — this is the guard clause that turns "defined" into "used".
@@ -874,3 +890,69 @@ def test_a_music_video_row_is_swapped_for_the_song_before_it_plays() -> None:
     assert "is_music_video" in source
     prefetch = source[source.index("async function cacheUpcoming") :][:1400]
     assert prefetch.index("songVersionOf") < prefetch.index("/download")
+
+
+def test_start_playback_does_not_reload_the_track_already_loaded() -> None:
+    """Assigning `src` runs the media element's load algorithm, which resets
+    the playback position to the beginning — including when the URL assigned
+    is the one already loaded. So an unconditional `audio.src = streamUrl`
+    turns any second call to startPlayback into a silent restart from 0:00.
+
+    That is how a real session lost a queue. iOS reports a page as visible
+    again when the screen merely *wakes* at the lock screen, which re-runs
+    prepareAudio's visibility check-in; it re-entered startPlayback for the
+    track already playing, reset it to 0:00, and — the phone still being
+    locked — left it pinned there. A track pinned at 0 never reaches its end,
+    so it never advances, and a home-screen PWA that has stopped making sound
+    is frozen by iOS seconds later, so nothing was left running to recover.
+    """
+    source = (JS_DIR / "player.js").read_text()
+
+    assert "const alreadyLoaded =" in source and "audio.currentSrc.endsWith(streamUrl)" in source, (
+        "startPlayback no longer checks whether the stream is already loaded — "
+        "a repeat call restarts the playing track from 0:00"
+    )
+    assert "if (alreadyLoaded && !audio.paused) return;" in source, (
+        "startPlayback no longer returns early for a track that is already "
+        "playing — a repeat call is meant to be a no-op, not a restart"
+    )
+    # The assignment has to be *inside* the guard, not merely preceded by it.
+    assert "if (!alreadyLoaded) {\n      audio.src = streamUrl;" in source, (
+        "audio.src is assigned unconditionally again"
+    )
+
+
+def test_the_stall_watchdog_does_not_trust_an_unpaused_element() -> None:
+    """The watchdog used to bail out on `!audio.paused || currentTime > 0`,
+    which let through the worse of the two silent states: a play() the browser
+    accepted and then never produced a frame for leaves the element unpaused
+    and pinned at 0 indefinitely — "playing" on the lock screen with nothing
+    coming out of it. Being at the start is the symptom; whether the element
+    admits to being paused is not part of it."""
+    source = (JS_DIR / "player.js").read_text()
+
+    assert "if (!audio.paused || audio.currentTime > 0) return;" not in source, (
+        "the stall watchdog treats an unpaused element as healthy again — the "
+        "state that stopped a real session is invisible to it"
+    )
+    assert "if (audio.currentTime > 0) return;" in source, "the stall watchdog no longer checks the position"
+
+
+def test_the_prefetch_guard_is_set_only_once_the_prefetch_goes_out() -> None:
+    """`prefetchedFor` is a once-per-track guard, so setting it before the
+    queue had been consulted made it permanent for that track: a queue that
+    was momentarily empty at this one second — or a track pinned at 0, so that
+    the check ran at the same instant every time — never got a second
+    chance."""
+    source = (JS_DIR / "home" / "overlay.js").read_text()
+
+    # Matched as contiguous text rather than by comparing indexes: peekNextId
+    # is called from the transport sync earlier in this same file, so a plain
+    # source.index() finds that one and compares the wrong pair.
+    assert "prefetchedFor = playing;\n    const upcoming = peekNextId();" not in source, (
+        "prefetchedFor is marked before peekNextId() is consulted — a track "
+        "whose queue was momentarily empty never prefetches again"
+    )
+    assert "const upcoming = peekNextId();\n    if (upcoming == null) return;" in source, (
+        "the prefetch no longer bails out before marking the guard"
+    )
