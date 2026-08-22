@@ -19,6 +19,31 @@ from app.youtube.music import fetch_artist
 from app.youtube.urls import CHANNEL_ID_RE, extract_channel_id
 
 
+def get_or_create_placeholder(
+    db: Session, channel_id: str, channel_title: str | None, user_id: int
+) -> Artist:
+    """An Artist row for someone the user hasn't actually followed — exists
+    only so a single track added via Explore has somewhere to attach
+    (Content.artist_id is required). followed=False keeps it out of Library
+    and the background refresh (see content_query.followed_artists) until the
+    user follows them for real, which upgrades this same row in place (see
+    follow_channel below) instead of creating a duplicate. Keyed by the
+    bare channel id, which is what both paths agree on.
+
+    No avatar fetch: a placeholder artist's avatar is never displayed anywhere
+    (Library and the channel-hero page are the only avatar consumers, and
+    both are followed-only surfaces)."""
+    existing = db.query(Artist).filter(Artist.user_id == user_id, Artist.channel_id == channel_id).first()
+    if existing:
+        return existing
+
+    artist = Artist(user_id=user_id, channel_id=channel_id, name=channel_title, followed=False)
+    db.add(artist)
+    db.commit()
+    db.refresh(artist)
+    return artist
+
+
 class AlreadyFollowingError(Exception):
     def __init__(self, channel_id: str, channel_title: str | None):
         super().__init__(channel_id)
@@ -72,7 +97,7 @@ def follow_artist(
 
     A matching Artist can already exist with followed=False — a placeholder
     created for a track the user only grabbed one of (see routers/explore.py's
-    _get_or_create_placeholder), or an artist unfollowed while keeping
+    get_or_create_placeholder), or an artist unfollowed while keeping
     some content. Following now upgrades that row in place rather than
     bouncing the user with "already exists" for a artist they never knowingly
     added.

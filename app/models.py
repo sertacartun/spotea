@@ -109,7 +109,7 @@ class Artist(Base):
     avatar_url: Mapped[str | None] = mapped_column(String(500), default=None)
     added_at: Mapped[datetime] = mapped_column(default=utcnow)
     # False only for placeholder rows auto-created to hold a single track
-    # added via Explore (see routers/explore.py's _get_or_create_placeholder)
+    # added via Explore (see services/artist_follow.py's get_or_create_placeholder)
     # — invisible in Library, skipped by the background refresh scheduler,
     # until the user actually follows the artist for real.
     followed: Mapped[bool] = mapped_column(default=True)
