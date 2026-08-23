@@ -253,9 +253,21 @@ def _proxied_cover_url(thumbnails: list[dict] | None) -> str | None:
     return proxied_image_url(url) if url else None
 
 
-def _artist_names(item: dict) -> tuple[str | None, str | None]:
-    """A track's artists as a display string, plus the channel to attach it
-    to.
+def _artist_names(item: dict) -> tuple[str | None, str | None, str | None]:
+    """The artist this track hangs off, everyone credited on it, and the
+    channel to attach it to.
+
+    Three values because the first two are different things and conflating
+    them was a bug. The credit ("Baby Keem, Kendrick Lamar") belongs to *this
+    recording*; the name ("Baby Keem") belongs to the artist row that every
+    track on that channel shares. This used to return only the joined form,
+    which is what named the row — so whichever track first created it named it
+    for good, and one Drake diss credited to four people ("Push Ups") left all
+    29 of his tracks displaying "Drake, Kanye West, Lil Wayne, Eminem".
+
+    The credit is None for a single credited artist: it would say no more than
+    the name already does, and the NULL is what lets ContentOut fall back to
+    the artist row rather than storing the same string twice per track.
 
     The channel is the first artist's own id, which for a song is the
     auto-generated "<Artist> - Topic" channel rather than the artist's
@@ -268,7 +280,7 @@ def _artist_names(item: dict) -> tuple[str | None, str | None]:
     """
     artists = [artist for artist in item.get("artists") or [] if artist.get("name")]
     if not artists:
-        return None, None
+        return None, None, None
     channel_id = next(
         (
             artist["id"]
@@ -277,7 +289,18 @@ def _artist_names(item: dict) -> tuple[str | None, str | None]:
         ),
         None,
     )
-    return ", ".join(artist["name"] for artist in artists), channel_id
+    # The one whose channel this is, so a row's name and its channel agree —
+    # usually the first, but not when the lead credit carried no usable id and
+    # a later one did. Falls back to the lead credit, which is where the
+    # channel would have come from too.
+    primary = artists[0]["name"]
+    if channel_id:
+        primary = next(
+            (artist["name"] for artist in artists if artist.get("id") == channel_id),
+            artists[0]["name"],
+        )
+    credit = ", ".join(artist["name"] for artist in artists) if len(artists) > 1 else None
+    return primary, credit, channel_id
 
 
 def _song_result(item: dict) -> VideoSearchResult | None:
@@ -296,7 +319,7 @@ def _song_result(item: dict) -> VideoSearchResult | None:
     if not title:
         return None
 
-    channel_title, channel_id = _artist_names(item)
+    channel_title, artist_credit, channel_id = _artist_names(item)
     return VideoSearchResult(
         video_id=video_id,
         title=title,
@@ -304,6 +327,7 @@ def _song_result(item: dict) -> VideoSearchResult | None:
         duration_seconds=item.get("duration_seconds"),
         channel_title=channel_title,
         channel_id=channel_id,
+        artist_credit=artist_credit,
     )
 
 
@@ -538,10 +562,11 @@ def _same_artist(
       Official MV"). Corroboration rather than looseness: a wrong song's
       artist does not turn up in this video's title.
 
-    Always against the entry's artist *list*, never against
-    VideoSearchResult.channel_title, which is every credited artist joined
-    into one string — comparing a lead artist ("ROSÉ") against the joined
-    form ("ROSÉ, Bruno Mars") failed for every collaboration.
+    Always against the entry's artist *list*, never against a joined credit
+    string — comparing a lead artist ("ROSÉ") against the joined form
+    ("ROSÉ, Bruno Mars") failed for every collaboration. That form is now
+    VideoSearchResult.artist_credit rather than .channel_title, but it is
+    just as wrong to compare against.
     """
     if not wanted_name and not wanted_channel_id:
         return True

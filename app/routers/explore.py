@@ -121,6 +121,9 @@ def add_single_video(
         # here would delay the "listen" click's own response for no benefit.
         thumbnail_url=payload.thumbnail_url,
         duration_seconds=payload.duration_seconds,
+        # The recording's own credit, which the artist row cannot hold — see
+        # models.Content.artist_credit.
+        artist_credit=payload.artist_credit,
         # Flat search results don't reliably expose a real upload date, and
         # NULL sorts last in SQLite's ORDER BY ... DESC (every Home shelf) —
         # "just added" as the effective date is also the correct intent here.
@@ -145,6 +148,7 @@ def _preview_content(artist_id: int, user_id: int, item) -> Content:
         title=item.title,
         thumbnail_url=item.thumbnail_url,
         duration_seconds=item.duration_seconds,
+        artist_credit=item.artist_credit,
         published_at=utcnow(),
         is_preview=True,
     )

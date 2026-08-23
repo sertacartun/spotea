@@ -172,17 +172,33 @@ the negative answer is worth storing.
 
 ### Schema changes
 
-There is no migration framework. `Base.metadata.create_all()` builds a fresh
-database; a schema change means a fresh database. The one that existed was
-deleted along with the tables it patched forward.
+There is no migration framework, and there should not be one.
+`Base.metadata.create_all()` builds a fresh database. The framework that
+existed was deleted along with the tables it patched forward.
 
 One asymmetry is worth knowing, because it decides designs: `create_all`
 does add a missing **table** to an existing database, but never a missing
 **column**. So a new table is free and a new column is not — which is why
-`track_lyrics` is a table rather than two columns on `content`. The one
-column this app ever had to drop is handled as a guarded one-off in
-`main.py`'s lifespan (see `_drop_removed_saved_column`), and that is the
-exception, not a pattern to follow.
+`track_lyrics` is a table rather than two columns on `content`.
+
+Two guarded one-offs in `main.py`'s lifespan close the gap for `content`,
+and between them they are the whole of what this app does about schema
+change:
+
+- `_drop_removed_columns()` drops a fixed list of columns whose features are
+  gone. They were NOT NULL with no default, so leaving them meant an old
+  database rejecting every INSERT.
+- `_add_missing_columns()` adds a fixed list of **nullable** columns with
+  `ALTER TABLE ADD COLUMN`. Without it the model and an existing file
+  disagree and every SELECT against `content` fails with "no such column".
+
+Both are idempotent, both no-op on a database `create_all` just built, and
+neither renames, retypes, reorders or backfills anything. "A schema change
+means a fresh database" was true while every change was a removal; for a
+self-hosted app whose entire state is one SQLite file, telling the owner to
+discard it is not an upgrade path. Anything needing a rename, a type change
+or a backfill is a real migration and wants a considered decision, not
+another entry in one of these tuples.
 
 ---
 

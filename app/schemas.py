@@ -95,7 +95,7 @@ class ContentOut(BaseModel):
         return cls(
             id=content.id,
             artist_id=content.artist_id,
-            channel_title=content.artist.name,
+            channel_title=content.display_artist,
             artist_page_id=content.artist.browse_id or content.artist.channel_id,
             video_id=content.video_id,
             title=content.title,
@@ -165,6 +165,13 @@ class VideoSearchResultOut(BaseModel):
     thumbnail_url: str | None
     duration_seconds: int | None
     channel_title: str | None
+    # Everyone credited on this track, joined, or None when the single
+    # credited artist is already `channel_title` — see
+    # youtube.models.VideoSearchResult. Sent down so the client can send it
+    # back when the row is turned into content (VideoAddCreate below): it is
+    # a property of the recording, and nothing on the server would otherwise
+    # know it without asking YouTube Music again.
+    artist_credit: str | None = None
     # See VideoSearchResult in youtube/search.py. Reliable for playlist and
     # channel listings, and now for song search too — YouTube Music
     # attributes every track to its artist's "Topic" channel, which is what
@@ -237,6 +244,10 @@ class VideoAddCreate(BaseModel):
     thumbnail_url: str | None = None
     duration_seconds: int | None = None
     channel_title: str | None = None
+    # The track's own credit line, kept on the Content row rather than the
+    # Artist row — see models.Content.artist_credit for what went wrong while
+    # the artist row was the only place for it.
+    artist_credit: str | None = Field(default=None, max_length=300)
 
 
 class VideoAddResult(BaseModel):

@@ -101,6 +101,7 @@ function videoRowsHtml(results) {
           data-thumbnail-url="${escapeHtml(r.thumbnail_url || "")}"
           data-duration-seconds="${r.duration_seconds ?? ""}"
           data-channel-title="${escapeHtml(r.channel_title || "")}"
+          data-artist-credit="${escapeHtml(r.artist_credit || "")}"
           data-channel-id="${escapeHtml(r.channel_id || "")}"
         >
           ${thumb}
@@ -140,6 +141,7 @@ function recVideoCardHtml(video) {
       data-thumbnail-url="${escapeHtml(video.thumbnail_url || "")}"
       data-duration-seconds="${video.duration_seconds ?? ""}"
       data-channel-title="${escapeHtml(video.channel_title || "")}"
+      data-artist-credit="${escapeHtml(video.artist_credit || "")}"
       data-channel-id="${escapeHtml(video.channel_id || "")}"
     >
       <button type="button" class="thumb rec-play" aria-label="Play ${escapeHtml(video.title)}">
