@@ -15,6 +15,7 @@ import { refreshFragments, refreshQueuePanel } from "../fragments.js";
 import {
   activeAudio,
   applyNowPlayingMetadata,
+  clearPreparing,
   loadedTrackId,
   offerPrefetchedAudio,
   onPlayerEvent,
@@ -22,6 +23,7 @@ import {
   prepareAudio,
   releaseAudio,
   reportPlayback,
+  showPreparing,
   whenVisible,
 } from "../player.js";
 import { clearResumeState, readResumeState } from "../resume.js";
@@ -42,14 +44,9 @@ import {
   toggleShuffle,
 } from "./queue.js";
 
-// How much of the current track has to have actually played before the next
-// one is pulled down in the background (see setupPlayerOverlay's timeupdate
-// handler for why it isn't immediate).
 // Arrow-key step on the mini bar's progress slider. Matches player.js's
 // SKIP_SECONDS so scrubbing feels the same wherever the focus happens to be.
 const SEEK_STEP_SECONDS = 15;
-
-const PREFETCH_AFTER_SECONDS = 8;
 
 // How the prefetch follows its own download to completion, so the handoff
 // knows whether the next track is actually playable before it gets there
@@ -187,6 +184,10 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
   // here, so it changes when the audio changes: zeroing it here would blank
   // the bar for a track that is still audibly playing.
 
+  // Whether there is a card on screen already, for the instant-feedback
+  // branch below.
+  const wasOpen = Boolean(root.dataset.contentId);
+
   // Taken, not read: the cached copy is only good for the one handoff it was
   // fetched for, and leaving it in place would let a later, unrelated open of
   // the same track run on however stale it had become by then.
@@ -211,9 +212,19 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
   // Only when there was nothing prepared — this is the await the cache
   // exists to avoid, and reaching it is fine, just slower.
   if (!data) {
+    // Say so now rather than after the round trip. Only with a track already
+    // open: this puts the *card* into its preparing state, and a cold first
+    // open has no card on screen to put anywhere — surfacing an empty one
+    // that may yet fail to load would be worse than the wait it covers.
+    if (wasOpen) showPreparing();
+
     const res = await api(`/content/${contentId}`);
     if (!res.ok) {
       showToast("Could not load this track");
+      // Nothing is going to load, so the spinner above has to come back off —
+      // the transport stays disabled otherwise and the track that is still
+      // playing can't be paused.
+      if (wasOpen) clearPreparing();
       // If this call came from resumeOverlayIfNeeded, the sessionStorage
       // record it read is exactly what just failed to load (e.g. the row was
       // deleted since) — consumeResumeState
@@ -407,21 +418,33 @@ async function cacheUpcoming(contentId) {
   if (!meta.ok) return;
   const resolved = await songVersionOf(meta.data);
 
+  // Published the moment it exists, rather than after the download POST
+  // below. Everything above this line is exactly what openPlayer would
+  // otherwise have to do for itself — and songVersionOf is a live search, the
+  // slowest thing on the whole path — so a Next press landing in this window
+  // used to find nothing here and repeat all of it before a single thing on
+  // screen changed. Now it finds the metadata and only the audio is still
+  // outstanding.
+  upcomingTrack = { id, data: { ...resolved }, objectUrl: null };
+
   // The metadata and the swap used to run beside the download in one
   // Promise.all. They can't any more: the download fetches whatever
   // video_id the row currently names, so the swap has to have landed first
   // or the prefetch pulls down the music video and the handoff arrives to
   // find the wrong file already on disk.
   const download = await api(`/content/${id}/download`, { method: "POST" });
+  // Taken by the handoff while that was in flight — this entry is somebody
+  // else's now (or nobody's), and writing to it would resurrect a cache for
+  // the track that is already playing.
+  if (upcomingTrack?.id !== id) return;
 
   // The POST's answer is the more recent of the two, and the only one that
   // can say "already on disk" for a track that needed no download at all.
-  const data = { ...resolved };
+  const data = upcomingTrack.data;
   if (download.ok && download.data) {
     data.status = download.data.status;
     data.is_unavailable = download.data.is_unavailable === true;
   }
-  upcomingTrack = { id, data, objectUrl: null };
   if (data.is_unavailable || data.status === "error") return;
   if (data.status === "ready") {
     await cacheUpcomingAudio(id);
@@ -879,25 +902,37 @@ export function setupPlayerOverlay() {
   // tracks. Fetching one ahead covers it, since a track that's already on
   // disk starts instantly.
   //
-  // Deliberately not fired at the moment playback starts: skipping quickly
-  // through a queue would then kick off a download per track passed over.
-  // Waiting until the current track has genuinely been listened to for a
-  // few seconds means a skipped-past track never pulls its successor down,
-  // while a track anyone is actually hearing still leaves minutes of lead
-  // time. Server-side the request is a no-op for anything already on disk
-  // (see routers/content.py's start_download).
+  // This used to hold off until the current track had played for 8 seconds,
+  // so that skipping quickly through a queue didn't kick off a download per
+  // track passed over. The cost of that was paid by the listener rather than
+  // the skipper: press Next inside those 8 seconds — which is most of the
+  // time anyone presses it at all — and the prefetch had not run, so the
+  // press paid for the metadata round trip, the live song-version search
+  // behind it, and the whole download.
+  //
+  // So it goes out with the track now. `timeupdate` rather than the open
+  // itself because it is also the retry: "Play all" builds the queue *after*
+  // opening the first track, so peekNextId() is still null at that point,
+  // and this fires again a quarter of a second later when it isn't. A track
+  // genuinely skipped past before it ever plays a frame still prefetches
+  // nothing, since no timeupdate ever fires for it.
+  //
+  // What it does cost: skipping through tracks that each play for a moment
+  // now starts a download for each one's successor. Server-side that is a
+  // no-op for anything already on disk (see routers/content.py's
+  // start_download), but a fresh one is a real yt-dlp run against YouTube.
   let prefetchedFor = null;
   onPlayerEvent("timeupdate", () => {
     const playing = document.getElementById("player-root").dataset.contentId;
     if (!playing || prefetchedFor === playing) return;
-    if (activeAudio().currentTime < PREFETCH_AFTER_SECONDS) return;
     const upcoming = peekNextId();
     if (upcoming == null) return;
     // Marked only once the prefetch is actually going out. Setting it before
     // the queue had been consulted made the guard permanent for that track: a
-    // queue that was momentarily empty at this one second — or a track pinned
-    // at 0 so that this ran at the same instant every time — never got a
-    // second chance, however long it went on playing.
+    // queue that was momentarily empty on this tick never got a second
+    // chance, however long it went on playing — which is exactly the state
+    // "Play all" is in on its first tick, since it builds the queue after
+    // opening the track.
     prefetchedFor = playing;
     cacheUpcoming(upcoming);
   });

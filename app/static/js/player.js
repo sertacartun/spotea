@@ -249,6 +249,33 @@ export function loadedTrackId() {
 }
 
 /**
+ * Puts the card into its "working on it" state: spinner up, transport dead.
+ *
+ * prepareAudio does this for itself, but not until it has the track's
+ * metadata — which on a Next press that misses the prefetch is a round trip
+ * away, with a live song-version search possibly behind it. Every visible
+ * thing went on showing the previous track for that whole time, so the press
+ * read as ignored and got pressed again. openPlayer calls this first.
+ */
+export function showPreparing(message = "Preparing audio…") {
+  const prepare = document.getElementById("prepare-state");
+  if (!prepare) return;
+  prepare.hidden = false;
+  prepare.classList.remove("is-error");
+  prepare.querySelector(".spinner").hidden = false;
+  document.getElementById("prepare-text").textContent = message;
+  document.querySelector(".transport")?.classList.add("is-disabled");
+}
+
+/** Undoes it, for a track that never got as far as loading. */
+export function clearPreparing() {
+  const prepare = document.getElementById("prepare-state");
+  if (!prepare) return;
+  prepare.hidden = true;
+  document.querySelector(".transport")?.classList.remove("is-disabled");
+}
+
+/**
  * Offers the element bytes for `contentId` that are already in the page (see
  * home/overlay.js's cacheUpcoming), to be used instead of going to the
  * network when this track is started.
@@ -829,9 +856,7 @@ export async function prepareAudio(onStart, onFail) {
     return;
   }
 
-  prepare.hidden = false;
-  transport.classList.add("is-disabled");
-  prepareText.textContent = "Preparing audio…";
+  showPreparing();
 
   if (root.dataset.status !== "downloading") {
     // 409 just means another tab already started it; keep polling either way.
