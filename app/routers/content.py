@@ -264,6 +264,12 @@ def swap_in_song_version(
     # this writes the same string back.
     content.title = song.title
     content.thumbnail_url = song.thumbnail_url
+    # The song's credit, for the same reason as its title: this row *is* the
+    # song now, and the video's row was named for whoever uploaded it. Written
+    # unconditionally, None included — a song credited to one artist has no
+    # credit of its own, and leaving a stale one from the video behind would
+    # be worse than falling back to the artist row.
+    content.artist_credit = song.artist_credit
     if song.duration_seconds:
         content.duration_seconds = song.duration_seconds
     db.commit()

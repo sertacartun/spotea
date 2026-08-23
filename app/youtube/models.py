@@ -51,6 +51,16 @@ class VideoSearchResult:
     # response, which is why a whole remote list can become rows without one
     # extra network call.
     channel_id: str | None = None
+    # Everyone credited on *this track*, joined ("Baby Keem, Kendrick Lamar"),
+    # or None when a single artist is credited and `channel_title` already
+    # says everything there is to say.
+    #
+    # Deliberately separate from `channel_title`, which is the one artist the
+    # `channel_id` above belongs to. They were one field, and the joined form
+    # is what a preview row's Artist got named — so the first track to create
+    # that row named it for every track on the channel (see
+    # music._artist_names).
+    artist_credit: str | None = None
 
 
 @dataclass

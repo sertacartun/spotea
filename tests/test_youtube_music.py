@@ -125,7 +125,13 @@ def test_a_songs_artists_become_its_channel(client):
     assert result.channel_title == "Sezen Aksu"
 
 
-def test_several_artists_are_joined_into_one_line(client):
+def test_several_artists_become_a_credit_beside_the_lead(client):
+    """The joined line and the artist are separate answers, and used to be
+    one. Whatever names the row also names the Artist it attaches to — which
+    every other track on that channel shares — so a collaboration's credit
+    landing there renamed the artist for good. One Drake diss credited to
+    four people left 29 of his tracks displaying "Drake, Kanye West, Lil
+    Wayne, Eminem"."""
     client(
         search=[
             {
@@ -140,8 +146,45 @@ def test_several_artists_are_joined_into_one_line(client):
 
     (result,) = music.search_songs("duet")
 
-    assert result.channel_title == "Sezen Aksu, Sertab Erener"
+    assert result.channel_title == "Sezen Aksu"
+    assert result.artist_credit == "Sezen Aksu, Sertab Erener"
     assert result.channel_id == "UCNaGLJRPE3ohleIDM7RFtlQ"
+
+
+def test_one_artist_gets_no_credit_of_its_own(client):
+    """A credit that repeats the artist's name is one more copy of the same
+    string on every row, and a NULL is what lets Content.display_artist fall
+    back to the artist."""
+    client(search=[{**SONG, "artists": [{"name": "Sezen Aksu", "id": "UCNaGLJRPE3ohleIDM7RFtlQ"}]}])
+
+    (result,) = music.search_songs("solo")
+
+    assert result.channel_title == "Sezen Aksu"
+    assert result.artist_credit is None
+
+
+def test_the_lead_name_follows_the_channel_that_was_picked(client):
+    """channel_title and channel_id have to describe the same person: the row
+    is keyed on the channel, and a name belonging to somebody else would put
+    the wrong label on that artist's page. The first credit here carries no
+    usable id, so neither the channel nor the name may come from it."""
+    client(
+        search=[
+            {
+                **SONG,
+                "artists": [
+                    {"name": "Various Artists", "id": None},
+                    {"name": "Sertab Erener", "id": "UCVQJZE7dNPQdKPBPQnPHIQA"},
+                ],
+            }
+        ]
+    )
+
+    (result,) = music.search_songs("compilation")
+
+    assert result.channel_id == "UCVQJZE7dNPQdKPBPQnPHIQA"
+    assert result.channel_title == "Sertab Erener"
+    assert result.artist_credit == "Various Artists, Sertab Erener"
 
 
 def test_a_compilation_with_no_real_artist_channel_keeps_none(client):

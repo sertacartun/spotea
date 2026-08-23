@@ -137,6 +137,52 @@ def _batch_item(video_id, channel_id=CHANNEL_ID):
     }
 
 
+def test_a_tracks_credit_is_kept_on_the_track_not_on_its_artist(client, db_session):
+    """A collaboration's credit belongs to the recording. The artist row it
+    attaches to is shared by every track on that channel, so storing it there
+    renamed the artist for good: one Drake diss credited to four people left
+    all 29 of his tracks displaying "Drake, Kanye West, Lil Wayne, Eminem".
+
+    Both halves matter — the credit lands on the row, and the artist keeps
+    the single name the channel actually belongs to."""
+    featured = {**_batch_item("aaaaaaaaaaa"), "artist_credit": "Baby Keem, Kendrick Lamar"}
+    solo = _batch_item("bbbbbbbbbbb")
+
+    res = client.post("/explore/tracks/batch", json={"items": [featured, solo]})
+    assert res.status_code == 201
+
+    rows = {content.video_id: content for content in db_session.query(Content)}
+    assert rows["aaaaaaaaaaa"].artist_credit == "Baby Keem, Kendrick Lamar"
+    # No credit of its own, so the artist row answers for it.
+    assert rows["bbbbbbbbbbb"].artist_credit is None
+
+    artist = db_session.query(Artist).filter(Artist.channel_id == CHANNEL_ID).one()
+    assert artist.name == "Some Channel"
+
+
+def test_a_credit_is_what_a_track_displays_and_the_artist_name_is_the_fallback(client, db_session):
+    """One rule, on Content.display_artist, because four things render a
+    track's artist and they were conflated once already."""
+    client.post(
+        "/explore/tracks/batch",
+        json={
+            "items": [
+                {**_batch_item("aaaaaaaaaaa"), "artist_credit": "Baby Keem, Kendrick Lamar"},
+                _batch_item("bbbbbbbbbbb"),
+            ]
+        },
+    )
+
+    rows = {content.video_id: content for content in db_session.query(Content)}
+    assert rows["aaaaaaaaaaa"].display_artist == "Baby Keem, Kendrick Lamar"
+    assert rows["bbbbbbbbbbb"].display_artist == "Some Channel"
+
+    payload = client.get(f"/content/{rows['aaaaaaaaaaa'].id}").json()
+    assert payload["channel_title"] == "Baby Keem, Kendrick Lamar"
+    payload = client.get(f"/content/{rows['bbbbbbbbbbb'].id}").json()
+    assert payload["channel_title"] == "Some Channel"
+
+
 def test_batch_creates_preview_rows_in_the_order_given(client, db_session):
     res = client.post(
         "/explore/tracks/batch",

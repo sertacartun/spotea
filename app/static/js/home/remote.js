@@ -35,6 +35,11 @@ export async function playRemoteVideo(dataset, button) {
         thumbnail_url: dataset.thumbnailUrl || null,
         duration_seconds: dataset.durationSeconds ? Number(dataset.durationSeconds) : null,
         channel_title: dataset.channelTitle || null,
+        // The track's own credit line. Read back off the row rather than
+        // resolved server-side for the same reason channel_id is: it came
+        // down with the listing that rendered this row, and asking YouTube
+        // Music again would cost a request per click.
+        artist_credit: dataset.artistCredit || null,
       },
       errorMessage: "Could not add this song",
     });
@@ -111,6 +116,7 @@ export async function playRemoteList(source, { startVideoId = null, button = nul
         thumbnail_url: row.dataset.thumbnailUrl || null,
         duration_seconds: row.dataset.durationSeconds ? Number(row.dataset.durationSeconds) : null,
         channel_title: row.dataset.channelTitle || null,
+        artist_credit: row.dataset.artistCredit || null,
       }));
     if (!items.length) {
       showToast("Nothing to play here");

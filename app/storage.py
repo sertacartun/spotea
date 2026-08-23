@@ -119,7 +119,7 @@ def collect_usage(db: Session, user_id: int) -> StorageUsage:
             StoredItem(
                 id=row.id,
                 title=row.title,
-                channel_title=row.artist.name,
+                channel_title=row.display_artist,
                 size_bytes=row.file_size_bytes,
             )
         )

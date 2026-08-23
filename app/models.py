@@ -231,6 +231,16 @@ class Content(Base):
     downloaded_at: Mapped[datetime | None] = mapped_column(default=None)
     is_favorite: Mapped[bool] = mapped_column(default=False)
     last_played_at: Mapped[datetime | None] = mapped_column(default=None)
+    # Everyone YouTube Music credits on *this track*, joined ("Baby Keem,
+    # Kendrick Lamar"), or NULL when nothing better than the artist row is
+    # known. Per-track because a credit is a property of the recording, not
+    # of the artist: it was previously stored as the Artist row's name, which
+    # meant whichever track first created that row named it for good. One
+    # Drake diss track credited to four people ("Push Ups") named the Drake
+    # row "Drake, Kanye West, Lil Wayne, Eminem", and all 29 of his tracks
+    # then displayed that — see schemas.ContentOut.from_content, which reads
+    # this in preference to the artist's own name.
+    artist_credit: Mapped[str | None] = mapped_column(String(300), default=None)
     # True for a just-added Explore row that hasn't been favorited yet (see
     # routers/content.py's add_favorite, which clears this as a side effect)
     # — plays normally but stays out of Library and New Uploads until then.
@@ -246,6 +256,21 @@ class Content(Base):
     is_preview: Mapped[bool] = mapped_column(default=False)
 
     artist: Mapped["Artist"] = relationship(back_populates="content")
+
+    @property
+    def display_artist(self) -> str | None:
+        """Who to show for this track.
+
+        Its own credit when it has one, the artist row's name otherwise. The
+        rule lives here rather than in each of the four places that render a
+        track — ContentOut, the card, the row, the downloads list — because
+        the two were conflated once already and the fix is only worth
+        anything if there is a single answer to fall back to.
+
+        Requires `artist` to be loaded; every caller uses
+        joinedload(Content.artist) already.
+        """
+        return self.artist_credit or (self.artist.name if self.artist else None)
     user: Mapped["User"] = relationship(back_populates="content")
 
 

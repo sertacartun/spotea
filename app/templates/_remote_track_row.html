@@ -19,6 +19,10 @@
   data-thumbnail-url="{{ item.thumbnail_url or '' }}"
   data-duration-seconds="{{ item.duration_seconds or '' }}"
   data-channel-title="{{ item.channel_title or '' }}"
+  {# Everyone credited on this track, for the Content row this becomes — the
+     artist row it attaches to is shared by every track on that channel and
+     cannot hold it. See models.Content.artist_credit. #}
+  data-artist-credit="{{ item.artist_credit or '' }}"
 >
   <button type="button" class="track-link" aria-label="Play {{ item.title }}">
     <span class="track-index">{{ index }}</span>

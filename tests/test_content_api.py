@@ -488,6 +488,53 @@ def test_a_music_video_row_is_rewritten_in_place(client, db_session, monkeypatch
     assert item.video_id == "songvideo11"
 
 
+def test_the_swap_takes_the_songs_credit_and_drops_the_videos(client, db_session, monkeypatch):
+    """The row *is* the song now, for the same reason its title and cover are
+    replaced: a music-video row is named for whoever uploaded it. Written
+    unconditionally, None included — a song credited to one artist has no
+    credit of its own, and leaving the video's behind would be worse than
+    falling back to the artist row."""
+    from app.routers import content as content_router
+    from app.youtube.models import VideoSearchResult
+
+    def _credited(credit):
+        song = _song()
+        return VideoSearchResult(**{**song.__dict__, "artist_credit": credit})
+
+    item = _seed_one(db_session, thumbnail_url=_STILL)
+    monkeypatch.setattr(
+        content_router, "find_song_version", lambda *a: _credited("Baby Keem, Kendrick Lamar")
+    )
+
+    res = client.post(f"/content/{item.id}/song-version")
+
+    assert res.json()["channel_title"] == "Baby Keem, Kendrick Lamar"
+    db_session.refresh(item)
+    assert item.artist_credit == "Baby Keem, Kendrick Lamar"
+
+
+def test_the_swap_clears_a_credit_the_song_does_not_have(client, db_session, monkeypatch):
+    """The other half of the same rule: a stale credit carried over from the
+    music-video row would keep naming people who are not on the recording,
+    which is the whole bug this column exists to end."""
+    from app.routers import content as content_router
+    from app.youtube.models import VideoSearchResult
+
+    item = _seed_one(db_session, thumbnail_url=_STILL, artist_credit="Wrong, Names")
+    song = _song()
+    monkeypatch.setattr(
+        content_router,
+        "find_song_version",
+        lambda *a: VideoSearchResult(**{**song.__dict__, "artist_credit": None}),
+    )
+
+    res = client.post(f"/content/{item.id}/song-version")
+
+    db_session.refresh(item)
+    assert item.artist_credit is None, "the video's credit survived a swap onto a solo song"
+    assert res.json()["channel_title"] == item.artist.name
+
+
 def test_a_row_that_is_already_the_song_is_left_alone(client, db_session, monkeypatch):
     """Square art means YouTube Music called it a song. Nothing to resolve,
     and no search worth paying for."""

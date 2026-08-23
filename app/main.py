@@ -132,11 +132,58 @@ def _drop_removed_columns() -> None:
     logger.info("Dropped obsolete content columns: %s", ", ".join(c for c, _ in obsolete))
 
 
+# Columns added to `content` since the first release, each with the DDL type
+# to create it as. Nullable with no default, every one of them: `create_all`
+# builds these on a fresh database and this adds them to an existing one, and
+# the two have to agree on a shape that needs no backfill to be correct.
+_ADDED_CONTENT_COLUMNS = (
+    # Who this particular recording is credited to. Previously the Artist
+    # row's name, which is shared by every track on that artist's channel —
+    # see models.Content.artist_credit.
+    ("artist_credit", "VARCHAR(300)"),
+)
+
+
+def _add_missing_columns() -> None:
+    """The other half of _drop_removed_columns: columns this version expects
+    that an older database doesn't have.
+
+    That function's docstring says it cannot add a column, and ARCHITECTURE.md
+    said a schema change means a fresh database. Both were written when the
+    only schema changes were removals. They stop being reasonable the moment a
+    change is additive: `create_all` adds tables to an existing database but
+    never columns, so the model and the file disagree and every SELECT against
+    `content` fails with "no such column" — for a self-hosted app whose whole
+    state is one SQLite file the user cannot afford to discard, "start over"
+    is not an upgrade path.
+
+    Deliberately the narrowest thing that works, and not a migration
+    framework: a fixed list of nullable columns, added with ALTER TABLE ADD
+    COLUMN, in one transaction. No renames, no type changes, no backfills, no
+    ordering, no version table. Anything that needs those is a real migration
+    and should be a considered decision rather than something this grew into.
+
+    A no-op on every start after the first, and on any database `create_all`
+    just built.
+    """
+    with engine.begin() as conn:
+        present = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(content)")}
+        missing = [(c, t) for c, t in _ADDED_CONTENT_COLUMNS if c not in present]
+        if not missing:
+            return
+
+        for column, ddl_type in missing:
+            conn.exec_driver_sql(f"ALTER TABLE content ADD COLUMN {column} {ddl_type}")
+
+    logger.info("Added missing content columns: %s", ", ".join(c for c, _ in missing))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _assert_single_worker()
     Base.metadata.create_all(bind=engine)
     _drop_removed_columns()
+    _add_missing_columns()
 
     # Exactly once, here, before anything else in the process has had a
     # chance to start a download — see storage.sweep_startup_leftovers for
