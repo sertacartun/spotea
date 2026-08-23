@@ -15,6 +15,7 @@ import { refreshFragments, refreshQueuePanel } from "../fragments.js";
 import {
   activeAudio,
   applyNowPlayingMetadata,
+  clearNowPlayingMetadata,
   clearPreparing,
   loadedTrackId,
   offerPrefetchedAudio,
@@ -805,10 +806,7 @@ export function closePlayer() {
   // silently inherited a list the user has already closed.
   clearQueue();
 
-  if ("mediaSession" in navigator) {
-    navigator.mediaSession.metadata = null;
-    navigator.mediaSession.playbackState = "none";
-  }
+  clearNowPlayingMetadata();
 }
 
 export function setupPlayerOverlay() {
@@ -918,6 +916,14 @@ export function setupPlayerOverlay() {
       prepared: upcomingTrack?.id ?? null,
       buffered: Boolean(upcomingTrack?.objectUrl),
     });
+    // A queue that has genuinely run out leaves nothing for the OS's Now
+    // Playing surface to control: iOS freezes the page shortly after the
+    // audio stops, so the card it would keep showing is dead weight — and a
+    // dead card is exactly what lingers on the Dynamic Island after the app
+    // is closed. Cleared here rather than left "paused" forever; replaying
+    // the track in-app re-publishes everything on `playing`. The player
+    // overlay itself stays exactly as it was.
+    if (next == null) clearNowPlayingMetadata();
     playFromQueue(next);
   });
 

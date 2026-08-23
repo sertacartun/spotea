@@ -1241,3 +1241,86 @@ def test_every_beacon_stamps_the_audio_session_state() -> None:
     assert 'reportPlayback("audio-session"' in source, (
         "OS interruptions (statechange) are no longer reported at all"
     )
+
+
+def test_position_state_is_published_only_while_audio_renders() -> None:
+    """The spec makes a playbackRate of zero a TypeError — paused is
+    playbackState's job — so the old `playbackRate: rendering ? 1 : 0` always
+    threw for a non-rendering element and the catch swallowed it. The shipped
+    behaviour ("no update at all while silent") was right; the code now states
+    it instead of stumbling into it, and a finite-duration guard covers the
+    other input setPositionState throws on."""
+    source = (JS_DIR / "player.js").read_text()
+
+    assert "playbackRate: rendering" not in source, (
+        "setPositionState is being fed a conditional playbackRate again — "
+        "zero is a TypeError per spec, so the 0 branch silently never reports"
+    )
+    body = source[source.index("const syncPositionState = ") :]
+    body = body[: body.index("};")]
+    assert "if (!rendering) return;" in body, (
+        "position state is being reported for an element that isn't rendering "
+        "— the lock screen's clock will tick over silence"
+    )
+    assert "Number.isFinite(audio.duration)" in body, (
+        "an Infinity duration reaches setPositionState, which throws on it"
+    )
+    assert "Math.min(audio.currentTime, audio.duration)" in body, (
+        "mid-seek position > duration is a TypeError, not a correction"
+    )
+
+
+def test_the_page_declares_itself_a_media_player_to_the_os() -> None:
+    """WebKit's Audio Session API is the one channel a web page has to tell
+    iOS "I am a music app" — the category kept running with the screen locked
+    and not muted by the silent switch — rather than leaving the OS to infer
+    it per play(). Safari-only and experimental, so feature-detected and
+    allowed to fail."""
+    source = (JS_DIR / "player.js").read_text()
+
+    assert '"audioSession" in navigator' in source
+    assert 'navigator.audioSession.type = "playback"' in source, (
+        "the audio session type is no longer declared"
+    )
+
+
+def test_unchanged_metadata_is_republished_until_a_held_publish_lands() -> None:
+    """Two competing needs. A track change publishes its metadata during the
+    silent gap before playback, which iOS may silently drop — so the publish
+    on `playing` (the one moment iOS provably holds the session) must NOT be
+    skipped just because the values look identical; a Dynamic Island stuck on
+    the previous track is the bug that re-publish fixed. But `playing` also
+    fires after every buffering hitch and resume, and re-publishing identical
+    values then makes iOS rebuild the Now Playing card for nothing. The cache
+    therefore only short-circuits once a held-session publish has landed."""
+    source = (JS_DIR / "player.js").read_text()
+
+    assert "if (key === publishedNowPlaying && publishedWhileHeld) return;" in source, (
+        "the metadata cache no longer distinguishes a held-session publish "
+        "from one made in the silent gap — either every `playing` republishes "
+        "(card rebuilds) or none does (stuck Dynamic Island)"
+    )
+    assert "applyNowPlayingMetadata({ held: true })" in source, (
+        "the `playing` handler no longer marks its publish as held"
+    )
+
+
+def test_a_finished_queue_leaves_the_os_now_playing_surface() -> None:
+    """When the last track runs out there is nothing left to control, and iOS
+    freezes the page shortly after the audio stops — a Now Playing card left
+    up is dead weight, and the thing that lingers on the Dynamic Island after
+    the app is closed. Replaying in-app re-publishes on `playing`."""
+    overlay = (JS_DIR / "home" / "overlay.js").read_text()
+
+    assert "if (next == null) clearNowPlayingMetadata();" in overlay, (
+        "a queue running out no longer clears the OS Now Playing surface"
+    )
+    # closePlayer must clear through the same helper — a hand-rolled clear
+    # there would leave player.js's publish cache thinking the old metadata
+    # is still up, so re-opening the same track would publish nothing.
+    body = overlay[overlay.index("export function closePlayer(") :]
+    body = body[: body.index("\n}")]
+    assert "clearNowPlayingMetadata();" in body, (
+        "closePlayer clears mediaSession by hand (or not at all) instead of "
+        "through clearNowPlayingMetadata, desyncing the publish cache"
+    )
