@@ -168,6 +168,7 @@ def test_report_playback_only_sends_the_unexpected_events() -> None:
         "outgoing-ended",
         "track-ended",
         "retry-rejected",
+        "visibility-changed",
     }
 
     # The allowlist alone proves nothing if reportPlayback doesn't actually
@@ -956,3 +957,48 @@ def test_the_prefetch_guard_is_set_only_once_the_prefetch_goes_out() -> None:
     assert "const upcoming = peekNextId();\n    if (upcoming == null) return;" in source, (
         "the prefetch no longer bails out before marking the guard"
     )
+
+
+def test_the_stall_watchdog_does_not_interfere_with_a_loading_element() -> None:
+    """Widening the watchdog to catch an unpaused element pinned at 0 was
+    right; repairing that case was not. `readyState: 1` on an unpaused element
+    does not mean stuck, it means "no data yet" — a backgrounded PWA opening
+    audio sits there for seconds with a play() already in flight.
+
+    A version of this called `audio.load()` to unstick it. Measured on a real
+    device: three stalls, three `AbortError`s from the play() it aborted, and
+    the last track never played again — it died 2 seconds after the call. The
+    pending play() of a backgrounded iOS page is the whole audio grant, so
+    interrupting a load is worse than waiting for one."""
+    source = (JS_DIR / "player.js").read_text()
+
+    # Comment lines stripped first: the comment above the fix names the call
+    # it is warning against, and matching that would be self-defeating.
+    code = "\n".join(line for line in source.splitlines() if not line.strip().startswith("//"))
+    assert "audio.load()" not in code, (
+        "the stall watchdog calls audio.load() again — it aborts the in-flight "
+        "play() and throws away the buffering, which killed playback outright"
+    )
+    assert "if (!audio.paused) return;" in source, (
+        "the watchdog no longer leaves an unpaused element alone"
+    )
+
+
+def test_a_visibility_change_is_recorded_while_a_track_is_loaded() -> None:
+    """A locked phone whose screen comes on makes no request of its own, so
+    "it advances with the screen off but not while the screen is awake on the
+    lock screen" is invisible in the server log — there is nothing to line the
+    failure up against. Gated on a loaded track so it stays quiet outside
+    playback."""
+    source = (JS_DIR / "player.js").read_text()
+
+    body = _function_body(source, "installVisibilityBreadcrumb")
+    assert 'document.addEventListener("visibilitychange"' in body
+    assert "if (!contentId) return;" in body, (
+        "the visibility breadcrumb fires outside playback — every app switch "
+        "becomes a beacon"
+    )
+    assert 'reportPlayback("visibility-changed"' in body
+
+    index = (JS_DIR / "pages" / "index.js").read_text()
+    assert "installVisibilityBreadcrumb();" in index, "the breadcrumb is defined but never installed"
