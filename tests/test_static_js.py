@@ -889,7 +889,11 @@ def test_a_music_video_row_is_swapped_for_the_song_before_it_plays() -> None:
 
     assert "songVersionOf" in source
     assert "is_music_video" in source
-    prefetch = source[source.index("async function cacheUpcoming") :][:1400]
+    # The whole function, not a fixed slice of it: this used to read the
+    # first 1400 characters and broke on a comment being added above the
+    # download, which says nothing about the ordering it is checking.
+    prefetch = source[source.index("async function cacheUpcoming(contentId) {") :]
+    prefetch = prefetch[: prefetch.index("\n}\n")]
     assert prefetch.index("songVersionOf") < prefetch.index("/download")
 
 
@@ -1103,4 +1107,78 @@ def test_every_prefetched_object_url_is_released() -> None:
     )
     assert "export function releaseAudio() {" in player, (
         "there is no way left for closePlayer to release what is loaded"
+    )
+
+
+def test_the_prefetch_goes_out_with_the_track_not_part_way_through_it() -> None:
+    """It used to wait for 8 seconds of the current track before pulling the
+    next one down, so that skipping quickly through a queue didn't start a
+    download per track passed over. That put the cost on the wrong person:
+    press Next inside those 8 seconds — which is most of the time anyone
+    presses it — and nothing had been prefetched, so the press paid for the
+    metadata round trip, the live song-version search behind it, and the whole
+    download before a single thing on screen changed.
+
+    A track skipped past before it plays a frame still prefetches nothing,
+    because no timeupdate ever fires for it — that part never needed a
+    threshold."""
+    source = (JS_DIR / "home" / "overlay.js").read_text()
+
+    assert "PREFETCH_AFTER_SECONDS" not in source, (
+        "the prefetch is gated on elapsed playback again — Next is slow for "
+        "exactly as long as the gate lasts"
+    )
+    body = source[source.index("let prefetchedFor = null;") :]
+    body = body[: body.index("cacheUpcoming(upcoming);")]
+    assert "currentTime" not in body, (
+        "the prefetch handler is looking at the playhead again"
+    )
+
+
+def test_the_upcoming_track_is_cached_before_its_download_is_asked_for() -> None:
+    """Everything openPlayer would otherwise have to do itself — the metadata
+    fetch and songVersionOf's live search — is already done by this point, so
+    publishing it here rather than after the download POST is what makes a
+    Next press landing mid-prefetch instant on screen instead of repeating all
+    of it.
+
+    The write after the POST has to re-check that the entry is still ours: the
+    handoff can take it while that request is in flight, and writing to it
+    then resurrects a cache entry for the track that is already playing."""
+    source = (JS_DIR / "home" / "overlay.js").read_text()
+
+    body = source[source.index("async function cacheUpcoming(contentId) {") :]
+    body = body[: body.index("\n}\n")]
+
+    published = body.index("upcomingTrack = { id, data: { ...resolved }, objectUrl: null };")
+    posted = body.index('await api(`/content/${id}/download`, { method: "POST" })')
+    assert published < posted, (
+        "the upcoming track is only cached after its download POST returns — a "
+        "Next press before then repeats the metadata fetch and the live search"
+    )
+    assert "if (upcomingTrack?.id !== id) return;" in body[posted:], (
+        "the post-download write doesn't re-check that the entry is still ours"
+    )
+
+
+def test_a_press_that_has_to_ask_the_server_says_so_immediately() -> None:
+    """With nothing prefetched, openPlayer awaits a round trip (and possibly a
+    live song-version search) before it writes a single thing to the DOM, so
+    the card went on showing the previous track the whole time and the press
+    read as ignored.
+
+    Gated on a track already being open, and undone when the fetch fails —
+    otherwise a cold open surfaces an empty card, and a failed one leaves the
+    transport disabled with the outgoing track still playing and no way to
+    pause it."""
+    source = (JS_DIR / "home" / "overlay.js").read_text()
+
+    body = source[source.index("export async function openPlayer(") :]
+    body = body[: body.index("\n  document.querySelector(\".player-title\")")]
+
+    shown = body.index("if (wasOpen) showPreparing();")
+    fetched = body.index("const res = await api(`/content/${contentId}`);")
+    assert shown < fetched, "the spinner goes up only after the round trip it exists to cover"
+    assert "if (wasOpen) clearPreparing();" in body, (
+        "a failed load leaves the spinner up and the transport disabled"
     )
