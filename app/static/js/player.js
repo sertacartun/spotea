@@ -199,18 +199,75 @@ export function reportPlayback(event, detail = {}) {
 // meant the pause()/play() pair happened while the page was still audibly
 // playing something, which is what the current code arranges deliberately.
 //
-// What remains is a race rather than a rule: the element is at readyState 0
-// when the new src is assigned, so a handoff still has to fetch the audio
-// over the network with the app off screen. It usually lands in well under a
-// second, but a slow one can miss. Closing that would mean having the bytes
-// in hand before the handoff (fetching the next track into a Blob during the
-// current one and handing the element an object URL, so the swap touches no
-// network at all) — a real option, not attempted here.
+// The race that remained after all that has since been closed, the way the
+// paragraph this replaces said it would have to be: the element was at
+// readyState 0 when the new src was assigned, so every handoff still had to
+// fetch the audio over the network at the one moment it could least afford
+// to. Prefetching a track meant downloading it to the *server's* disk;
+// nothing pulled a byte of it into the page. Measured on a real session
+// (9 auto-advances, all of them with the next track already downloaded):
+// 0.28-1.43s from `ended` to the /stream request alone, and six
+// playback-stalled beacons, every one of them readyState 1 — three seconds
+// after play(), metadata in hand and still not one sample of audio.
+//
+// home/overlay.js's cacheUpcoming now pulls the bytes down during the
+// current track and hands this module an object URL for them (see
+// offerPrefetchedAudio), so the swap touches no network at all.
 // ---------------------------------------------------------------------------
 
 /** The element driving the transport. */
 export function activeAudio() {
   return document.getElementById("audio");
+}
+
+// Which track the element's current resource belongs to, tracked rather than
+// derived. Matching the element's current source against the track's stream
+// URL used to answer this and cannot any more: a prefetched track is handed
+// a blob: URL, which carries no content id — the comparison would say "not
+// loaded" for the track that is playing right now. That answer is load-bearing in two
+// places, and getting it wrong is not subtle in either: startPlayback would
+// reassign src on a track already playing (which resets it to 0:00 — the
+// whole of the screen-wake bug), and home/overlay.js's `ended` handler would
+// mistake the finished track for an outgoing one and stop advancing.
+let loadedContentId = null;
+
+// The object URL behind that resource, when it came from a prefetch. Held so
+// it can be revoked: an object URL pins its Blob in memory until it is, and
+// these are whole audio files.
+let loadedObjectUrl = null;
+
+// Handed over by openPlayer ahead of the assignment that adopts it, since a
+// track that still has to finish downloading gets its src minutes later (or
+// never). Ownership transfers with it — this module revokes it whether it
+// ends up played or superseded first.
+let pendingObjectUrl = null;
+let pendingObjectUrlFor = null;
+
+/** The track the element is actually loaded with, or null. */
+export function loadedTrackId() {
+  return loadedContentId;
+}
+
+/**
+ * Offers the element bytes for `contentId` that are already in the page (see
+ * home/overlay.js's cacheUpcoming), to be used instead of going to the
+ * network when this track is started.
+ *
+ * Called on every open, with a null url when there is nothing prefetched —
+ * which is also how a previous offer that was never taken up gets released.
+ */
+export function offerPrefetchedAudio(contentId, objectUrl = null) {
+  if (pendingObjectUrl && pendingObjectUrl !== objectUrl) URL.revokeObjectURL(pendingObjectUrl);
+  pendingObjectUrl = objectUrl;
+  pendingObjectUrlFor = objectUrl ? String(contentId) : null;
+}
+
+/** Drops both, for a player being closed rather than switched. */
+export function releaseAudio() {
+  offerPrefetchedAudio(null, null);
+  if (loadedObjectUrl) URL.revokeObjectURL(loadedObjectUrl);
+  loadedObjectUrl = null;
+  loadedContentId = null;
 }
 
 /** Registers a media listener on the player's audio element. */
@@ -705,11 +762,24 @@ export async function prepareAudio(onStart, onFail) {
     //
     // `ended` is excluded on purpose: replaying a track that has run out is a
     // real restart, and does want the reload.
-    const alreadyLoaded = Boolean(streamUrl) && audio.currentSrc.endsWith(streamUrl) && !audio.ended;
+    const alreadyLoaded = loadedContentId === contentId && !audio.ended;
     if (alreadyLoaded && !audio.paused) return;
 
     if (!alreadyLoaded) {
-      audio.src = streamUrl;
+      // The bytes, if the previous track pulled them down for us; the URL to
+      // go and get them otherwise. Only the former makes a handoff free —
+      // the latter is a network fetch starting at the exact moment the
+      // listener is waiting on silence.
+      const prefetched = pendingObjectUrlFor === contentId ? pendingObjectUrl : null;
+      if (prefetched) {
+        pendingObjectUrl = null;
+        pendingObjectUrlFor = null;
+      }
+      // The outgoing track's Blob, now that its resource is being replaced.
+      if (loadedObjectUrl) URL.revokeObjectURL(loadedObjectUrl);
+      loadedObjectUrl = prefetched;
+      audio.src = prefetched || streamUrl;
+      loadedContentId = contentId;
       if (onStart) onStart();
     }
 

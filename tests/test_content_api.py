@@ -386,20 +386,53 @@ def _seed_ready(db_session, tmp_path):
     return _seed_one(db_session, status="ready", file_path=str(audio))
 
 
-def test_streaming_a_track_records_it_as_played(client, db_session, tmp_path):
+def test_streaming_a_track_does_not_record_it_as_played(client, db_session, tmp_path):
+    """Asking for the audio stopped being evidence that anyone heard it.
+
+    The player pulls the *next* track's bytes down while the current one is
+    still playing (home/overlay.js's cacheUpcomingAudio) so the handoff has
+    nothing to wait for, which means this route now fires a whole track early
+    for something the listener may well skip past. It used to set
+    last_played_at here, and that would mark every prefetch as played.
+    """
+    item = _seed_ready(db_session, tmp_path)
+
+    assert client.get(f"/content/{item.id}/stream").status_code == 200
+
+    db_session.refresh(item)
+    assert item.last_played_at is None
+
+
+def test_marking_a_track_played_records_it(client, db_session, tmp_path):
+    """The signal that replaced it — sent when playback actually starts."""
     item = _seed_ready(db_session, tmp_path)
     assert item.last_played_at is None
 
-    assert client.get(f"/content/{item.id}/stream").status_code == 200
+    assert client.post(f"/content/{item.id}/played").status_code == 204
 
     db_session.refresh(item)
     assert item.last_played_at is not None
 
 
-def test_downloading_a_track_does_not_record_it_as_played(client, db_session, tmp_path):
+def test_marking_an_unknown_track_played_is_a_404(client):
+    assert client.post("/content/999999/played").status_code == 404
+
+
+def test_only_the_export_link_serves_the_file_as_an_attachment(client, db_session, tmp_path):
+    """?download=1 is _downloads.html's export link; the player is everything
+    else. A filename is what makes Starlette send Content-Disposition:
+    attachment, which is what a file being saved wants and what one being
+    played does not — and both were getting it while the filename was
+    unconditional."""
     item = _seed_ready(db_session, tmp_path)
 
-    assert client.get(f"/content/{item.id}/stream?download=1").status_code == 200
+    played = client.get(f"/content/{item.id}/stream")
+    assert played.status_code == 200
+    assert "content-disposition" not in played.headers
+
+    exported = client.get(f"/content/{item.id}/stream?download=1")
+    assert exported.status_code == 200
+    assert exported.headers["content-disposition"].startswith("attachment")
 
     db_session.refresh(item)
     assert item.last_played_at is None

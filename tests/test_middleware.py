@@ -108,6 +108,29 @@ def test_security_headers_are_present(client):
     assert "'unsafe-inline'" not in csp.split("script-src")[1].split(";")[0]
 
 
+def test_media_src_allows_the_sources_the_player_actually_assigns(client):
+    """Both non-http sources player.js hands the <audio> element are on this
+    directive, and a CSP is the one kind of breakage no source-level test can
+    see: the JS is correct, the request never happens, and the element lands
+    on readyState 0 with MEDIA_ERR_SRC_NOT_SUPPORTED.
+
+    data: is the one-sample silent clip that unlocks WebKit's autoplay gate.
+    blob: is the next track's audio, fetched during the current one so the
+    handoff touches no network at all — measured broken exactly this way
+    (element refused the URL, track never played) while every other test for
+    the prefetch still passed.
+    """
+    csp = client.get("/").headers["Content-Security-Policy"]
+
+    media = csp.split("media-src")[1].split(";")[0]
+    assert "'self'" in media
+    assert "data:" in media, "the silent unlock clip is blocked"
+    assert "blob:" in media, (
+        "a prefetched track's audio is blocked — the handoff silently plays "
+        "nothing at all, see home/overlay.js's cacheUpcomingAudio"
+    )
+
+
 def test_the_inline_script_carries_the_nonce_from_the_header(client):
     """A nonce that doesn't match the header blocks the pre-paint script, which
     would leave every load rendering the wrong tab for a frame."""

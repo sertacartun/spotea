@@ -66,14 +66,22 @@ class SelectiveGZipMiddleware(GZipMiddleware):
 # come straight from i*.ytimg.com and channel avatars from yt3.ggpht.com (see
 # youtube/urls.py's absolute_thumbnail_url, which rewrites to that host
 # deliberately). media-src allows data: for the one-sample silent clip
-# player.js uses to unlock WebKit's autoplay gate.
+# player.js uses to unlock WebKit's autoplay gate, and blob: for the next
+# track's audio, which home/overlay.js pulls down during the current one so
+# the handoff touches no network (see cacheUpcomingAudio). Neither widens
+# anything: a blob: URL can only ever be minted by this page, out of bytes it
+# already fetched under 'self'. It is also not optional — with media-src
+# unchanged the element refuses the URL outright ("violates the following
+# Content Security Policy directive"), lands on readyState 0 with
+# MEDIA_ERR_SRC_NOT_SUPPORTED, and the track never plays at all. Every
+# source-level test still passed while that was true.
 _CSP_TEMPLATE = "; ".join(
     (
         "default-src 'self'",
         "script-src 'self' 'nonce-{nonce}'",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' https://*.ytimg.com https://*.ggpht.com",
-        "media-src 'self' data:",
+        "media-src 'self' data: blob:",
         "connect-src 'self'",
         "worker-src 'self'",
         "manifest-src 'self'",
