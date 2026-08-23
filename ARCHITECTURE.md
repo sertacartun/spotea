@@ -407,6 +407,18 @@ The player is a single `<audio>` element. It is the only one, deliberately:
 adding a second to solve an iOS background-playback problem is what caused
 the problem the second element was added to fix.
 
+Track handoffs on that element run at two different moments. In the
+foreground, a track plays to `ended` and the handler advances the queue. In
+the background, `ended` is a cliff: iOS starts freezing the page the moment
+nothing renders (measured 2026-08-23 — a handoff with the next track's bytes
+already in memory and `play()` already called still sat unstarted until the
+screen woke), so `home/overlay.js` swaps to the next track just before the
+end, while audio is still rendering and the page still provably holds the
+audio session — and only when the successor's bytes were prefetched into
+memory, since a swap that still needs the network trades one stall for
+another. Everything the early handoff declines falls back to the `ended`
+path unchanged.
+
 ---
 
 ## 8. Concurrency & security

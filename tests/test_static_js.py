@@ -171,6 +171,7 @@ def test_report_playback_only_sends_the_unexpected_events() -> None:
         "visibility-changed",
         "media-session-action",
         "audio-session",
+        "early-handoff",
     }
 
     # The allowlist alone proves nothing if reportPlayback doesn't actually
@@ -1323,4 +1324,42 @@ def test_a_finished_queue_leaves_the_os_now_playing_surface() -> None:
     assert "clearNowPlayingMetadata();" in body, (
         "closePlayer clears mediaSession by hand (or not at all) instead of "
         "through clearNowPlayingMetadata, desyncing the publish cache"
+    )
+
+
+def test_the_background_handoff_happens_before_the_cliff() -> None:
+    """`ended` is a cliff for a backgrounded page: the moment nothing renders,
+    iOS starts freezing it — measured 2026-08-23 18:14, a handoff with the
+    next track's bytes already in memory and play() already called still sat
+    at readyState 1 for 14 seconds until the screen woke. The only reliable
+    side of the cliff is the near one, so in the background the swap happens
+    while the outgoing track is still rendering."""
+    source = (JS_DIR / "home" / "overlay.js").read_text()
+
+    handler = source[source.index("let earlyHandoffFor = null;") :]
+    handler = handler[: handler.index("});")]
+
+    assert 'if (document.visibilityState === "visible") return;' in handler, (
+        "the early handoff runs in the foreground too, cutting the tail off "
+        "every track for a freeze that only threatens hidden pages"
+    )
+    assert "if (upcomingTrack?.id !== String(next) || !upcomingTrack.objectUrl) return;" in handler, (
+        "the early handoff no longer requires the bytes in memory — it would "
+        "trade the end of this track for a network stall it can't afford either"
+    )
+    assert "if (audio.paused) return;" in handler, (
+        "a paused element parked near the end of a track would auto-advance"
+    )
+    assert "audio.currentTime = 0;" in handler, (
+        "repeat-one no longer loops by rewinding before the end — it falls "
+        "back to rewinding after `ended`, on the far side of the cliff"
+    )
+    assert "EARLY_HANDOFF_SECONDS" in handler
+
+    # The `ended` path must survive as the fallback for everything the early
+    # handoff declines: foreground playback, a missing blob, a paused element.
+    ended = source[source.rindex('reportPlayback("track-ended"') :]
+    assert "playFromQueue(next);" in ended, (
+        "the ended handler no longer advances — the early handoff is now the "
+        "only path forward and every case it declines just stops"
     )

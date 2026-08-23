@@ -121,6 +121,9 @@ let activeVisibilityHandler = null;
 // refused, or never ran it at all because iOS had already frozen the page.
 // A tap that produces no beacon within a breath of its media event *is* the
 // frozen-page case, finally visible from the server.
+// "early-handoff" fires at most once per background auto-advance, in place
+// of the "track-ended" that advance no longer produces — without it the
+// log's per-track story would simply stop wherever the new path takes over.
 const REPORTED_EVENTS = new Set([
   "play-rejected",
   "playback-stalled",
@@ -131,6 +134,7 @@ const REPORTED_EVENTS = new Set([
   "visibility-changed",
   "media-session-action",
   "audio-session",
+  "early-handoff",
 ]);
 
 export function reportPlayback(event, detail = {}) {

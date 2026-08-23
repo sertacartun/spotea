@@ -58,6 +58,13 @@ const SEEK_STEP_SECONDS = 15;
 const UPCOMING_POLL_MS = 1500;
 const UPCOMING_POLL_LIMIT = 20;
 
+// How close to a track's end the background early handoff fires (see the
+// timeupdate handler in setupPlayerOverlay). Wide enough that the roughly
+// once-a-second timeupdate cadence of a backgrounded iOS page still gets a
+// tick inside the window; the cut it makes is at most this much of a track
+// whose successor was about to cut it off anyway.
+const EARLY_HANDOFF_SECONDS = 1.2;
+
 // Ceiling on what a prefetch will hold in memory as a Blob. The library's
 // tracks run about 1.3 MB each (audio-only m4a at the bitrate this app asks
 // YouTube for), so this is well over an order of magnitude of headroom and
@@ -966,6 +973,57 @@ export function setupPlayerOverlay() {
     // opening the track.
     prefetchedFor = playing;
     cacheUpcoming(upcoming);
+  });
+
+  // The early handoff: in the background, the next track starts *before*
+  // this one ends, so the element never passes through `ended` off screen.
+  //
+  // `ended` is a cliff there. The moment nothing is rendering, a
+  // backgrounded page is living on borrowed time — iOS froze one mid-handoff
+  // within three seconds of `ended` on 2026-08-23 (18:14 in the breadcrumb
+  // log) with the next track's bytes already in memory and play() already
+  // called: everything after the silence was done right, and the track still
+  // sat at readyState 1 until the screen woke 14 seconds later. The only
+  // reliable side of the cliff is the near side, while audio is still
+  // rendering and the page still provably holds the session.
+  //
+  // Only when hidden: in the foreground the page isn't at risk of being
+  // frozen, the `ended` path below works, and cutting the tail off every
+  // track would buy nothing. Only with the bytes in memory: a handoff that
+  // still needs the network would trade the end of this track for a stall it
+  // can't afford either — the `ended` path is no worse for that case. The
+  // threshold accommodates background timeupdate cadence (roughly 1Hz on
+  // iOS), so the actual cut is somewhere inside the last second-and-a-bit of
+  // a track that is about to be cut off by its own successor anyway.
+  //
+  // Repeat-"one" takes the same protection as a rewind: looping by seeking
+  // back before the end never reaches `ended` at all, where the handler
+  // below rewinds only *after* it — on the far side of the cliff.
+  let earlyHandoffFor = null;
+  onPlayerEvent("timeupdate", () => {
+    if (document.visibilityState === "visible") return;
+    const audio = activeAudio();
+    if (audio.paused) return;
+    if (!Number.isFinite(audio.duration) || audio.duration <= 0) return;
+    if (audio.duration - audio.currentTime > EARLY_HANDOFF_SECONDS) return;
+
+    const playing = document.getElementById("player-root").dataset.contentId;
+    // No track, or a switch already underway (the DOM describes an incoming
+    // track the element hasn't been handed yet) — nothing to hand off from.
+    if (!playing || loadedTrackId() !== playing) return;
+
+    if (repeatMode() === "one") {
+      audio.currentTime = 0;
+      return;
+    }
+
+    if (earlyHandoffFor === playing) return;
+    const next = peekNextId();
+    if (next == null) return;
+    if (upcomingTrack?.id !== String(next) || !upcomingTrack.objectUrl) return;
+    earlyHandoffFor = playing;
+    reportPlayback("early-handoff", { contentId: playing, next });
+    playFromQueue(nextId());
   });
 
   document.getElementById("prev-track").addEventListener("click", () => playFromQueue(previousId()));
