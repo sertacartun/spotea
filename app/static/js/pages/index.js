@@ -21,7 +21,7 @@ import {
   setupStorage,
 } from "../home/settings.js";
 import { setupTabs } from "../home/tabs.js";
-import { setupFavorite, setupPlayer } from "../player.js";
+import { installVisibilityBreadcrumb, setupFavorite, setupPlayer } from "../player.js";
 import { installBfcacheReload, registerServiceWorker } from "../resume.js";
 import { installHeaderOffset, installKeyboardInset } from "../viewport.js";
 
@@ -33,6 +33,7 @@ installHeaderOffset();
 setupTabs();
 setupPlayer();
 setupFavorite();
+installVisibilityBreadcrumb();
 setupPlayerOverlay();
 // After setupPlayer: onPlayerEvent binds to the audio element that exists
 // now, and setupPlayer is what puts it there.

@@ -120,6 +120,7 @@ const REPORTED_EVENTS = new Set([
   "outgoing-ended",
   "track-ended",
   "retry-rejected",
+  "visibility-changed",
 ]);
 
 export function reportPlayback(event, detail = {}) {
@@ -850,6 +851,32 @@ export async function prepareAudio(onStart, onFail) {
   document.addEventListener("visibilitychange", activeVisibilityHandler);
 }
 
+/**
+ * Records what the player was doing whenever the page changes visibility.
+ *
+ * The one thing about a locked phone the server cannot otherwise see is the
+ * moment its screen came on: it produces no request of its own, so a report
+ * like "it advances with the screen off but not while the screen is awake on
+ * the lock screen" is invisible in the log — there is nothing to line the
+ * failure up against. reportPlayback already stamps `visibility` on every
+ * beacon; this is the beacon for the transition itself.
+ *
+ * Only while a track is loaded, so it stays quiet outside playback.
+ */
+export function installVisibilityBreadcrumb() {
+  document.addEventListener("visibilitychange", () => {
+    const contentId = document.getElementById("player-root")?.dataset.contentId;
+    if (!contentId) return;
+    const audio = activeAudio();
+    reportPlayback("visibility-changed", {
+      contentId,
+      currentTime: Math.round(audio.currentTime),
+      paused: audio.paused,
+      readyState: audio.readyState,
+    });
+  });
+}
+
 // How long to give a play() call before concluding it didn't take. Long
 // enough to cover a slow first byte off disk, short enough that a listener
 // isn't left in silence wondering.
@@ -887,10 +914,23 @@ function watchPlaybackStarted(contentId) {
     // was the only thing that could have noticed.
     if (audio.currentTime > 0) return;
     reportPlayback("playback-stalled", { contentId, paused: audio.paused, readyState: audio.readyState });
-    // play() on an element that already believes it is playing does nothing,
-    // so that case needs the resource re-fetched before the retry is worth
-    // anything.
-    if (!audio.paused) audio.load();
+
+    // Reported, and for an unpaused element deliberately not repaired.
+    //
+    // `readyState: 1` on an element that is not paused does not mean stuck,
+    // it means "no data yet" — a backgrounded PWA opening audio sits there
+    // for seconds as a matter of course, with a play() already in flight
+    // waiting on it. A version of this called audio.load() to unstick it.
+    // That aborts the in-flight play() (AbortError, measured) and throws away
+    // the buffering already done, and on a real device tracks died within
+    // seconds of the call: three stalls, three AbortErrors, and the last one
+    // never played again. On iOS the pending play() of a backgrounded page is
+    // the whole audio grant — interrupting a load is worse than waiting for
+    // one.
+    //
+    // A paused element is the case where there is nothing in flight to
+    // destroy, and retrying it is what this was written for.
+    if (!audio.paused) return;
     audio.play().catch((err) => reportPlayback("retry-rejected", { contentId, error: String(err?.name || err) }));
   }, PLAYBACK_WATCHDOG_MS);
 }
