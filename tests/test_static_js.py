@@ -909,8 +909,11 @@ def test_start_playback_does_not_reload_the_track_already_loaded() -> None:
     """
     source = (JS_DIR / "player.js").read_text()
 
-    assert "const alreadyLoaded =" in source and "audio.currentSrc.endsWith(streamUrl)" in source, (
-        "startPlayback no longer checks whether the stream is already loaded — "
+    # What "already loaded" is decided from moved (see
+    # test_the_loaded_track_is_not_identified_by_comparing_urls); that it is
+    # decided at all, and that it gates the assignment, has not.
+    assert "const alreadyLoaded = loadedContentId === contentId && !audio.ended;" in source, (
+        "startPlayback no longer checks whether this track is already loaded — "
         "a repeat call restarts the playing track from 0:00"
     )
     assert "if (alreadyLoaded && !audio.paused) return;" in source, (
@@ -918,8 +921,12 @@ def test_start_playback_does_not_reload_the_track_already_loaded() -> None:
         "playing — a repeat call is meant to be a no-op, not a restart"
     )
     # The assignment has to be *inside* the guard, not merely preceded by it.
-    assert "if (!alreadyLoaded) {\n      audio.src = streamUrl;" in source, (
+    assert "if (!alreadyLoaded) {" in source and "audio.src = prefetched || streamUrl;" in source, (
         "audio.src is assigned unconditionally again"
+    )
+    guard = source.index("if (!alreadyLoaded) {")
+    assert guard < source.index("audio.src = prefetched || streamUrl;"), (
+        "the src assignment is no longer inside the already-loaded guard"
     )
 
 
@@ -1002,3 +1009,98 @@ def test_a_visibility_change_is_recorded_while_a_track_is_loaded() -> None:
 
     index = (JS_DIR / "pages" / "index.js").read_text()
     assert "installVisibilityBreadcrumb();" in index, "the breadcrumb is defined but never installed"
+
+
+def test_a_prefetched_track_is_played_from_memory_rather_than_refetched() -> None:
+    """Prefetching used to mean "tell the server to download it", and stopped
+    there — nothing pulled a byte of the next track into the page, so every
+    handoff still opened a network fetch at the one moment it could least
+    afford to. Measured over nine auto-advances that all had their next track
+    already on the server's disk: 0.28-1.43s just to get the /stream request
+    out, and six playback-stalled beacons, every one of them readyState 1
+    (metadata in hand, not one sample of audio) three seconds after play().
+
+    So the bytes are fetched during the previous track and the element is
+    handed an object URL for them. If either half of that goes away the wait
+    comes back, and it comes back invisibly — everything still works, just
+    slowly, which is exactly how it went unnoticed the first time."""
+    overlay = (JS_DIR / "home" / "overlay.js").read_text()
+    player = (JS_DIR / "player.js").read_text()
+
+    assert "URL.createObjectURL(blob)" in overlay, (
+        "the prefetch no longer pulls the next track's audio into the page — "
+        "downloading it server-side alone does not make a handoff free"
+    )
+    assert "offerPrefetchedAudio(contentId, prefetchedAudio)" in overlay, (
+        "openPlayer fetches the bytes but never hands them to the player, so "
+        "the element goes to the network anyway"
+    )
+    assert "audio.src = prefetched || streamUrl;" in player, (
+        "startPlayback ignores the prefetched bytes and always assigns the "
+        "stream URL"
+    )
+
+
+def test_the_loaded_track_is_not_identified_by_comparing_urls() -> None:
+    """`audio.currentSrc.endsWith(dataset.stream)` was how two places asked
+    "is this track the one loaded?", and it cannot answer that any more: a
+    prefetched track is handed a blob: URL, which carries no content id, so
+    the comparison says "not loaded" for the track playing right now.
+
+    Both readers break loudly if that comes back. startPlayback would
+    reassign src on a track already playing — which resets it to 0:00, the
+    whole of the screen-wake bug — and overlay's `ended` handler would take
+    the finished track for an outgoing one and stop advancing the queue."""
+    player = (JS_DIR / "player.js").read_text()
+    overlay = (JS_DIR / "home" / "overlay.js").read_text()
+
+    for name, source in (("player.js", player), ("home/overlay.js", overlay)):
+        assert "currentSrc.endsWith" not in source, (
+            f"{name} identifies the loaded track by comparing URLs again — a "
+            "prefetched track's blob: URL never matches, so it reads as a "
+            "different track than the one playing"
+        )
+
+    assert "const alreadyLoaded = loadedContentId === contentId && !audio.ended;" in player, (
+        "startPlayback no longer checks the tracked id"
+    )
+    assert "if (finished && loadedTrackId() !== finished) {" in overlay, (
+        "the ended handler no longer checks what the element is actually loaded with"
+    )
+
+
+def test_every_prefetched_object_url_is_released() -> None:
+    """An object URL pins its Blob in memory until revoked, and these are
+    whole audio files. There are three ways one stops being needed — the
+    queue moves off it before the handoff, the element replaces it with the
+    next track, the player is closed — and only the middle one is on the
+    happy path, so the other two are the ones that would quietly leak."""
+    overlay = (JS_DIR / "home" / "overlay.js").read_text()
+    player = (JS_DIR / "player.js").read_text()
+
+    minted = overlay.count("URL.createObjectURL(") + player.count("URL.createObjectURL(")
+    assert minted == 1, (
+        f"object URLs are minted in {minted} places — one owner was the point, "
+        "since every one of them has to be revoked somewhere"
+    )
+
+    # Dropped without ever being played: the queue moved on mid-fetch, or the
+    # open went to a different track than the one prefetched.
+    assert "if (upcomingTrack?.id !== id) {\n    URL.revokeObjectURL(objectUrl);" in overlay, (
+        "a prefetch superseded while its bytes were in flight leaks its Blob"
+    )
+    assert "} else if (upcomingTrack?.objectUrl) {" in overlay, (
+        "bytes prefetched for a track the user then skipped past leak their Blob"
+    )
+    assert "if (upcomingTrack?.objectUrl) URL.revokeObjectURL(upcomingTrack.objectUrl);" in overlay, (
+        "closing the player leaks whatever it had prefetched"
+    )
+
+    # Replaced on the happy path, and dropped outright when the player closes.
+    assert "if (loadedObjectUrl) URL.revokeObjectURL(loadedObjectUrl);" in player, (
+        "the outgoing track's Blob is never released, so a queue holds every "
+        "track it has played"
+    )
+    assert "export function releaseAudio() {" in player, (
+        "there is no way left for closePlayer to release what is loaded"
+    )

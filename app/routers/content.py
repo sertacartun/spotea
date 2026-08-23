@@ -407,6 +407,22 @@ def stream_content(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> FileResponse:
+    """Serves the audio file. Asking for it is no longer what records a play.
+
+    It used to be, and the two really were the same event: the <audio>
+    element requested this the moment its src was assigned, so nothing else
+    had to say a track had started. That stopped being true when the player
+    began pulling the next track's bytes down while the current one is still
+    going (see home/overlay.js's cacheUpcoming). This route now fires a whole
+    track early, for a prefetch nobody may ever listen to, and then not at
+    all for the track actually being played — the element is handed bytes
+    that are already in the page. POST /{id}/played is the signal instead.
+
+    `?download=1` is the export link in _downloads.html rather than playback.
+    It is what puts a filename on the response, and a filename is what makes
+    it an attachment (Starlette derives Content-Disposition from it) — right
+    for something being saved to disk, wrong for something being played.
+    """
     content = _get_content_or_404(db, content_id, user.id)
 
     if content.status != "ready" or not content.file_path:
@@ -416,16 +432,32 @@ def stream_content(
     if not file_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File missing on disk")
 
-    # Skipped for a plain file export (?download=1) — nobody's actually
-    # listening to that.
-    if not download:
-        content.last_played_at = utcnow()
-        db.commit()
-
     media_type = AUDIO_MEDIA_TYPES.get(file_path.suffix, "application/octet-stream")
     return FileResponse(
-        file_path, media_type=media_type, filename=safe_filename(content.title) + file_path.suffix
+        file_path,
+        media_type=media_type,
+        filename=safe_filename(content.title) + file_path.suffix if download else None,
     )
+
+
+@router.post("/{content_id}/played", status_code=status.HTTP_204_NO_CONTENT)
+def record_played(
+    content_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """Marks a track as played, at the moment the player actually starts it.
+
+    Split out of GET /{id}/stream, which can no longer answer the question —
+    see the note there. Called once per track start from home/overlay.js's
+    openPlayer, so `last_played_at` keeps meaning "the user started playing
+    this" rather than "some request touched the file", which is what
+    Recently Played, the played filter and ContentOut.is_played all read it
+    as (see content_query.py and page_context.py).
+    """
+    content = _get_content_or_404(db, content_id, user.id)
+    content.last_played_at = utcnow()
+    db.commit()
 
 
 @router.delete("/{content_id}", response_model=StatusOut)

@@ -15,9 +15,12 @@ import { refreshFragments, refreshQueuePanel } from "../fragments.js";
 import {
   activeAudio,
   applyNowPlayingMetadata,
+  loadedTrackId,
+  offerPrefetchedAudio,
   onPlayerEvent,
   paintRange,
   prepareAudio,
+  releaseAudio,
   reportPlayback,
   whenVisible,
 } from "../player.js";
@@ -56,9 +59,17 @@ const PREFETCH_AFTER_SECONDS = 8;
 const UPCOMING_POLL_MS = 1500;
 const UPCOMING_POLL_LIMIT = 20;
 
+// Ceiling on what a prefetch will hold in memory as a Blob. The library's
+// tracks run about 1.3 MB each (audio-only m4a at the bitrate this app asks
+// YouTube for), so this is well over an order of magnitude of headroom and
+// only ever declines something anomalous — an hour-long upload that happened
+// to land in a queue. Those still play, just over the network like before.
+const PREFETCH_MAX_BYTES = 24 * 1024 * 1024;
+
 /**
  * The next track, fetched while the current one is still playing: its
- * metadata and its download status as of the last check.
+ * metadata, its download status as of the last check, and — once the
+ * download has landed — an object URL for its audio, already in memory.
  *
  * This exists so that a track ending doesn't have to ask the server anything
  * before it can start the next one. `ended` fires, and everything from there
@@ -180,11 +191,22 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
   // fetched for, and leaving it in place would let a later, unrelated open of
   // the same track run on however stale it had become by then.
   let data = null;
+  let prefetchedAudio = null;
   if (upcomingTrack && upcomingTrack.id === contentId) {
     data = upcomingTrack.data;
-    reportPlayback("handoff-cached", { contentId, status: data.status });
+    prefetchedAudio = upcomingTrack.objectUrl;
+    reportPlayback("handoff-cached", { contentId, status: data.status, buffered: Boolean(prefetchedAudio) });
+  } else if (upcomingTrack?.objectUrl) {
+    // Bytes pulled down for a track this open isn't going to. Nothing will
+    // ever read them, and an object URL pins its Blob until revoked.
+    URL.revokeObjectURL(upcomingTrack.objectUrl);
   }
   upcomingTrack = null;
+  // Ownership passes to player.js, which adopts this at the src assignment
+  // and revokes it whether or not it gets that far. Called unconditionally,
+  // null included: that is also what releases an offer made for a track the
+  // user moved off before it finished preparing.
+  offerPrefetchedAudio(contentId, prefetchedAudio);
 
   // Only when there was nothing prepared — this is the await the cache
   // exists to avoid, and reaching it is fine, just slower.
@@ -270,12 +292,15 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
         paintRange(seekBar);
         document.getElementById("mini-player-progress-fill").style.width = "0%";
 
-        // The server records the play when /stream is requested, which only
-        // happens after audio.src is assigned — refreshing right here would
-        // race it and re-render shelves that don't know about this play yet.
-        // loadedmetadata fires once the first bytes are back, by which point
-        // the server has already written last_played_at.
-        activeAudio().addEventListener("loadedmetadata", refreshFragments, { once: true });
+        // The play used to be recorded as a side effect of the /stream
+        // request the src assignment kicked off, and the shelves were
+        // refreshed on loadedmetadata because that reliably came after it.
+        // Neither holds now: a prefetched track makes no request here at all
+        // (its bytes are already in the page) and the one it did make
+        // happened a whole track ago. So the play is stated outright, and
+        // the refresh waits on that rather than on a media event that no
+        // longer implies the server knows anything.
+        api(`/content/${data.id}/played`, { method: "POST" }).then(() => refreshFragments());
         consecutiveAutoSkipFailures = 0;
         consecutiveUnavailableSkips = 0;
       },
@@ -396,8 +421,12 @@ async function cacheUpcoming(contentId) {
     data.status = download.data.status;
     data.is_unavailable = download.data.is_unavailable === true;
   }
-  upcomingTrack = { id, data };
-  if (data.is_unavailable || data.status === "ready" || data.status === "error") return;
+  upcomingTrack = { id, data, objectUrl: null };
+  if (data.is_unavailable || data.status === "error") return;
+  if (data.status === "ready") {
+    await cacheUpcomingAudio(id);
+    return;
+  }
 
   for (let attempt = 0; attempt < UPCOMING_POLL_LIMIT; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, UPCOMING_POLL_MS));
@@ -408,8 +437,55 @@ async function cacheUpcoming(contentId) {
     if (!ok) continue;
     upcomingTrack.data.status = status.status;
     upcomingTrack.data.is_unavailable = status.is_unavailable === true;
-    if (status.status === "ready" || status.status === "error") return;
+    if (status.status === "error") return;
+    if (status.status === "ready") {
+      await cacheUpcomingAudio(id);
+      return;
+    }
   }
+}
+
+/**
+ * The half of the prefetch that actually buys the handoff anything: the
+ * audio itself, pulled into the page while the current track still plays.
+ *
+ * Downloading the next track server-side only ever moved the wait — the
+ * element still had to fetch the file over the network at the one instant
+ * the listener is sitting in silence. Measured across nine auto-advances
+ * that all had their next track already on the server's disk: 0.28-1.43s
+ * just to get the /stream request out, and six readyState-1 stalls three
+ * seconds after play(). With the bytes already here the swap is a src
+ * assignment against memory (see player.js's offerPrefetchedAudio).
+ *
+ * Best effort from end to end: anything that goes wrong leaves objectUrl
+ * null and the handoff goes over the network exactly as it used to.
+ */
+async function cacheUpcomingAudio(id) {
+  let objectUrl = null;
+  try {
+    // Plain /stream, no marker of its own: asking for it no longer records a
+    // play (see routers/content.py's stream_content), which is precisely
+    // what makes fetching a track early safe to do.
+    const res = await fetch(`/content/${id}/stream`);
+    if (!res.ok) return;
+    // Declined before buffering when the server says how big it is, and
+    // again afterwards for the case where it didn't.
+    const declared = Number(res.headers.get("content-length"));
+    if (Number.isFinite(declared) && declared > PREFETCH_MAX_BYTES) return;
+    const blob = await res.blob();
+    if (blob.size > PREFETCH_MAX_BYTES) return;
+    objectUrl = URL.createObjectURL(blob);
+  } catch (err) {
+    return;
+  }
+
+  // Superseded while the bytes were in flight — the handoff has already been
+  // and gone, or the queue moved somewhere else. Nothing will read these.
+  if (upcomingTrack?.id !== id) {
+    URL.revokeObjectURL(objectUrl);
+    return;
+  }
+  upcomingTrack.objectUrl = objectUrl;
 }
 
 /**
@@ -672,12 +748,14 @@ export function closePlayer() {
   audio.pause();
   audio.removeAttribute("src");
   audio.load();
+  releaseAudio();
 
   const root = document.getElementById("player-root");
   root.dataset.contentId = "";
   root.dataset.status = "";
   root.dataset.unavailable = "";
   root.dataset.stream = "";
+  if (upcomingTrack?.objectUrl) URL.revokeObjectURL(upcomingTrack.objectUrl);
   upcomingTrack = null;
 
   setQueueOpen(false);
@@ -772,7 +850,7 @@ export function setupPlayerOverlay() {
     // element is still on the old resource, but the DOM and the queue pointer
     // already describe the incoming one. Advancing on that would step
     // straight over the track that's on its way in.
-    if (root.dataset.stream && !activeAudio().currentSrc.endsWith(root.dataset.stream)) {
+    if (finished && loadedTrackId() !== finished) {
       reportPlayback("outgoing-ended", { contentId: finished });
       return;
     }
