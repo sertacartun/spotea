@@ -169,6 +169,8 @@ def test_report_playback_only_sends_the_unexpected_events() -> None:
         "track-ended",
         "retry-rejected",
         "visibility-changed",
+        "media-session-action",
+        "audio-session",
     }
 
     # The allowlist alone proves nothing if reportPlayback doesn't actually
@@ -1181,4 +1183,61 @@ def test_a_press_that_has_to_ask_the_server_says_so_immediately() -> None:
     assert shown < fetched, "the spinner goes up only after the round trip it exists to cover"
     assert "if (wasOpen) clearPreparing();" in body, (
         "a failed load leaves the spinner up and the transport disabled"
+    )
+
+
+def test_the_handoff_beacon_says_whether_the_bytes_were_in_memory() -> None:
+    """`prepared` only covers the next track's metadata; whether the src swap
+    ran against a blob or against the network was invisible, and the
+    2026-08-23 stall had to be settled from the *absence* of a /stream line
+    in the server's access log. `buffered` states it outright."""
+    source = (JS_DIR / "home" / "overlay.js").read_text()
+
+    # rindex: the repeat-"one" branch has its own, earlier track-ended call
+    # (with `repeat: "one"` instead of a handoff), and the handoff's is last.
+    ended = source[source.rindex('reportPlayback("track-ended"') :]
+    ended = ended[: ended.index(");")]
+    assert "buffered: Boolean(upcomingTrack?.objectUrl)" in ended, (
+        "track-ended no longer reports whether the handoff had the audio in memory"
+    )
+
+
+def test_lock_screen_taps_leave_a_trace() -> None:
+    """A lock-screen control that "did nothing" has two very different causes:
+    our handler ran and its play() was refused, or iOS had already frozen the
+    page and the handler never ran at all. Only a beacon *from inside the
+    handler* can tell them apart — a tap with no beacon is the frozen-page
+    case. Every transport action the OS can send must therefore report."""
+    player = (JS_DIR / "player.js").read_text()
+    overlay = (JS_DIR / "home" / "overlay.js").read_text()
+
+    for action in ("play", "pause"):
+        handler = player[player.index(f'setActionHandler("{action}"') :]
+        handler = handler[: handler.index("});")]
+        assert f'reportMediaSessionAction("{action}")' in handler, (
+            f"the media-session {action} handler no longer reports being invoked"
+        )
+
+    for action in ("nexttrack", "previoustrack"):
+        handler = overlay[overlay.index(f'setActionHandler(\n      "{action}"') :]
+        handler = handler[: handler.index(": null")]
+        assert f'reportMediaSessionAction("{action}")' in handler, (
+            f"the media-session {action} handler no longer reports being invoked"
+        )
+
+
+def test_every_beacon_stamps_the_audio_session_state() -> None:
+    """Whether this device has the Audio Session API, and whether the session
+    was "interrupted" at the moment something went wrong, both matter exactly
+    when a beacon fires — and a field costs no extra beacons. `visibility`
+    rides along the same way and for the same reason."""
+    source = (JS_DIR / "player.js").read_text()
+
+    body = source[source.index("export function reportPlayback(") :]
+    body = body[: body.index("\n}")]
+    assert 'audioSession: navigator.audioSession?.state ?? "unsupported"' in body, (
+        "reportPlayback no longer stamps the audio-session state on beacons"
+    )
+    assert 'reportPlayback("audio-session"' in source, (
+        "OS interruptions (statechange) are no longer reported at all"
     )

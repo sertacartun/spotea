@@ -22,6 +22,7 @@ import {
   paintRange,
   prepareAudio,
   releaseAudio,
+  reportMediaSessionAction,
   reportPlayback,
   showPreparing,
   whenVisible,
@@ -756,10 +757,23 @@ function syncQueueControls() {
   // Wrapped because a browser that doesn't implement these actions throws
   // rather than ignoring them, which would take the rest of this sync with it.
   try {
-    navigator.mediaSession.setActionHandler("nexttrack", hasNext ? () => playFromQueue(nextId()) : null);
+    navigator.mediaSession.setActionHandler(
+      "nexttrack",
+      hasNext
+        ? () => {
+            reportMediaSessionAction("nexttrack");
+            playFromQueue(nextId());
+          }
+        : null
+    );
     navigator.mediaSession.setActionHandler(
       "previoustrack",
-      hasPrevious ? () => playFromQueue(previousId()) : null
+      hasPrevious
+        ? () => {
+            reportMediaSessionAction("previoustrack");
+            playFromQueue(previousId());
+          }
+        : null
     );
   } catch (err) {
     /* Not supported here — the in-page transport still works. */
@@ -892,7 +906,18 @@ export function setupPlayerOverlay() {
     // The first breadcrumb of a handoff, and the one that makes the rest
     // legible: everything after it in the log either happened in this same
     // event or didn't happen at all. See player.js's reportPlayback.
-    reportPlayback("track-ended", { contentId: finished, next, prepared: upcomingTrack?.id ?? null });
+    //
+    // `buffered` says whether the handoff has the next track's bytes in
+    // memory, i.e. whether the src swap is against a blob or the network.
+    // `prepared` alone could not: it only covers the metadata, and during
+    // the 2026-08-23 stall investigation the difference had to be inferred
+    // from the *absence* of a /stream request in the server's access log.
+    reportPlayback("track-ended", {
+      contentId: finished,
+      next,
+      prepared: upcomingTrack?.id ?? null,
+      buffered: Boolean(upcomingTrack?.objectUrl),
+    });
     playFromQueue(next);
   });
 

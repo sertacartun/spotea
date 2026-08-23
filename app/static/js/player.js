@@ -113,6 +113,14 @@ let activeVisibilityHandler = null;
 // was empty" and "the page stopped running" — indistinguishable from the
 // server otherwise, and an ambiguity a real investigation got stuck on for
 // several rounds before this was added.
+// "media-session-action" and "audio-session" earn their place the same way:
+// each is a real lock-screen/headset tap or an OS-side interruption, a
+// handful per session at most, and they answer the one question the log
+// could not answer during the 2026-08-23 investigation — whether a
+// lock-screen control that "did nothing" ran our handler and had its play()
+// refused, or never ran it at all because iOS had already frozen the page.
+// A tap that produces no beacon within a breath of its media event *is* the
+// frozen-page case, finally visible from the server.
 const REPORTED_EVENTS = new Set([
   "play-rejected",
   "playback-stalled",
@@ -121,13 +129,26 @@ const REPORTED_EVENTS = new Set([
   "track-ended",
   "retry-rejected",
   "visibility-changed",
+  "media-session-action",
+  "audio-session",
 ]);
 
 export function reportPlayback(event, detail = {}) {
   if (!REPORTED_EVENTS.has(event)) return;
   try {
+    // audioSession is Safari-only and experimental; stamped on every beacon
+    // (like `visibility`) because the two questions it answers — does this
+    // device have the API at all, and was the session "interrupted" at the
+    // moment something went wrong — both matter precisely when one of these
+    // fires, and a field costs no extra beacons.
     const body = JSON.stringify([
-      { event, visibility: document.visibilityState, at: new Date().toISOString(), ...detail },
+      {
+        event,
+        visibility: document.visibilityState,
+        audioSession: navigator.audioSession?.state ?? "unsupported",
+        at: new Date().toISOString(),
+        ...detail,
+      },
     ]);
     if (navigator.sendBeacon) {
       navigator.sendBeacon("/debug/playback", new Blob([body], { type: "application/json" }));
@@ -142,6 +163,22 @@ export function reportPlayback(event, detail = {}) {
   } catch (err) {
     /* Never let a breadcrumb take playback down with it. */
   }
+}
+
+/**
+ * One beacon per lock-screen/headset/notification-shade tap that reaches
+ * this page. The element's state is captured *before* the handler acts, so
+ * the log shows what the tap found, not what it left behind. Exported for
+ * home/overlay.js, whose queue-dependent next/previous handlers live there.
+ */
+export function reportMediaSessionAction(action) {
+  const audio = activeAudio();
+  reportPlayback("media-session-action", {
+    action,
+    contentId: document.getElementById("player-root")?.dataset.contentId,
+    paused: audio ? audio.paused : null,
+    readyState: audio ? audio.readyState : null,
+  });
 }
 
 
@@ -615,8 +652,31 @@ function setupMediaSession() {
 
   applyNowPlayingMetadata();
 
-  navigator.mediaSession.setActionHandler("play", () => activeAudio().play().catch(() => {}));
-  navigator.mediaSession.setActionHandler("pause", () => activeAudio().pause());
+  // OS interruptions (a phone call, Siri, another app taking the output) are
+  // otherwise invisible in the log: from the server they look identical to
+  // the user pausing. Safari-only; everywhere else there is no event to miss.
+  if ("audioSession" in navigator && typeof navigator.audioSession.addEventListener === "function") {
+    navigator.audioSession.addEventListener("statechange", () => {
+      reportPlayback("audio-session", { state: navigator.audioSession.state });
+    });
+  }
+
+  navigator.mediaSession.setActionHandler("play", () => {
+    reportMediaSessionAction("play");
+    activeAudio()
+      .play()
+      .catch((err) =>
+        reportPlayback("play-rejected", {
+          contentId: document.getElementById("player-root")?.dataset.contentId,
+          error: String(err?.name || err),
+          via: "media-session",
+        })
+      );
+  });
+  navigator.mediaSession.setActionHandler("pause", () => {
+    reportMediaSessionAction("pause");
+    activeAudio().pause();
+  });
   navigator.mediaSession.setActionHandler("seekbackward", () => {
     const audio = activeAudio();
     audio.currentTime = Math.max(0, audio.currentTime - SKIP_SECONDS);
