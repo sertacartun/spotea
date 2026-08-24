@@ -15,8 +15,13 @@ JS_DIR = Path("app/static/js")
 
 
 def _function_body(source: str, name: str) -> str:
-    """The text of `export function <name>(...) { ... }`, brace-matched."""
-    start = source.index(f"export function {name}(")
+    """The text of `export [async] function <name>(...) { ... }`, brace-matched."""
+    needle = f"export function {name}("
+    if needle not in source:
+        # api() and the rest of core.js's request helpers are async; this used
+        # to only know the plain form and raised a bare "substring not found".
+        needle = f"export async function {name}("
+    start = source.index(needle)
     open_brace = source.index("{", start)
     depth = 0
     for index in range(open_brace, len(source)):
@@ -1464,4 +1469,136 @@ def test_the_device_toggle_can_actually_be_hidden() -> None:
     )
     assert ".device-summary[hidden]" in css, (
         "no [hidden] rule for .device-summary, which is display: flex"
+    )
+    assert ".offline-banner[hidden]" in css, (
+        "no [hidden] rule for .offline-banner, which is display: flex — it "
+        "would show permanently, for everyone, connection or not"
+    )
+
+
+def test_every_js_module_is_in_the_service_worker_precache() -> None:
+    """An ES module that 404s takes its whole import graph down with it, so a
+    shell precache missing one file is not a degraded offline app — it is a
+    blank page. This is the guard that makes adding a module fail here rather
+    than in a browser with no signal, which is the one place nobody can debug
+    it.
+
+    sw.js itself is excluded on purpose: the browser fetches the worker, and
+    a worker serving its own bytes from the cache it controls is how an
+    update stops being able to land.
+    """
+    source = (JS_DIR / "sw.js").read_text()
+    listed = set(re.findall(r'"(/static/[^"]+)"', source))
+
+    on_disk = {
+        f"/static/js/{path.relative_to(JS_DIR).as_posix()}"
+        for path in JS_DIR.rglob("*.js")
+        if path.name != "sw.js"
+    }
+    missing = sorted(on_disk - listed)
+    assert not missing, f"JS modules not in sw.js's PRECACHE_URLS: {missing}"
+
+    stale = sorted(url for url in listed if url.endswith(".js") and url not in on_disk)
+    assert not stale, f"PRECACHE_URLS lists JS that no longer exists: {stale}"
+
+    assert "/static/css/style.css" in listed, "the stylesheet is not precached"
+
+
+def test_the_precache_never_stores_a_redirect_or_an_error() -> None:
+    """"/" answers 200 with the login page once a session has expired, so a
+    bare response.ok would happily pin the login screen as the offline home
+    page — and it would keep serving it after the user logged back in, since
+    the shell is only written on install.
+    """
+    source = (JS_DIR / "sw.js").read_text()
+
+    install = source[source.index('addEventListener("install"') :]
+    install = install[: install.index("self.skipWaiting()")]
+    assert "response.redirected" in install, (
+        "the precache stores redirected responses, so an expired session pins "
+        "the login page as the offline shell"
+    )
+    assert "!response.ok" in install, "the precache stores error responses"
+    assert "allSettled" in install, (
+        "cache.addAll rejects the whole batch on one failed request — a flaky "
+        "connection at install time then leaves no offline mode at all"
+    )
+
+
+def test_an_offline_open_does_not_overwrite_the_metadata_it_just_recovered() -> None:
+    """openPlayer's offline fallback builds `data` from what was stored with
+    the audio. The assignment that follows it (`data = res.data`) is null on
+    that path, and songVersionOf behind it is a live YouTube lookup — the one
+    call certain to fail when the reason we are here is that nothing can
+    reach the network.
+    """
+    source = (JS_DIR / "home" / "overlay.js").read_text()
+
+    body = source[source.index("const res = await api(`/content/${contentId}`);") :]
+    body = body[: body.index('document.querySelector(".player-title")')]
+    assert "if (!data) {\n      data = res.data;" in body, (
+        "res.data is assigned unconditionally, clobbering the offline "
+        "metadata and then running songVersionOf against no network"
+    )
+
+
+def test_only_an_unreachable_server_falls_back_to_the_device() -> None:
+    """A 404 or a 409 is the server *answering* — that this track is gone, or
+    not ready. That is a real answer and it has to win over a local copy's
+    memory of it. Only status 0, which api() uses for "the request never
+    arrived", means there was no answer to defer to.
+    """
+    source = (JS_DIR / "home" / "overlay.js").read_text()
+
+    assert "res.status === 0 && playingFromDevice" in source, (
+        "the offline fallback triggers on any failed response, so a track the "
+        "server has deleted still opens from a stale device copy"
+    )
+
+
+def test_the_offline_banner_does_not_run_on_navigator_online_alone() -> None:
+    """Measured in Chromium on 2026-08-25: with the browser genuinely
+    offline, navigator.onLine reads false — then reload, and the document the
+    service worker serves out of its cache reads it back as **true**. That
+    reload *is* the offline app opening, so a banner driven by onLine alone
+    is hidden at exactly the moment it exists for.
+
+    api() reporting whether each request arrived is what actually raises it.
+    """
+    source = CORE_JS.read_text()
+
+    watch = _function_body(source, "watchConnection")
+    assert "requestsFailing" in watch, (
+        "watchConnection reads navigator.onLine alone, which is true on a "
+        "cached page that is genuinely offline"
+    )
+
+    # Sliced to the next top-level export rather than brace-matched:
+    # _function_body starts at the first "{" after the name, which for api()
+    # is its destructured options parameter, not its body.
+    api_body = source[source.index("export async function api(") :]
+    api_body = api_body[: api_body.index("\nexport ")]
+    assert "noteConnection(false)" in api_body, (
+        "api() does not report a request that never arrived, so nothing "
+        "tells the banner the connection is gone"
+    )
+    assert "noteConnection(true)" in api_body, (
+        "api() does not report a request that came back, so the banner never "
+        "comes down again"
+    )
+
+
+def test_a_reachable_server_is_the_only_thing_that_lowers_the_banner() -> None:
+    """The `online` event fires with the same untrustworthy value the guard
+    above is about, so it must not clear the state by itself — it has to go
+    through the same "did a request actually arrive" path as everything else.
+    """
+    source = CORE_JS.read_text()
+    watch = _function_body(source, "watchConnection")
+
+    online_handler = watch[watch.index('addEventListener("online"') :]
+    online_handler = online_handler[: online_handler.index("\n")]
+    assert "noteConnection(true)" in online_handler, (
+        "the online event clears the offline state directly rather than "
+        "letting a successful request prove it"
     )

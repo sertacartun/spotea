@@ -1,6 +1,7 @@
 // Entry point for index.html — Home, Library, Explore, Settings, and the
 // channel/playlist detail panel and player overlay drilled into from them.
 
+import { watchConnection } from "../core.js";
 import { handleInitialRoute, setupDetailPanel } from "../home/detail.js";
 import { refreshRecommendations, setupExploreSearch, setupRecommendations } from "../home/explore.js";
 import {
@@ -37,6 +38,9 @@ installVisibilityBreadcrumb();
 setupPlayerOverlay();
 // After setupPlayer: onPlayerEvent binds to the audio element that exists
 // now, and setupPlayer is what puts it there.
+// Before anything that might fail: offline, the banner is the context for
+// every failure that follows it.
+watchConnection();
 setupLyricsPanel();
 setupDetailPanel();
 resumeOverlayIfNeeded();

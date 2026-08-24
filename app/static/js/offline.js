@@ -160,6 +160,28 @@ async function listSaved() {
 }
 
 /**
+ * What was stored alongside a saved track's audio: enough to render it with
+ * no server to ask.
+ *
+ * This is the whole reason the metadata is kept at all. A device that can
+ * play the bytes but cannot say what the song is called is not usable
+ * offline, and GET /content/{id} — where every other surface gets a title
+ * from — is exactly what is unreachable at the moment it matters.
+ */
+export async function readTrackMeta(contentId) {
+  if (!isSupported()) return null;
+  try {
+    return (
+      (await transact(META_STORE, "readonly", (tx) =>
+        promisify(tx.objectStore(META_STORE).get(Number(contentId)))
+      )) || null
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
  * A blob: URL for the saved audio, or null when this track isn't saved.
  *
  * The caller owns the URL and must revoke it — which for the playback path
