@@ -263,7 +263,11 @@ def test_downloads_modal_actions_refresh_its_own_list() -> None:
     anything until they closed and reopened the modal."""
     source = (JS_DIR / "home" / "settings.js").read_text()
 
-    assert source.count("{ alsoDownloads: true }") == 2, (
+    # Matched on the option rather than on the whole options object: both
+    # calls now also pass alsoDevice (they drop the device's own copy of what
+    # the server just deleted), and pinning the exact literal made this fail
+    # for an unrelated addition rather than for the thing it guards.
+    assert source.count("alsoDownloads: true") == 2, (
         "expected exactly two confirmedAction calls (clear-storage, "
         "remove-download) to opt into refreshing the open modal's own list"
     )
@@ -1362,4 +1366,102 @@ def test_the_background_handoff_happens_before_the_cliff() -> None:
     assert "playFromQueue(next);" in ended, (
         "the ended handler no longer advances — the early handoff is now the "
         "only path forward and every case it declines just stops"
+    )
+
+
+def test_the_device_lookup_is_skipped_when_a_prefetch_already_holds_the_bytes() -> None:
+    """The auto-advance handoff runs inside the `ended` event while iOS may
+    have the page frozen, and everything from there to audio.play() has to be
+    reachable without awaiting anything the browser is free to defer — that
+    is what "it didn't move to the next song until I opened the app again"
+    was, and what cacheUpcomingAudio exists to prevent.
+
+    So openPlayer's offline lookup has to sit behind the prefetch miss. On a
+    hit the bytes are already in the page and the lookup could only ever
+    return the same audio, more slowly.
+    """
+    source = (JS_DIR / "home" / "overlay.js").read_text()
+
+    guard = source.index("if (!prefetchedAudio) {")
+    lookup = source.index("const savedUrl = await openTrackUrl(contentId);")
+    offer = source.index("offerPrefetchedAudio(contentId, prefetchedAudio);")
+    assert guard < lookup < offer, (
+        "the device lookup must run only on a prefetch miss, and before "
+        "ownership of the bytes passes to player.js"
+    )
+
+
+def test_a_track_played_off_the_device_ignores_what_the_server_says_about_it() -> None:
+    """Both of these refuse a track whose bytes are sitting on the phone.
+
+    `status` other than "ready" sends prepareAudio off to start a fresh
+    download — which is what a library cleared from the Downloads modal
+    leaves behind, so "Clear all" would strand every saved track. And an
+    `is_unavailable` row is skipped outright, a state a saved track really
+    can reach: YouTube pulling a video says nothing about a copy taken
+    before it did.
+    """
+    source = (JS_DIR / "home" / "overlay.js").read_text()
+
+    assert 'root.dataset.status = playingFromDevice ? "ready" : data.status;' in source, (
+        "a device-played track still defers to the server's status, so a "
+        "cleared server library makes saved tracks re-download to play"
+    )
+    assert "playingFromDevice && data.is_unavailable" in source, (
+        "a device-played track is still skipped when YouTube has since "
+        "pulled the video it came from"
+    )
+
+
+def test_the_offline_cover_is_fetched_through_the_same_origin_proxy() -> None:
+    """A cross-origin image fetch is opaque, and an opaque Blob cannot be
+    read back — storing one would save bytes that could never be displayed,
+    and would do it silently.
+
+    The URL saved with the row is already the proxied one (see
+    storage.StoredItem.thumbnail_url), so this is a guard on nobody
+    "optimising" the proxy back out of the path.
+    """
+    source = (JS_DIR / "offline.js").read_text()
+
+    assert "ytimg.com" not in source and "ggpht.com" not in source, (
+        "offline.js fetches a cover straight from YouTube's CDN — the "
+        "response is opaque and the stored Blob would be unreadable"
+    )
+
+
+def test_offline_metadata_and_audio_live_in_separate_stores() -> None:
+    """Listing what's saved must not pay for the audio. IndexedDB
+    materialises whole records, so one combined store would pull every saved
+    song's Blob into memory just to render the Downloads modal's ticks and a
+    size total.
+    """
+    source = (JS_DIR / "offline.js").read_text()
+
+    assert source.count("createObjectStore(") == 2, (
+        "expected two object stores — metadata separate from the audio Blobs"
+    )
+    listing = source[source.index("async function listSaved()") :]
+    listing = listing[: listing.index("\n}")]
+    assert "BLOB_STORE" not in listing, (
+        "listSaved reads the blob store, so every listing loads every saved "
+        "song's audio into memory"
+    )
+
+
+def test_the_device_toggle_can_actually_be_hidden() -> None:
+    """It shares the row-button rule with .storage-export/.storage-remove,
+    which sets an explicit `display` — and an explicit display beats the
+    [hidden] attribute. Without a rule of its own, the button syncDeviceState
+    hides on a browser with no IndexedDB stays on screen offering something
+    that cannot work.
+    """
+    css = (JS_DIR.parent / "css" / "style.css").read_text()
+
+    assert ".storage-keep[hidden]" in css, (
+        "no [hidden] rule for .storage-keep, which an explicit display "
+        "otherwise overrides"
+    )
+    assert ".device-summary[hidden]" in css, (
+        "no [hidden] rule for .device-summary, which is display: flex"
     )

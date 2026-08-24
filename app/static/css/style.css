@@ -1315,6 +1315,7 @@ button.track-link {
 }
 
 .storage-export,
+.storage-keep,
 .storage-remove {
   background: none;
   border: none;
@@ -1331,9 +1332,62 @@ button.track-link {
 }
 
 .storage-export svg,
+.storage-keep svg,
 .storage-remove svg {
   width: 16px;
   height: 16px;
+}
+
+/* The shared rule above sets display: inline-flex, and an explicit display
+   beats the [hidden] attribute — so hiding this button for a browser with no
+   IndexedDB (see home/settings.js's syncDeviceState) needs its own rule or it
+   stays on screen, offering something that cannot work. */
+.storage-keep[hidden] {
+  display: none;
+}
+
+.storage-keep:hover {
+  color: var(--accent);
+}
+
+/* On, meaning the audio itself is on this device. Filled rather than merely
+   tinted: this is the one state in the row that says something is stored
+   somewhere the server can't see, and it has to read at a glance. */
+.storage-keep.is-on {
+  color: var(--accent);
+}
+
+.storage-keep.is-on svg {
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+/* A whole-file transfer, so it runs for seconds rather than instantly. */
+.storage-keep.is-working {
+  animation: pulse 1s ease-in-out infinite;
+  cursor: default;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.device-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 1rem;
+  margin-top: -0.6rem;
+  margin-bottom: 1rem;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.device-summary[hidden] {
+  display: none;
 }
 
 .storage-export:hover {

@@ -30,6 +30,15 @@ from your browser — a personal, free alternative to a streaming subscription.
   one of YouTube Music's moods to browse are there regardless.
 - Downloads are yours: audio is extracted with yt-dlp, stored on your own
   disk, and exported as one zip whenever you want it.
+- **Keep songs on the device.** The Downloads list has a phone button on
+  every row: press it and that track's audio is copied into the browser
+  itself, cover art included. It then plays with no network at all — on a
+  train, on a plane, or anywhere the instance simply isn't reachable — and
+  keeps playing even if you later clear the server's own copy. The line above
+  the list says how much of the device's storage the copies use, and removes
+  them all in one go. How much a browser will let you keep varies (iOS is
+  both the smallest and the least predictable); the app asks for persistent
+  storage the first time you keep something, and tells you when it's full.
 
 ## Running with Docker (recommended)
 
