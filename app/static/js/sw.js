@@ -26,7 +26,58 @@
 // /onboarding/* weren't listed at all. A v3 client could be holding a
 // cached /settings (or /recommendations, or a /partials/* fragment)
 // response from a profile other than whichever one is actually active now.
-const CACHE_NAME = "spotea-v4";
+// Bumped again to v5, this time for what it *adds* rather than what it has
+// to purge: the install below now precaches the app shell. Before it, the
+// cache only ever filled with what had already been fetched once, so a PWA
+// installed and then taken offline — the exact sequence someone installs it
+// for — opened to the browser's own "no internet" page. Nothing it holds is
+// wrong, but a v4 cache has none of the precached entries, and the shell is
+// only ever written on install.
+const CACHE_NAME = "spotea-v5";
+
+// The shell: enough to boot the app with no network. Every module in the
+// import graph is here because an ES module that 404s takes the whole graph
+// down with it — a partial precache is not a degraded app, it is a blank
+// page. tests/test_static_js.py holds this list to exactly the files on
+// disk, so adding a module fails the suite until it is listed.
+//
+// "/" is the page itself. It is served from here whenever the network can't
+// answer, which also means an offline open shows Home and Library exactly as
+// the server last rendered them — stale, but real, and the saved tracks in
+// them still play (see home/overlay.js's offline fallback).
+//
+// sw.js is deliberately absent: the browser fetches the worker itself, and a
+// worker serving its own bytes out of the cache it controls is how an update
+// stops being able to land.
+const PRECACHE_URLS = [
+  "/",
+  "/static/css/style.css",
+  "/static/manifest.json",
+  "/static/img/logo.svg",
+  "/static/img/apple-touch-icon.png",
+  "/static/img/icons/icon-192.png",
+  "/static/img/icons/icon-512.png",
+  "/static/img/icons/icon-maskable-192.png",
+  "/static/img/icons/icon-maskable-512.png",
+  "/static/js/content-actions.js",
+  "/static/js/core.js",
+  "/static/js/fragments.js",
+  "/static/js/offline.js",
+  "/static/js/player.js",
+  "/static/js/resume.js",
+  "/static/js/viewport.js",
+  "/static/js/home/detail.js",
+  "/static/js/home/explore.js",
+  "/static/js/home/library.js",
+  "/static/js/home/lyrics.js",
+  "/static/js/home/overlay.js",
+  "/static/js/home/queue.js",
+  "/static/js/home/remote.js",
+  "/static/js/home/scrollers.js",
+  "/static/js/home/settings.js",
+  "/static/js/home/tabs.js",
+  "/static/js/pages/index.js",
+];
 
 // These routers (see app/routers/*.py) are all live API traffic, never
 // static assets — caching them is actively harmful, not just useless:
@@ -68,7 +119,28 @@ function isApiPath(path) {
   return API_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
 
-self.addEventListener("install", () => {
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) =>
+      // Not cache.addAll, which rejects the whole batch if any one request
+      // fails — and one of these can legitimately fail on a slow or flaky
+      // connection at exactly the moment the worker installs. A shell missing
+      // one icon is worth having; a shell that refused to install at all
+      // leaves the app with no offline mode and no sign of why.
+      Promise.allSettled(
+        PRECACHE_URLS.map((url) =>
+          fetch(url, { credentials: "same-origin" }).then((response) => {
+            // "/" answers 200 with the login page when the session has
+            // expired, so ok alone is not enough to tell a shell from a
+            // redirect to one. Caching that would pin the login screen as
+            // the offline home page.
+            if (!response.ok || response.redirected) return;
+            return cache.put(url, response);
+          })
+        )
+      )
+    )
+  );
   self.skipWaiting();
 });
 

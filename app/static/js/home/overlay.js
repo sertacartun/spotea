@@ -12,7 +12,7 @@
 
 import { api, formatDuration, showToast } from "../core.js";
 import { refreshFragments, refreshQueuePanel } from "../fragments.js";
-import { openCoverUrl, openTrackUrl } from "../offline.js";
+import { openCoverUrl, openTrackUrl, readTrackMeta } from "../offline.js";
 import {
   activeAudio,
   applyNowPlayingMetadata,
@@ -260,8 +260,50 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
     if (wasOpen) showPreparing();
 
     const res = await api(`/content/${contentId}`);
-    if (!res.ok) {
-      showToast("Could not load this track");
+    // The server is the only place a title normally comes from, and offline
+    // it is the one thing that cannot be reached — so a saved track would
+    // fail to open with its own audio sitting in the page, which is the exact
+    // situation the whole feature exists for. What was stored alongside the
+    // bytes stands in (see offline.js's readTrackMeta).
+    //
+    // Only when the request never arrived. A 404 or a 409 is the server
+    // answering, and answering that this track is gone or not ready — that is
+    // a real answer and it wins over a local copy's memory of it.
+    if (!res.ok && res.status === 0 && playingFromDevice) {
+      const meta = await readTrackMeta(contentId);
+      if (meta) {
+        data = {
+          id: Number(contentId),
+          title: meta.title,
+          channel_title: meta.artist || "",
+          // Neither is knowable without the server. `offline` is what the
+          // controls below read to disable rather than mislead: an artist
+          // page cannot be opened, and a favorite cannot be recorded, so a
+          // heart rendered "off" would be a claim this has no way to make.
+          artist_page_id: null,
+          is_favorite: false,
+          offline: true,
+          // The cover comes off the device below, so this stays null rather
+          // than pointing at /image-proxy — a request, on the one path that
+          // must make none.
+          thumbnail_url: null,
+          duration_seconds: meta.duration ?? null,
+          status: "ready",
+          is_unavailable: false,
+        };
+        reportPlayback("opened-offline", { contentId });
+      }
+    }
+    if (!data && !res.ok) {
+      // Two different failures, and offline the generic one is actively
+      // misleading: nothing is wrong with the track, it simply isn't one of
+      // the ones kept on this device. Saying so is also the only place the
+      // app can teach what the phone button in Downloads is for.
+      showToast(
+        res.status === 0
+          ? "You're offline — this song isn't saved to this device"
+          : "Could not load this track"
+      );
       // Nothing is going to load, so the spinner above has to come back off —
       // the transport stays disabled otherwise and the track that is still
       // playing can't be paused.
@@ -275,8 +317,14 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
       clearResumeState();
       return;
     }
-    data = res.data;
-    data = await songVersionOf(data);
+    // Not when the offline fallback above already built it: res.data is null
+    // in that case, and songVersionOf is a live YouTube lookup — the one call
+    // guaranteed to fail on the path that got here precisely because nothing
+    // can reach the network.
+    if (!data) {
+      data = res.data;
+      data = await songVersionOf(data);
+    }
   }
 
   document.querySelector(".player-title").textContent = data.title;
@@ -310,6 +358,11 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
     : "0:00";
 
   const favBtn = document.getElementById("favorite-btn");
+  // Favoriting is a write to the server, so offline it cannot happen — and a
+  // live-looking heart that silently drops the press is worse than one that
+  // says it is unavailable. Same treatment the artist link above gets for the
+  // same reason.
+  favBtn.disabled = data.offline === true;
   favBtn.dataset.contentId = data.id;
   favBtn.dataset.favorite = String(data.is_favorite);
   favBtn.classList.toggle("is-on", data.is_favorite);

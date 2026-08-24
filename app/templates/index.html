@@ -124,6 +124,16 @@
   </nav>
   </div>
 
+  {# Shown only while the browser says there is no connection (see
+     static/js/core.js's watchConnection). Ships hidden and stays hidden for
+     everyone with a working one — it is not a placeholder, it is a state
+     this page really can be in, and offline it is the difference between
+     "the app is broken" and "the app is doing what it can". #}
+  <div class="offline-banner" id="offline-banner" role="status" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-phone" /></svg>
+    <span>Offline — songs saved to this device still play.</span>
+  </div>
+
   <main class="layout">
     <section id="tab-home" class="tab-panel" data-tab-panel="home">
       <div id="home-shelves">

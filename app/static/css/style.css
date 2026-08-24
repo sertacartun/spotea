@@ -1373,6 +1373,30 @@ button.track-link {
   50% { opacity: 0.35; }
 }
 
+.offline-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.offline-banner svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* display: flex above beats the [hidden] attribute, so this is what actually
+   keeps the banner off screen for everyone with a connection. */
+.offline-banner[hidden] {
+  display: none;
+}
+
 .device-summary {
   display: flex;
   align-items: center;

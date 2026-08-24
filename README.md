@@ -39,6 +39,13 @@ from your browser — a personal, free alternative to a streaming subscription.
   them all in one go. How much a browser will let you keep varies (iOS is
   both the smallest and the least predictable); the app asks for persistent
   storage the first time you keep something, and tells you when it's full.
+- **It opens with no connection.** Installed to a home screen, the app
+  precaches itself, so opening it offline gives you Home and Library as the
+  server last rendered them rather than the browser's "no internet" page — and
+  anything you kept plays straight from there. A bar across the top says when
+  you're offline; the Downloads list is still the place to see exactly what
+  the device is holding. Tapping something you didn't keep says so instead of
+  failing quietly.
 
 ## Running with Docker (recommended)
 

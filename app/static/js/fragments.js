@@ -22,6 +22,8 @@
 // majority of the time. See refreshDownloadsBody below for where it's
 // fetched instead.
 
+import { noteConnection } from "./core.js";
+
 const FRAGMENTS = [
   { name: "home", targets: ["home-shelves"] },
   { name: "library", targets: ["library-grid"] },
@@ -89,11 +91,15 @@ async function refreshOne({ name, targets }) {
   let html;
   try {
     const res = await fetch(`/partials/${name}`);
+    noteConnection(true);
     if (!res.ok) return false;
     html = await res.text();
   } catch (err) {
     // A failed refresh leaves the previous markup in place, which is exactly
-    // the state the page was already in. Nothing to tell the user.
+    // the state the page was already in. Nothing to tell the user — but the
+    // banner is told, because this is the most frequent request the app
+    // makes and so usually the first to notice a connection has gone.
+    noteConnection(false);
     return false;
   }
 

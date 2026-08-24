@@ -90,6 +90,52 @@ export function formatSize(numBytes) {
   return `${megabytes.toFixed(1)} MB`;
 }
 
+// Whether the app's own requests are currently failing to arrive. This is
+// the signal the offline banner actually runs on, because navigator.onLine
+// is not merely weak here — it is wrong in exactly the case that matters.
+//
+// Measured in Chromium on 2026-08-25: with the browser genuinely offline,
+// navigator.onLine reads false; reload the page, and the document the
+// service worker serves out of its cache reads it back as **true**. That
+// reload is the offline app opening — the one moment the banner exists for —
+// so a banner driven by onLine alone is hidden precisely when it is needed.
+//
+// api() below reports every outcome here instead: a request that never
+// arrived is the strongest evidence there is, and one that came back is
+// proof the connection is up whatever onLine claims.
+let requestsFailing = false;
+let syncConnectionBanner = () => {};
+
+/** Called by api() with whether the request reached the server. */
+export function noteConnection(reachable) {
+  if (requestsFailing === !reachable) return;
+  requestsFailing = !reachable;
+  syncConnectionBanner();
+}
+
+/**
+ * Keeps the offline banner in step with whether there is a connection.
+ *
+ * Raised by either signal, lowered only when a request actually succeeds —
+ * onLine going true on its own is not enough, since that is the value the
+ * cached document reports while still offline.
+ */
+export function watchConnection() {
+  const banner = document.getElementById("offline-banner");
+  if (!banner) return;
+  syncConnectionBanner = () => {
+    const offline = navigator.onLine === false || requestsFailing;
+    banner.hidden = !offline;
+    document.body.classList.toggle("is-offline", offline);
+  };
+  // The event is worth listening to even though its value can't be trusted
+  // on its own: it fires the instant a connection comes back, where the next
+  // successful request might be a while away.
+  window.addEventListener("online", () => noteConnection(true));
+  window.addEventListener("offline", () => syncConnectionBanner());
+  syncConnectionBanner();
+}
+
 export function debounce(fn, delay) {
   let timer;
   return (...args) => {
@@ -128,9 +174,14 @@ export async function api(url, { method = "GET", body, errorMessage } = {}) {
       }),
     });
   } catch (err) {
+    // The request never arrived — the one outcome that says something about
+    // the connection rather than about the request (see noteConnection).
+    noteConnection(false);
     if (errorMessage) showToast(errorMessage);
     return { ok: false, status: 0, data: null };
   }
+  // It came back. Whatever the status, the server was reachable to say it.
+  noteConnection(true);
 
   // 204 (profile/feed deletes) has no body at all, and an error response may
   // carry HTML rather than JSON — neither should turn into a thrown parse
