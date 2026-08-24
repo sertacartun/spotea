@@ -28,6 +28,11 @@ from your browser — a personal, free alternative to a streaming subscription.
   anything. List genres, artists or moods under **Interests** in Settings
   and that drives the **Playlists** shelf too. This week's charts and every
   one of YouTube Music's moods to browse are there regardless.
+- **Make your own playlists.** Library has a "New playlist" tile beside
+  Favorites and Recently Played; the + next to the heart in the player puts
+  whatever is playing into one (or takes it back out). A playlist keeps the
+  order you added things in, plays with one press like any other list, and
+  deleting it leaves the songs where they were.
 - Downloads are yours: audio is extracted with yt-dlp, stored on your own
   disk, and exported as one zip whenever you want it.
 - **Keep songs on the device.** The Downloads list has a phone button on

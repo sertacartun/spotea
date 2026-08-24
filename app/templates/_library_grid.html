@@ -41,6 +41,34 @@
           <span class="channel-card-count">{{ recently_played_count }} song{{ '' if recently_played_count == 1 else 's' }}</span>
         </span>
       </a>
+      {# The hand-made lists, after the three pinned ones and before the
+         artists. They sit in the same grid because they answer the same
+         question the pinned tiles do — "what do I want to put on" — and a
+         second grid below would separate two kinds of the same thing. #}
+      {% for playlist in playlists %}
+      {% set playlist_count = playlist_track_counts.get(playlist.id, 0) %}
+      <a class="channel-card" href="/#user-playlist/{{ playlist.id }}" data-detail-kind="user-playlist" data-detail-id="{{ playlist.id }}">
+        <span class="channel-card-avatar channel-card-icon is-user-playlist">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-list" /></svg>
+        </span>
+        <span class="channel-card-info">
+          <span class="channel-card-title">{{ playlist.name }}</span>
+          <span class="channel-card-count">{{ playlist_count }} song{{ '' if playlist_count == 1 else 's' }}</span>
+        </span>
+      </a>
+      {% endfor %}
+      {# A button rather than a link: it opens a prompt, not a view. Styled as
+         a card so the way to make a list sits where the lists are, instead of
+         in a menu somewhere else. #}
+      <button type="button" class="channel-card is-new-playlist" id="new-playlist-btn">
+        <span class="channel-card-avatar channel-card-icon is-user-playlist">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-plus" /></svg>
+        </span>
+        <span class="channel-card-info">
+          <span class="channel-card-title">New playlist</span>
+          <span class="channel-card-count">Make your own list</span>
+        </span>
+      </button>
       {% for artist in artists %}
       {% set video_count = artist_track_counts.get(artist.id, 0) %}
       {% set release_count = artist_release_counts.get(artist.id, 0) %}

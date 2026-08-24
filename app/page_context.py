@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from typing import NamedTuple
 
 from fastapi import BackgroundTasks
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.content_query import (
@@ -24,7 +24,7 @@ from app.content_query import (
 )
 from app.images import needs_thumbnail_caching
 from app.interests import ONBOARDING_MIN_INTERESTS, interest_chips, parse_interests
-from app.models import Artist, Content, User
+from app.models import Artist, Content, Playlist, PlaylistItem, User
 from app.services.artist_sync import cache_thumbnail, snapshot_releases
 from app.services.initial_sync import syncing_artist_ids
 from app.storage import collect_usage, usage_summary
@@ -237,8 +237,19 @@ def library_context(db: Session, user_id: int) -> dict:
     9 is worse than no count at all.
     """
     artists = followed_artists(db, user_id).all()
+    playlists = (
+        db.query(Playlist)
+        .filter(Playlist.user_id == user_id)
+        .order_by(Playlist.created_at, Playlist.id)
+        .all()
+    )
     return {
         "artists": artists,
+        # The hand-made lists, rendered as tiles beside the three pinned ones
+        # (see _library_grid.html). Their counts come from one grouped query
+        # for the same reason the artists' do.
+        "playlists": playlists,
+        "playlist_track_counts": playlist_track_counts(db, user_id),
         # Which cards say "Preparing…" — a channel whose one-time history scan
         # is still running (services/initial_sync.py). Read straight off the
         # in-memory registry, so this costs a dict lookup per card and no
@@ -356,6 +367,98 @@ PLAYLIST_KINDS: dict[str, PinnedPlaylist] = {
         "Find something to play",
     ),
 }
+
+
+def playlist_track_counts(db: Session, user_id: int) -> dict[int, int]:
+    """How many tracks each of this user's playlists holds, in one query.
+
+    Two callers: Library's grid, which renders a count on every tile, and
+    GET /playlists, which returns the same number. One grouped count rather
+    than one COUNT per playlist on every Library render — the same shape that
+    made Content's per-artist counts a single grouped query.
+    """
+    rows = db.execute(
+        select(PlaylistItem.playlist_id, func.count(PlaylistItem.id))
+        .join(Playlist, Playlist.id == PlaylistItem.playlist_id)
+        .where(Playlist.user_id == user_id)
+        .group_by(PlaylistItem.playlist_id)
+    ).all()
+    return {playlist_id: count for playlist_id, count in rows}
+
+
+def user_playlist_ids(db: Session, user_id: int, playlist_id: int) -> list[int] | None:
+    """Every content id in one hand-made list, in the order the user put them.
+
+    None when the playlist isn't this user's — which the callers turn into a
+    404 rather than an empty list, since "no such playlist" and "a playlist
+    with nothing in it" are different answers and the empty state says so.
+
+    The whole list rather than a page of it: the two callers are the detail
+    panel (which pages this in Python — a hand-made list is small, and the
+    alternative is a windowed join for a query that returns tens of rows) and
+    "Play all", which wants all of them anyway.
+    """
+    owned = (
+        db.query(Playlist.id)
+        .filter(Playlist.id == playlist_id, Playlist.user_id == user_id)
+        .one_or_none()
+    )
+    if owned is None:
+        return None
+    rows = (
+        db.query(PlaylistItem.content_id)
+        .filter(PlaylistItem.playlist_id == playlist_id)
+        .order_by(PlaylistItem.position, PlaylistItem.id)
+        .all()
+    )
+    return [row[0] for row in rows]
+
+
+def user_playlist_detail_context(
+    db: Session, user_id: int, playlist_id: int, page: int
+) -> dict | None:
+    """One hand-made playlist, through the same panel every other track list
+    uses. None for a playlist that isn't this user's.
+
+    The shape deliberately matches playlist_detail_context's above: same keys,
+    same template, so a row here is identical to a Favorites row rather than a
+    second list rendered by a second set of markup.
+    """
+    playlist = (
+        db.query(Playlist)
+        .filter(Playlist.id == playlist_id, Playlist.user_id == user_id)
+        .one_or_none()
+    )
+    if playlist is None:
+        return None
+
+    ids = user_playlist_ids(db, user_id, playlist_id) or []
+    total_pages = max(1, -(-len(ids) // DEFAULT_PAGE_SIZE))
+    page = min(max(page, 1), total_pages)
+    start = (page - 1) * DEFAULT_PAGE_SIZE
+    items = query_content_by_ids(db, user_id, ids[start : start + DEFAULT_PAGE_SIZE])
+
+    return {
+        "kind": "user-playlist",
+        "artist": None,
+        "title": playlist.name,
+        # What the panel needs to offer the two actions only this kind has:
+        # removing one track from the list, and deleting the list itself.
+        "user_playlist": playlist,
+        "playlist_id": playlist.id,
+        "empty_message": "Nothing in this playlist yet",
+        "empty_help": "Open a song and use the + beside the heart to put it here.",
+        "empty_cta": "Find something to play",
+        "empty_cta_href": EMPTY_CTA_HREF,
+        # len(ids), not len(items): the count line describes the playlist, not
+        # the page of it on screen.
+        "video_count": len(ids),
+        "content": items,
+        "page": page,
+        "total_pages": total_pages,
+        "start_index": start + 1,
+        "base_url": f"/#user-playlist/{playlist.id}",
+    }
 
 
 def queue_panel_context(db: Session, user_id: int, ids: list[int]) -> dict:

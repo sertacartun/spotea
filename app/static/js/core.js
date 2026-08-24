@@ -17,7 +17,18 @@ const PLAYLIST_KINDS = ["favorites", "new-uploads", "recently-played"];
 // showing something the library doesn't have yet — a recommended YouTube
 // playlist, a channel nobody follows, a YouTube Music artist, or one of
 // its moods (see app/services/remote_detail.py).
-const ID_DETAIL_KINDS = ["yt-playlist", "yt-artist-songs", "yt-artist", "yt-release", "yt-mood"];
+//
+// "user-playlist" is the one local kind here. The three in PLAYLIST_KINDS
+// above are a fixed vocabulary and so are the whole path; a hand-made list is
+// a row, and there can be any number of them (see models.Playlist).
+const ID_DETAIL_KINDS = [
+  "yt-playlist",
+  "yt-artist-songs",
+  "yt-artist",
+  "yt-release",
+  "yt-mood",
+  "user-playlist",
+];
 
 export function classifyHash(hash) {
   const [path, query] = hash.split("?");
@@ -320,6 +331,100 @@ document.addEventListener("keydown", (event) => {
  * session. Onboarding clears the attribute when it's done and the same overlay
  * behaves like every other one from then on.
  */
+const PROMPT_MARKUP = `
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="prompt-message">
+    <p id="prompt-message"></p>
+    <input type="text" id="prompt-input" class="prompt-input" autocomplete="off" autocapitalize="sentences" />
+    <div class="modal-actions">
+      <button type="button" id="prompt-cancel" class="btn-quiet">Cancel</button>
+      <button type="button" id="prompt-confirm" class="btn-primary">Save</button>
+    </div>
+  </div>
+`;
+
+function ensurePromptModal() {
+  let overlay = document.getElementById("prompt-overlay");
+  if (overlay) return overlay;
+
+  overlay = document.createElement("div");
+  overlay.id = "prompt-overlay";
+  overlay.className = "modal-overlay";
+  overlay.hidden = true;
+  overlay.innerHTML = PROMPT_MARKUP;
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+/**
+ * Asks for one line of text. Resolves to the trimmed string, or null when
+ * dismissed.
+ *
+ * confirmDialog's sibling rather than window.prompt: a native prompt is
+ * unstyled, is rendered by iOS as a system sheet that looks nothing like the
+ * app, and is suppressed outright in some installed-PWA contexts — which
+ * would make creating a playlist silently do nothing.
+ *
+ * The input is focused rather than the safe choice, the opposite of
+ * confirmDialog: this guards nothing destructive, and the next thing the user
+ * wants to do is type.
+ */
+export function promptDialog(message, { value = "", confirmLabel = "Save", maxLength = 100 } = {}) {
+  const overlay = ensurePromptModal();
+  const input = overlay.querySelector("#prompt-input");
+  const confirmBtn = overlay.querySelector("#prompt-confirm");
+  const cancelBtn = overlay.querySelector("#prompt-cancel");
+
+  overlay.querySelector("#prompt-message").textContent = message;
+  confirmBtn.textContent = confirmLabel;
+  input.value = value;
+  input.maxLength = maxLength;
+  overlay.hidden = false;
+  input.focus();
+  input.select();
+
+  return new Promise((resolve) => {
+    function cleanup(result) {
+      overlay.hidden = true;
+      confirmBtn.removeEventListener("click", onConfirm);
+      cancelBtn.removeEventListener("click", onCancel);
+      overlay.removeEventListener("click", onBackdrop);
+      input.removeEventListener("keydown", onInputKey);
+      document.removeEventListener("keydown", onKey);
+      resolve(result);
+    }
+    const submit = () => {
+      const text = input.value.trim();
+      // An empty name is the same answer as Cancel — there is nothing to
+      // create — so it resolves null rather than sending a request the
+      // server would only reject.
+      cleanup(text || null);
+    };
+    const onConfirm = () => submit();
+    const onCancel = () => cleanup(null);
+    const onBackdrop = (event) => {
+      if (event.target === overlay) cleanup(null);
+    };
+    // Enter submits, which is what a single-field dialog owes anyone who just
+    // typed a name. Bound to the input rather than the document so it doesn't
+    // fire for a keypress somewhere else on the page.
+    const onInputKey = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        submit();
+      }
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape") cleanup(null);
+    };
+
+    confirmBtn.addEventListener("click", onConfirm);
+    cancelBtn.addEventListener("click", onCancel);
+    overlay.addEventListener("click", onBackdrop);
+    input.addEventListener("keydown", onInputKey);
+    document.addEventListener("keydown", onKey);
+  });
+}
+
 export function isRequired(overlay) {
   return overlay.dataset.required === "true";
 }

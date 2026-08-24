@@ -294,3 +294,34 @@ class SettingsUpdate(BaseModel):
     # whole-list PUT means add, remove and reorder are one code path instead
     # of three endpoints.
     interests: list[str] | None = None
+
+
+# "Playlist" means three different things in this app, so this one carries
+# the "user" prefix everywhere it appears. PlaylistSearchResultOut above is a
+# YouTube Music playlist found through Explore; page_context.PLAYLIST_KINDS
+# are Library's pinned virtual lists, which are filters rather than rows;
+# these are the ones the user assembled by hand (see models.Playlist).
+class UserPlaylistCreate(BaseModel):
+    # Trimmed and length-checked at the router, which is also where a
+    # duplicate name is turned into a 409 — the unique constraint is the
+    # backstop, not the error message.
+    name: str = Field(min_length=1, max_length=100)
+
+
+class UserPlaylistOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    created_at: datetime
+    # Rendered on the Library tile and in the "add to" picker, so it comes
+    # back with the list rather than costing a request per playlist.
+    track_count: int = 0
+    # Whether the track the picker was opened for is already in this list.
+    # Only ever set by GET /playlists?content_id=…; None means the question
+    # wasn't asked.
+    contains: bool | None = None
+
+
+class PlaylistTrackAdd(BaseModel):
+    content_id: int

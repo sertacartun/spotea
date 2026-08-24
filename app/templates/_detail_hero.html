@@ -66,6 +66,14 @@
       Follow
     </button>
     {% endif %}
+    {# Only a hand-made list can be deleted — the pinned three are filters
+       with nothing to delete, and an artist's page offers Unfollow instead.
+       `is defined` because this template is included from four contexts and
+       only one of them sets it. #}
+    {% elif user_playlist is defined and user_playlist %}
+    <button type="button" id="delete-playlist-btn" class="btn-quiet channel-hero-unfollow" data-playlist-id="{{ user_playlist.id }}">
+      Delete playlist
+    </button>
     {% endif %}
   </div>
   {% if content and show_play_actions | default(true) %}

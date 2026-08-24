@@ -360,6 +360,27 @@
   </div>
 
 
+  {# "Add to playlist", opened from the + beside the player's heart. The list
+     inside is built client-side from GET /playlists rather than rendered
+     here: it has to reflect which playlists already hold the track that is
+     playing *right now*, which changes with every track and is not something
+     a page render can know in advance. #}
+  <div id="playlist-picker-overlay" class="modal-overlay" hidden>
+    <div class="modal modal-playlist-picker">
+      <div class="modal-header">
+        <h2>Add to playlist</h2>
+        <button type="button" id="playlist-picker-close" class="modal-close" aria-label="Close">×</button>
+      </div>
+
+      <p class="muted playlist-picker-track" id="playlist-picker-track"></p>
+      <ul class="playlist-picker-list" id="playlist-picker-list"></ul>
+      <button type="button" class="btn-quiet playlist-picker-new" id="playlist-picker-new">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-plus" /></svg>
+        New playlist
+      </button>
+    </div>
+  </div>
+
   {% include "_player_overlay.html" %}
 {% endblock %}
 

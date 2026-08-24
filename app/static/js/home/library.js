@@ -92,7 +92,12 @@ export function setupLibraryArtistGrid() {
   document.getElementById("tab-library")?.addEventListener("click", (event) => {
     if (event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0) return;
     const card = event.target.closest(".channel-card");
-    if (!card) return;
+    // A card with no kind has nothing to open — it wears this class for the
+    // shape, not to navigate. "New playlist" is the first of those (see
+    // _library_grid.html); without this it called openDetail(undefined),
+    // which swapped in an empty detail panel *over* Library and left every
+    // tab panel display: none behind it.
+    if (!card?.dataset.detailKind) return;
     event.preventDefault();
     openDetail(card.dataset.detailKind, card.dataset.detailId || null);
   });
