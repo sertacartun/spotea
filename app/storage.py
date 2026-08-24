@@ -34,7 +34,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
-from app.models import Artist, Content
+from app.models import Artist, Content, PlaylistItem
 from app.timeutil import utcnow
 
 # Suffix for the half-written archive routers/storage.py's export_all builds.
@@ -194,6 +194,14 @@ def purge_content(db: Session, content: Content) -> None:
     """
     if content.file_path:
         Path(content.file_path).unlink(missing_ok=True)
+    # Every hand-made list holding this track. SQLite does not enforce the
+    # foreign key unless PRAGMA foreign_keys is on, and the ORM cascade runs
+    # from Playlist down, not from Content sideways — so without this the row
+    # goes and its playlist_items stay, pointing at nothing. The list then
+    # renders a gap and "Play all" queues an id that 404s.
+    db.query(PlaylistItem).filter(PlaylistItem.content_id == content.id).delete(
+        synchronize_session=False
+    )
     db.delete(content)
 
 

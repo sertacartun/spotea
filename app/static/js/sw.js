@@ -71,6 +71,7 @@ const PRECACHE_URLS = [
   "/static/js/home/library.js",
   "/static/js/home/lyrics.js",
   "/static/js/home/overlay.js",
+  "/static/js/home/playlists.js",
   "/static/js/home/queue.js",
   "/static/js/home/remote.js",
   "/static/js/home/scrollers.js",

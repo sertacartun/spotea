@@ -62,6 +62,9 @@
   /* Pinned "New Uploads" / "Recently Played" tiles */
   --new-upload: #3b82f6;
   --recently-played: #8b5cf6;
+  /* The hand-made lists' tile badge — see _library_grid.html. Green so it
+     reads as a fourth kind rather than a variation on one of the three. */
+  --user-playlist: #16a34a;
 
   /* Seek/volume slider's unfilled track */
   --track-empty: #4d4d4d;
@@ -1812,6 +1815,145 @@ button.track-link {
 
 .channel-card-icon.is-recently-played {
   background: var(--recently-played);
+}
+
+.channel-card-icon.is-user-playlist {
+  background: var(--user-playlist);
+}
+
+/* A <button> in a grid of <a>s: it needs the anchors' box back, since a
+   button brings its own font, border, background and alignment. Everything
+   else about it is .channel-card. */
+.channel-card.is-new-playlist {
+  border: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
+.channel-card.is-new-playlist .channel-card-icon.is-user-playlist {
+  /* Outlined rather than filled: this one makes a list, it isn't one. */
+  background: transparent;
+  border: 1px dashed var(--user-playlist);
+}
+
+.channel-card.is-new-playlist .channel-card-icon svg {
+  color: var(--user-playlist);
+}
+
+/* Removing a track from a hand-made list. Sits beside the duration, outside
+   the row's own link so a press here isn't also a press on "play this". */
+.track-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.track-remove svg {
+  width: 15px;
+  height: 15px;
+}
+
+.track-remove:hover {
+  color: var(--danger);
+}
+
+.playlist-picker-track {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-picker-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.playlist-picker-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.75rem;
+  background: var(--bg-base);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.playlist-picker-row:hover {
+  background: var(--bg-raised);
+}
+
+/* Already holds the open track. Pressing it again takes the track back out,
+   so the state has to be readable at a glance — the press is a toggle, not a
+   second add. */
+.playlist-picker-row.is-in {
+  border-color: var(--user-playlist);
+}
+
+.playlist-picker-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-picker-count {
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.playlist-picker-empty {
+  padding: 0.7rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.playlist-picker-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.playlist-picker-new svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* core.js's promptDialog — the confirm modal's sibling, with a field. */
+.prompt-input {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  margin: 0.75rem 0 0;
+  background: var(--bg-base);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+}
+
+.prompt-input:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 /* The three pinned playlists' hero badge, smaller than the avatar an artist

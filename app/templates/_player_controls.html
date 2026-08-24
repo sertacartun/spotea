@@ -85,6 +85,20 @@
         <input type="range" id="volume-bar" class="range range-volume" min="0" max="100" value="100" aria-label="Volume" />
       </div>
 
+      {# Beside the heart because they are the same gesture on the same
+         track — one puts it in the list the app keeps for you, the other in
+         a list you keep yourself. Disabled until a track is open, and again
+         while offline (see home/overlay.js), since both are server writes. #}
+      <button
+        type="button"
+        id="add-to-playlist-btn"
+        class="btn-fav"
+        aria-label="Add to playlist"
+        title="Add to playlist"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-plus" /></svg>
+      </button>
+
       <button
         type="button"
         id="favorite-btn"

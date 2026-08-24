@@ -48,6 +48,9 @@ class User(Base):
 
     artists: Mapped[list["Artist"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     content: Mapped[list["Content"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    playlists: Mapped[list["Playlist"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
     recommendation_cache: Mapped["RecommendationCache | None"] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
@@ -343,3 +346,68 @@ class TrackLyrics(Base):
     lines: Mapped[str | None] = mapped_column(Text, default=None)
     source: Mapped[str | None] = mapped_column(String(200), default=None)
     fetched_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class Playlist(Base):
+    """A list the user made themselves.
+
+    The three lists Library already pins — Favorites, New releases, Recently
+    Played — are *virtual*: each is a filter over `content` (see
+    page_context.PLAYLIST_KINDS), computed on every open, with no rows of its
+    own. That works because each answers a question the database can already
+    ask. A playlist someone assembled by hand cannot be derived from anything,
+    so it is the first list here that needs storing, and the first with an
+    order nobody but the user decides.
+    """
+
+    __tablename__ = "playlists"
+    __table_args__ = (
+        # Two lists with the same name are indistinguishable everywhere they
+        # appear — the Library tile, the "add to" picker — so the second one
+        # is refused rather than created.
+        UniqueConstraint("user_id", "name", name="uq_playlist_user_name"),
+        Index("ix_playlists_user_created", "user_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    name: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    user: Mapped["User"] = relationship(back_populates="playlists")
+    items: Mapped[list["PlaylistItem"]] = relationship(
+        back_populates="playlist",
+        cascade="all, delete-orphan",
+        order_by="PlaylistItem.position",
+    )
+
+
+class PlaylistItem(Base):
+    """One track's place in one playlist.
+
+    `position` rather than relying on insertion order: the order is the point
+    of a hand-made list, and `added_at` cannot express "move this one up"
+    without rewriting when it was added. Gaps are fine — nothing reads the
+    numbers themselves, only their order — so appending is a single insert
+    with max+1 rather than a renumbering pass.
+    """
+
+    __tablename__ = "playlist_items"
+    __table_args__ = (
+        # Adding a track already in the list is a no-op the API reports as
+        # such, not a second row: two identical rows would play twice and
+        # give "remove" two things to remove.
+        UniqueConstraint("playlist_id", "content_id", name="uq_playlist_item"),
+        Index("ix_playlist_items_playlist_position", "playlist_id", "position"),
+        # Read the other way round by the purge path: deleting a Content row
+        # has to find every list holding it (see storage.purge_content).
+        Index("ix_playlist_items_content", "content_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    playlist_id: Mapped[int] = mapped_column(ForeignKey("playlists.id"))
+    content_id: Mapped[int] = mapped_column(ForeignKey("content.id"))
+    position: Mapped[int] = mapped_column(default=0)
+    added_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    playlist: Mapped["Playlist"] = relationship(back_populates="items")

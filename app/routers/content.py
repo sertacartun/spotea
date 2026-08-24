@@ -11,7 +11,7 @@ from app.downloader import DownloadError, VideoUnavailableError, download_audio
 from app.formatting import safe_filename
 from app.images import is_music_video, needs_thumbnail_caching
 from app.models import Content, SwappedVideo, User
-from app.page_context import playlist_filter
+from app.page_context import playlist_filter, user_playlist_ids
 from app.progress import ProgressRegistry
 from app.schemas import ContentOut, FavoriteOut, LyricsOut, QueueOut, StatusOut
 from app.services.artist_follow import get_or_create_placeholder
@@ -130,6 +130,25 @@ def playlist_queue(
     if filter_value is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown playlist")
     return QueueOut(ids=query_content_ids(db, user.id, filter=filter_value))
+
+
+@router.get("/queue/user-playlist/{playlist_id}", response_model=QueueOut)
+def user_playlist_queue(
+    playlist_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> QueueOut:
+    """Same, for a hand-made playlist.
+
+    Its own route rather than a `kind` on the one above, because a hand-made
+    list is not a filter: playlist_filter can only answer for the three pinned
+    kinds, and the order here is stored rather than derived (see
+    page_context.user_playlist_ids).
+    """
+    ids = user_playlist_ids(db, user.id, playlist_id)
+    if ids is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such playlist")
+    return QueueOut(ids=ids)
 
 
 @router.get("/{content_id}", response_model=ContentOut)

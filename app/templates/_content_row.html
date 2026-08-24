@@ -33,4 +33,20 @@
      on every row of every list was the same answer repeated where nobody
      was asking. #}
   <span class="track-duration">{{ item.duration_seconds | duration if item.duration_seconds else '' }}</span>
+  {# Only inside a hand-made playlist, which is the only list a row can be
+     taken out of — everywhere else this template renders (the pinned lists,
+     an artist, the queue panel) membership is derived from something else and
+     there is nothing here to remove. `is defined` because those callers set
+     no playlist_id at all. #}
+  {% if playlist_id is defined and playlist_id %}
+  <button
+    type="button"
+    class="track-remove"
+    data-playlist-id="{{ playlist_id }}"
+    data-content-id="{{ item.id }}"
+    aria-label="Remove from this playlist"
+  >
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-close" /></svg>
+  </button>
+  {% endif %}
 </div>

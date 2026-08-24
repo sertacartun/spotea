@@ -158,6 +158,11 @@ function applyOrder(keepId) {
 }
 
 function queueUrl(source) {
+  // A hand-made list is addressed by id rather than by kind: the pinned three
+  // are a fixed vocabulary that *is* the path, these are rows, and their order
+  // is stored rather than derived from a filter (see routers/content.py's
+  // user_playlist_queue).
+  if (source.kind === "user-playlist") return `/content/queue/user-playlist/${source.id}`;
   return `/content/queue/playlist/${source.kind}`;
 }
 

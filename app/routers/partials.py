@@ -33,6 +33,7 @@ from app.page_context import (
     queue_panel_context,
     queue_thumbnail_caching,
     storage_summary_context,
+    user_playlist_detail_context,
 )
 from app.services.remote_detail import (
     remote_artist_context,
@@ -142,6 +143,29 @@ def playlist_detail_fragment(
     # cache (their covers are proxied straight from YouTube Music).
     if "content" in context:
         queue_thumbnail_caching(background_tasks, context["content"])
+    return templates.TemplateResponse(request, "_fragment_detail.html", context)
+
+
+@router.get("/detail/user-playlist/{playlist_id}", response_class=HTMLResponse)
+def user_playlist_detail_fragment(
+    playlist_id: int,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    page: int = 1,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    """One hand-made playlist, through the same panel the pinned ones use.
+
+    Separate from playlist_detail_fragment above because it is addressed by
+    id rather than by kind — the pinned three are a fixed vocabulary, these
+    are rows — but it renders the identical template with the identical
+    context shape (see page_context.user_playlist_detail_context).
+    """
+    context = user_playlist_detail_context(db, user.id, playlist_id, page)
+    if context is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such playlist")
+    queue_thumbnail_caching(background_tasks, context["content"])
     return templates.TemplateResponse(request, "_fragment_detail.html", context)
 
 

@@ -15,6 +15,7 @@ import {
 } from "../home/library.js";
 import { setupLyricsPanel } from "../home/lyrics.js";
 import { resumeOverlayIfNeeded, setupPlayerOverlay } from "../home/overlay.js";
+import { setupPlaylists } from "../home/playlists.js";
 import {
   setupDownloadsOverlay,
   setupInterests,
@@ -43,6 +44,9 @@ setupPlayerOverlay();
 watchConnection();
 setupLyricsPanel();
 setupDetailPanel();
+// After setupDetailPanel: both listen on #detail-panel, and this one's
+// handler should not run for a click the panel has already acted on.
+setupPlaylists();
 resumeOverlayIfNeeded();
 // resumeOverlayIfNeeded only reopens a track left playing in a previous
 // session; a #channel/42 or #player/123 hash in the URL right now is a

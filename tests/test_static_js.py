@@ -1602,3 +1602,73 @@ def test_a_reachable_server_is_the_only_thing_that_lowers_the_banner() -> None:
         "the online event clears the offline state directly rather than "
         "letting a successful request prove it"
     )
+
+
+def test_a_hand_made_playlist_is_queued_by_id_not_by_kind() -> None:
+    """The pinned three are a fixed vocabulary and *are* the path
+    (/content/queue/playlist/favorites). A hand-made list is a row, so it has
+    its own route keyed by id — falling through to the pinned one would ask
+    for a playlist called "user-playlist" and get a 404, leaving "Play all"
+    with an empty queue and no error anyone can see.
+    """
+    source = (JS_DIR / "home" / "queue.js").read_text()
+
+    # queueUrl is module-private, so it is sliced rather than read through
+    # _function_body (which looks for an export).
+    body = source[source.index("function queueUrl(") :]
+    body = body[: body.index("\n}") + 2]
+    assert "/content/queue/user-playlist/${source.id}" in body, (
+        "queueUrl has no branch for a hand-made playlist, so Play all asks "
+        "the pinned-playlist route for a kind that isn't one"
+    )
+
+
+def test_a_hand_made_playlist_carries_its_id_in_the_detail_url() -> None:
+    """detailUrl builds /partials/detail/{kind}/{id} for kinds with an id and
+    /partials/detail/playlist/{kind} for those without. Left out of hasId, a
+    user playlist takes the second form and asks for a pinned playlist called
+    "user-playlist".
+    """
+    source = (JS_DIR / "home" / "detail.js").read_text()
+
+    assert 'kind === "user-playlist"' in source, (
+        "hasId does not admit user-playlist, so its detail fetch drops the id"
+    )
+    core = CORE_JS.read_text()
+    kinds = core[core.index("const ID_DETAIL_KINDS = [") :]
+    kinds = kinds[: kinds.index("]")]
+    assert "user-playlist" in kinds, (
+        "classifyHash cannot parse #user-playlist/12, so a deep link or a "
+        "reload lands on the unknown-hash branch"
+    )
+
+
+def test_the_playlist_module_does_not_import_the_panel_it_talks_to() -> None:
+    """home/detail.js imports playlists.js for its two event names, so an
+    import the other way is a cycle — which is exactly why removing a track
+    and deleting a list are announced as events rather than calling openDetail
+    and closeDetail directly.
+    """
+    source = (JS_DIR / "home" / "playlists.js").read_text()
+
+    assert "./detail.js" not in source, (
+        "playlists.js imports detail.js, which already imports it — the "
+        "events exist to keep this one-way"
+    )
+    assert 'export const PLAYLIST_CHANGED' in source
+    assert 'export const PLAYLIST_DELETED' in source
+
+
+def test_a_library_card_with_nothing_to_open_is_not_a_navigation() -> None:
+    """Library's grid delegates every .channel-card click to openDetail. The
+    "New playlist" tile wears that class for its shape and carries no
+    data-detail-kind, so an unguarded handler called openDetail(undefined) —
+    which swapped an empty detail panel in over Library and left every tab
+    panel at display: none behind it, with the tile itself measuring 0x0.
+    """
+    source = (JS_DIR / "home" / "library.js").read_text()
+
+    assert "card?.dataset.detailKind" in source, (
+        "the Library grid opens a detail panel for any .channel-card, "
+        "including ones with no kind to open"
+    )

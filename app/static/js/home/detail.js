@@ -6,7 +6,8 @@
 // boundary for that DOM to fall off of.
 //
 // Several things open it, and they differ only in where the rows come from:
-//   {playlist kind}       one of the four pinned    (from Library)
+//   {playlist kind}       one of the three pinned   (from Library)
+//   user-playlist/{id}    a list the user made      (from Library)
 //   yt-playlist/{id}      a YouTube playlist        (from Explore)
 //   yt-artist/{id}        an artist's profile       (from Explore)
 //   yt-artist-songs/{id}  that artist's whole list   (from the profile)
@@ -22,6 +23,7 @@ import { unfollowArtist } from "../content-actions.js";
 import { classifyHash, showToast } from "../core.js";
 import { refreshFragments, swapFragmentHtml } from "../fragments.js";
 import { OPEN_ARTIST, openPlayer } from "./overlay.js";
+import { PLAYLIST_CHANGED, PLAYLIST_DELETED } from "./playlists.js";
 import { QUEUE_CHANGED, isShuffled, loadQueue, queueSource, toggleShuffle } from "./queue.js";
 import { wireScrollers } from "./scrollers.js";
 import { ARTIST_FOLLOWED, followArtist, playRemoteList, playRemoteVideo } from "./remote.js";
@@ -59,9 +61,10 @@ const detailHome = (kind) => (isRemoteKind(kind) ? "explore" : "library");
 // than showing Library. { kind, id, page, pushed } | null.
 let current = null;
 
-// Kinds that carry an id put it in the path; the four pinned playlists are
-// the kind itself, and take the /playlist/{kind} route.
-const hasId = isRemoteKind;
+// Kinds that carry an id put it in the path; the pinned playlists are the
+// kind itself, and take the /playlist/{kind} route. A hand-made playlist is
+// the one local kind with an id — /partials/detail/user-playlist/{id}.
+const hasId = (kind) => isRemoteKind(kind) || kind === "user-playlist";
 
 function detailUrl(kind, id, page, title) {
   const base = hasId(kind) ? `/partials/detail/${kind}/${id}` : `/partials/detail/playlist/${kind}`;
@@ -467,6 +470,24 @@ export function setupDetailPanel() {
   // The player has its own shuffle toggle, and both drive the same
   // preference — whichever one is pressed, this panel's button has to follow.
   document.addEventListener(QUEUE_CHANGED, syncShuffleButton);
+
+  // A track was taken out of the open playlist. The row, the hero's count and
+  // the pagination all come from the server, so the panel is re-opened rather
+  // than having the row plucked out of the DOM — the same reasoning that made
+  // every other list here a fragment. `replace: true` so the re-render
+  // doesn't add a history entry the back button would have to walk through.
+  document.addEventListener(PLAYLIST_CHANGED, (event) => {
+    if (current?.kind !== "user-playlist") return;
+    if (String(current.id) !== String(event.detail?.playlistId)) return;
+    openDetail(current.kind, current.id, { page: current.page, replace: true });
+  });
+
+  // And the whole list is gone, so there is no panel left to show.
+  document.addEventListener(PLAYLIST_DELETED, (event) => {
+    if (current?.kind !== "user-playlist") return;
+    if (String(current.id) !== String(event.detail?.playlistId)) return;
+    closeDetail();
+  });
 
   // An artist just finished being followed — from an Explore search result, a
   // recommendation card, or the Follow button on their own page.
