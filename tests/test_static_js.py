@@ -169,6 +169,9 @@ def test_report_playback_only_sends_the_unexpected_events() -> None:
         "track-ended",
         "retry-rejected",
         "visibility-changed",
+        "media-session-action",
+        "audio-session",
+        "early-handoff",
     }
 
     # The allowlist alone proves nothing if reportPlayback doesn't actually
@@ -1181,4 +1184,182 @@ def test_a_press_that_has_to_ask_the_server_says_so_immediately() -> None:
     assert shown < fetched, "the spinner goes up only after the round trip it exists to cover"
     assert "if (wasOpen) clearPreparing();" in body, (
         "a failed load leaves the spinner up and the transport disabled"
+    )
+
+
+def test_the_handoff_beacon_says_whether_the_bytes_were_in_memory() -> None:
+    """`prepared` only covers the next track's metadata; whether the src swap
+    ran against a blob or against the network was invisible, and the
+    2026-08-23 stall had to be settled from the *absence* of a /stream line
+    in the server's access log. `buffered` states it outright."""
+    source = (JS_DIR / "home" / "overlay.js").read_text()
+
+    # rindex: the repeat-"one" branch has its own, earlier track-ended call
+    # (with `repeat: "one"` instead of a handoff), and the handoff's is last.
+    ended = source[source.rindex('reportPlayback("track-ended"') :]
+    ended = ended[: ended.index(");")]
+    assert "buffered: Boolean(upcomingTrack?.objectUrl)" in ended, (
+        "track-ended no longer reports whether the handoff had the audio in memory"
+    )
+
+
+def test_lock_screen_taps_leave_a_trace() -> None:
+    """A lock-screen control that "did nothing" has two very different causes:
+    our handler ran and its play() was refused, or iOS had already frozen the
+    page and the handler never ran at all. Only a beacon *from inside the
+    handler* can tell them apart — a tap with no beacon is the frozen-page
+    case. Every transport action the OS can send must therefore report."""
+    player = (JS_DIR / "player.js").read_text()
+    overlay = (JS_DIR / "home" / "overlay.js").read_text()
+
+    for action in ("play", "pause"):
+        handler = player[player.index(f'setActionHandler("{action}"') :]
+        handler = handler[: handler.index("});")]
+        assert f'reportMediaSessionAction("{action}")' in handler, (
+            f"the media-session {action} handler no longer reports being invoked"
+        )
+
+    for action in ("nexttrack", "previoustrack"):
+        handler = overlay[overlay.index(f'setActionHandler(\n      "{action}"') :]
+        handler = handler[: handler.index(": null")]
+        assert f'reportMediaSessionAction("{action}")' in handler, (
+            f"the media-session {action} handler no longer reports being invoked"
+        )
+
+
+def test_every_beacon_stamps_the_audio_session_state() -> None:
+    """Whether this device has the Audio Session API, and whether the session
+    was "interrupted" at the moment something went wrong, both matter exactly
+    when a beacon fires — and a field costs no extra beacons. `visibility`
+    rides along the same way and for the same reason."""
+    source = (JS_DIR / "player.js").read_text()
+
+    body = source[source.index("export function reportPlayback(") :]
+    body = body[: body.index("\n}")]
+    assert 'audioSession: navigator.audioSession?.state ?? "unsupported"' in body, (
+        "reportPlayback no longer stamps the audio-session state on beacons"
+    )
+    assert 'reportPlayback("audio-session"' in source, (
+        "OS interruptions (statechange) are no longer reported at all"
+    )
+
+
+def test_position_state_is_published_only_while_audio_renders() -> None:
+    """The spec makes a playbackRate of zero a TypeError — paused is
+    playbackState's job — so the old `playbackRate: rendering ? 1 : 0` always
+    threw for a non-rendering element and the catch swallowed it. The shipped
+    behaviour ("no update at all while silent") was right; the code now states
+    it instead of stumbling into it, and a finite-duration guard covers the
+    other input setPositionState throws on."""
+    source = (JS_DIR / "player.js").read_text()
+
+    assert "playbackRate: rendering" not in source, (
+        "setPositionState is being fed a conditional playbackRate again — "
+        "zero is a TypeError per spec, so the 0 branch silently never reports"
+    )
+    body = source[source.index("const syncPositionState = ") :]
+    body = body[: body.index("};")]
+    assert "if (!rendering) return;" in body, (
+        "position state is being reported for an element that isn't rendering "
+        "— the lock screen's clock will tick over silence"
+    )
+    assert "Number.isFinite(audio.duration)" in body, (
+        "an Infinity duration reaches setPositionState, which throws on it"
+    )
+    assert "Math.min(audio.currentTime, audio.duration)" in body, (
+        "mid-seek position > duration is a TypeError, not a correction"
+    )
+
+
+def test_the_page_declares_itself_a_media_player_to_the_os() -> None:
+    """WebKit's Audio Session API is the one channel a web page has to tell
+    iOS "I am a music app" — the category kept running with the screen locked
+    and not muted by the silent switch — rather than leaving the OS to infer
+    it per play(). Safari-only and experimental, so feature-detected and
+    allowed to fail."""
+    source = (JS_DIR / "player.js").read_text()
+
+    assert '"audioSession" in navigator' in source
+    assert 'navigator.audioSession.type = "playback"' in source, (
+        "the audio session type is no longer declared"
+    )
+
+
+def test_unchanged_metadata_is_republished_until_a_held_publish_lands() -> None:
+    """Two competing needs. A track change publishes its metadata during the
+    silent gap before playback, which iOS may silently drop — so the publish
+    on `playing` (the one moment iOS provably holds the session) must NOT be
+    skipped just because the values look identical; a Dynamic Island stuck on
+    the previous track is the bug that re-publish fixed. But `playing` also
+    fires after every buffering hitch and resume, and re-publishing identical
+    values then makes iOS rebuild the Now Playing card for nothing. The cache
+    therefore only short-circuits once a held-session publish has landed."""
+    source = (JS_DIR / "player.js").read_text()
+
+    assert "if (key === publishedNowPlaying && publishedWhileHeld) return;" in source, (
+        "the metadata cache no longer distinguishes a held-session publish "
+        "from one made in the silent gap — either every `playing` republishes "
+        "(card rebuilds) or none does (stuck Dynamic Island)"
+    )
+    assert "applyNowPlayingMetadata({ held: true })" in source, (
+        "the `playing` handler no longer marks its publish as held"
+    )
+
+
+def test_a_finished_queue_leaves_the_os_now_playing_surface() -> None:
+    """When the last track runs out there is nothing left to control, and iOS
+    freezes the page shortly after the audio stops — a Now Playing card left
+    up is dead weight, and the thing that lingers on the Dynamic Island after
+    the app is closed. Replaying in-app re-publishes on `playing`."""
+    overlay = (JS_DIR / "home" / "overlay.js").read_text()
+
+    assert "if (next == null) clearNowPlayingMetadata();" in overlay, (
+        "a queue running out no longer clears the OS Now Playing surface"
+    )
+    # closePlayer must clear through the same helper — a hand-rolled clear
+    # there would leave player.js's publish cache thinking the old metadata
+    # is still up, so re-opening the same track would publish nothing.
+    body = overlay[overlay.index("export function closePlayer(") :]
+    body = body[: body.index("\n}")]
+    assert "clearNowPlayingMetadata();" in body, (
+        "closePlayer clears mediaSession by hand (or not at all) instead of "
+        "through clearNowPlayingMetadata, desyncing the publish cache"
+    )
+
+
+def test_the_background_handoff_happens_before_the_cliff() -> None:
+    """`ended` is a cliff for a backgrounded page: the moment nothing renders,
+    iOS starts freezing it — measured 2026-08-23 18:14, a handoff with the
+    next track's bytes already in memory and play() already called still sat
+    at readyState 1 for 14 seconds until the screen woke. The only reliable
+    side of the cliff is the near one, so in the background the swap happens
+    while the outgoing track is still rendering."""
+    source = (JS_DIR / "home" / "overlay.js").read_text()
+
+    handler = source[source.index("let earlyHandoffFor = null;") :]
+    handler = handler[: handler.index("});")]
+
+    assert 'if (document.visibilityState === "visible") return;' in handler, (
+        "the early handoff runs in the foreground too, cutting the tail off "
+        "every track for a freeze that only threatens hidden pages"
+    )
+    assert "if (upcomingTrack?.id !== String(next) || !upcomingTrack.objectUrl) return;" in handler, (
+        "the early handoff no longer requires the bytes in memory — it would "
+        "trade the end of this track for a network stall it can't afford either"
+    )
+    assert "if (audio.paused) return;" in handler, (
+        "a paused element parked near the end of a track would auto-advance"
+    )
+    assert "audio.currentTime = 0;" in handler, (
+        "repeat-one no longer loops by rewinding before the end — it falls "
+        "back to rewinding after `ended`, on the far side of the cliff"
+    )
+    assert "EARLY_HANDOFF_SECONDS" in handler
+
+    # The `ended` path must survive as the fallback for everything the early
+    # handoff declines: foreground playback, a missing blob, a paused element.
+    ended = source[source.rindex('reportPlayback("track-ended"') :]
+    assert "playFromQueue(next);" in ended, (
+        "the ended handler no longer advances — the early handoff is now the "
+        "only path forward and every case it declines just stops"
     )

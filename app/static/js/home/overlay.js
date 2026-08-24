@@ -15,6 +15,7 @@ import { refreshFragments, refreshQueuePanel } from "../fragments.js";
 import {
   activeAudio,
   applyNowPlayingMetadata,
+  clearNowPlayingMetadata,
   clearPreparing,
   loadedTrackId,
   offerPrefetchedAudio,
@@ -22,6 +23,7 @@ import {
   paintRange,
   prepareAudio,
   releaseAudio,
+  reportMediaSessionAction,
   reportPlayback,
   showPreparing,
   whenVisible,
@@ -55,6 +57,13 @@ const SEEK_STEP_SECONDS = 15;
 // the handoff falls back to preparing it the ordinary way.
 const UPCOMING_POLL_MS = 1500;
 const UPCOMING_POLL_LIMIT = 20;
+
+// How close to a track's end the background early handoff fires (see the
+// timeupdate handler in setupPlayerOverlay). Wide enough that the roughly
+// once-a-second timeupdate cadence of a backgrounded iOS page still gets a
+// tick inside the window; the cut it makes is at most this much of a track
+// whose successor was about to cut it off anyway.
+const EARLY_HANDOFF_SECONDS = 1.2;
 
 // Ceiling on what a prefetch will hold in memory as a Blob. The library's
 // tracks run about 1.3 MB each (audio-only m4a at the bitrate this app asks
@@ -756,10 +765,23 @@ function syncQueueControls() {
   // Wrapped because a browser that doesn't implement these actions throws
   // rather than ignoring them, which would take the rest of this sync with it.
   try {
-    navigator.mediaSession.setActionHandler("nexttrack", hasNext ? () => playFromQueue(nextId()) : null);
+    navigator.mediaSession.setActionHandler(
+      "nexttrack",
+      hasNext
+        ? () => {
+            reportMediaSessionAction("nexttrack");
+            playFromQueue(nextId());
+          }
+        : null
+    );
     navigator.mediaSession.setActionHandler(
       "previoustrack",
-      hasPrevious ? () => playFromQueue(previousId()) : null
+      hasPrevious
+        ? () => {
+            reportMediaSessionAction("previoustrack");
+            playFromQueue(previousId());
+          }
+        : null
     );
   } catch (err) {
     /* Not supported here — the in-page transport still works. */
@@ -791,10 +813,7 @@ export function closePlayer() {
   // silently inherited a list the user has already closed.
   clearQueue();
 
-  if ("mediaSession" in navigator) {
-    navigator.mediaSession.metadata = null;
-    navigator.mediaSession.playbackState = "none";
-  }
+  clearNowPlayingMetadata();
 }
 
 export function setupPlayerOverlay() {
@@ -892,7 +911,26 @@ export function setupPlayerOverlay() {
     // The first breadcrumb of a handoff, and the one that makes the rest
     // legible: everything after it in the log either happened in this same
     // event or didn't happen at all. See player.js's reportPlayback.
-    reportPlayback("track-ended", { contentId: finished, next, prepared: upcomingTrack?.id ?? null });
+    //
+    // `buffered` says whether the handoff has the next track's bytes in
+    // memory, i.e. whether the src swap is against a blob or the network.
+    // `prepared` alone could not: it only covers the metadata, and during
+    // the 2026-08-23 stall investigation the difference had to be inferred
+    // from the *absence* of a /stream request in the server's access log.
+    reportPlayback("track-ended", {
+      contentId: finished,
+      next,
+      prepared: upcomingTrack?.id ?? null,
+      buffered: Boolean(upcomingTrack?.objectUrl),
+    });
+    // A queue that has genuinely run out leaves nothing for the OS's Now
+    // Playing surface to control: iOS freezes the page shortly after the
+    // audio stops, so the card it would keep showing is dead weight — and a
+    // dead card is exactly what lingers on the Dynamic Island after the app
+    // is closed. Cleared here rather than left "paused" forever; replaying
+    // the track in-app re-publishes everything on `playing`. The player
+    // overlay itself stays exactly as it was.
+    if (next == null) clearNowPlayingMetadata();
     playFromQueue(next);
   });
 
@@ -935,6 +973,57 @@ export function setupPlayerOverlay() {
     // opening the track.
     prefetchedFor = playing;
     cacheUpcoming(upcoming);
+  });
+
+  // The early handoff: in the background, the next track starts *before*
+  // this one ends, so the element never passes through `ended` off screen.
+  //
+  // `ended` is a cliff there. The moment nothing is rendering, a
+  // backgrounded page is living on borrowed time — iOS froze one mid-handoff
+  // within three seconds of `ended` on 2026-08-23 (18:14 in the breadcrumb
+  // log) with the next track's bytes already in memory and play() already
+  // called: everything after the silence was done right, and the track still
+  // sat at readyState 1 until the screen woke 14 seconds later. The only
+  // reliable side of the cliff is the near side, while audio is still
+  // rendering and the page still provably holds the session.
+  //
+  // Only when hidden: in the foreground the page isn't at risk of being
+  // frozen, the `ended` path below works, and cutting the tail off every
+  // track would buy nothing. Only with the bytes in memory: a handoff that
+  // still needs the network would trade the end of this track for a stall it
+  // can't afford either — the `ended` path is no worse for that case. The
+  // threshold accommodates background timeupdate cadence (roughly 1Hz on
+  // iOS), so the actual cut is somewhere inside the last second-and-a-bit of
+  // a track that is about to be cut off by its own successor anyway.
+  //
+  // Repeat-"one" takes the same protection as a rewind: looping by seeking
+  // back before the end never reaches `ended` at all, where the handler
+  // below rewinds only *after* it — on the far side of the cliff.
+  let earlyHandoffFor = null;
+  onPlayerEvent("timeupdate", () => {
+    if (document.visibilityState === "visible") return;
+    const audio = activeAudio();
+    if (audio.paused) return;
+    if (!Number.isFinite(audio.duration) || audio.duration <= 0) return;
+    if (audio.duration - audio.currentTime > EARLY_HANDOFF_SECONDS) return;
+
+    const playing = document.getElementById("player-root").dataset.contentId;
+    // No track, or a switch already underway (the DOM describes an incoming
+    // track the element hasn't been handed yet) — nothing to hand off from.
+    if (!playing || loadedTrackId() !== playing) return;
+
+    if (repeatMode() === "one") {
+      audio.currentTime = 0;
+      return;
+    }
+
+    if (earlyHandoffFor === playing) return;
+    const next = peekNextId();
+    if (next == null) return;
+    if (upcomingTrack?.id !== String(next) || !upcomingTrack.objectUrl) return;
+    earlyHandoffFor = playing;
+    reportPlayback("early-handoff", { contentId: playing, next });
+    playFromQueue(nextId());
   });
 
   document.getElementById("prev-track").addEventListener("click", () => playFromQueue(previousId()));

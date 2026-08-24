@@ -113,6 +113,17 @@ let activeVisibilityHandler = null;
 // was empty" and "the page stopped running" — indistinguishable from the
 // server otherwise, and an ambiguity a real investigation got stuck on for
 // several rounds before this was added.
+// "media-session-action" and "audio-session" earn their place the same way:
+// each is a real lock-screen/headset tap or an OS-side interruption, a
+// handful per session at most, and they answer the one question the log
+// could not answer during the 2026-08-23 investigation — whether a
+// lock-screen control that "did nothing" ran our handler and had its play()
+// refused, or never ran it at all because iOS had already frozen the page.
+// A tap that produces no beacon within a breath of its media event *is* the
+// frozen-page case, finally visible from the server.
+// "early-handoff" fires at most once per background auto-advance, in place
+// of the "track-ended" that advance no longer produces — without it the
+// log's per-track story would simply stop wherever the new path takes over.
 const REPORTED_EVENTS = new Set([
   "play-rejected",
   "playback-stalled",
@@ -121,13 +132,27 @@ const REPORTED_EVENTS = new Set([
   "track-ended",
   "retry-rejected",
   "visibility-changed",
+  "media-session-action",
+  "audio-session",
+  "early-handoff",
 ]);
 
 export function reportPlayback(event, detail = {}) {
   if (!REPORTED_EVENTS.has(event)) return;
   try {
+    // audioSession is Safari-only and experimental; stamped on every beacon
+    // (like `visibility`) because the two questions it answers — does this
+    // device have the API at all, and was the session "interrupted" at the
+    // moment something went wrong — both matter precisely when one of these
+    // fires, and a field costs no extra beacons.
     const body = JSON.stringify([
-      { event, visibility: document.visibilityState, at: new Date().toISOString(), ...detail },
+      {
+        event,
+        visibility: document.visibilityState,
+        audioSession: navigator.audioSession?.state ?? "unsupported",
+        at: new Date().toISOString(),
+        ...detail,
+      },
     ]);
     if (navigator.sendBeacon) {
       navigator.sendBeacon("/debug/playback", new Blob([body], { type: "application/json" }));
@@ -142,6 +167,22 @@ export function reportPlayback(event, detail = {}) {
   } catch (err) {
     /* Never let a breadcrumb take playback down with it. */
   }
+}
+
+/**
+ * One beacon per lock-screen/headset/notification-shade tap that reaches
+ * this page. The element's state is captured *before* the handler acts, so
+ * the log shows what the tap found, not what it left behind. Exported for
+ * home/overlay.js, whose queue-dependent next/previous handlers live there.
+ */
+export function reportMediaSessionAction(action) {
+  const audio = activeAudio();
+  reportPlayback("media-session-action", {
+    action,
+    contentId: document.getElementById("player-root")?.dataset.contentId,
+    paused: audio ? audio.paused : null,
+    readyState: audio ? audio.readyState : null,
+  });
 }
 
 
@@ -595,16 +636,65 @@ export function setupPlayer() {
  * makes the Dynamic Island pick up a new track instead of sitting on the
  * previous one.
  */
-export function applyNowPlayingMetadata() {
+// What the OS was last told, as a title/artist/artworkSrc key, and whether
+// that publish was made at a moment iOS provably held the audio session (a
+// `playing` event) — the only kind it is guaranteed to accept rather than
+// silently drop. Assigning mediaSession.metadata makes iOS rebuild the whole
+// Now Playing card, and applyNowPlayingMetadata runs on *every* `playing`
+// event — after each buffering hitch and each resume, not just track changes.
+// Re-publishing identical values from those is all cost and no information,
+// but ONLY once one held-session publish has landed: the publish a track
+// change makes in the silent gap before playback may have been dropped, so
+// equality against *that* one proves nothing and must not short-circuit the
+// `playing` re-publish that exists to repair it (a Dynamic Island stuck on
+// the previous track is the bug that re-publish fixed).
+// \u0000-joined because none of the parts can contain NUL, so the key
+// cannot collide across field boundaries.
+let publishedNowPlaying = null;
+let publishedWhileHeld = false;
+
+// The artwork's MIME type, when the URL's extension states it. iOS has
+// historically been picky about artwork it isn't told the type of (grey
+// squares on the lock screen); an extension is honest evidence, a guess is
+// not, so URLs without one just omit the field as before.
+const ARTWORK_TYPES = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
+
+export function applyNowPlayingMetadata({ held = false } = {}) {
   if (!("mediaSession" in navigator)) return;
+  const title = document.querySelector(".player-title")?.textContent || "";
+  const artist = document.querySelector(".player-channel")?.textContent || "";
+  const artworkSrc = document.getElementById("player-art-img")?.src || "";
+
+  const key = [title, artist, artworkSrc].join("\u0000");
+  if (key === publishedNowPlaying && publishedWhileHeld) return;
+  publishedNowPlaying = key;
+  publishedWhileHeld = held;
+
+  const extension = artworkSrc.split("?")[0].split(".").pop()?.toLowerCase();
+  const type = ARTWORK_TYPES[extension];
   navigator.mediaSession.metadata = new MediaMetadata({
-    title: document.querySelector(".player-title")?.textContent || "",
-    artist: document.querySelector(".player-channel")?.textContent || "",
-    artwork: (() => {
-      const src = document.getElementById("player-art-img")?.src;
-      return src ? [{ src }] : [];
-    })(),
+    title,
+    artist,
+    artwork: artworkSrc ? [type ? { src: artworkSrc, type } : { src: artworkSrc }] : [],
   });
+}
+
+/**
+ * Takes the app off the OS's Now Playing surface, and forgets what was
+ * published so the next applyNowPlayingMetadata can't mistake re-publishing
+ * the same track for a redundant update. Both callers are in home/overlay.js:
+ * closing the player, and a queue running out entirely — a card left up for
+ * audio that is finished is what lingers on the Dynamic Island afterwards,
+ * and the page is about to be frozen by iOS, so its controls would be dead
+ * anyway. If the track is replayed in-app, the `playing` handler below
+ * re-publishes everything.
+ */
+export function clearNowPlayingMetadata() {
+  if (!("mediaSession" in navigator)) return;
+  publishedNowPlaying = null;
+  publishedWhileHeld = false;
+  navigator.mediaSession.metadata = null;
+  navigator.mediaSession.playbackState = "none";
 }
 
 // Lock-screen/notification-shade transport controls and Bluetooth/headset
@@ -615,8 +705,48 @@ function setupMediaSession() {
 
   applyNowPlayingMetadata();
 
-  navigator.mediaSession.setActionHandler("play", () => activeAudio().play().catch(() => {}));
-  navigator.mediaSession.setActionHandler("pause", () => activeAudio().pause());
+  if ("audioSession" in navigator) {
+    // WebKit's Audio Session API (Safari-only, experimental): "playback"
+    // declares this page a media player — the category iOS keeps running
+    // with the screen locked and doesn't mute under the ring/silent switch —
+    // instead of leaving the OS to infer it per play(). The default ("auto")
+    // mostly infers correctly, which is why audio worked before this line;
+    // declaring it is about the edges the 2026-08-23/24 audit chased, where
+    // iOS decides what the page deserves at moments nothing is rendering
+    // (the gap after `ended`, a paused session it is about to freeze).
+    // Wrapped because an implementation is free to refuse the assignment.
+    try {
+      navigator.audioSession.type = "playback";
+    } catch (err) {
+      /* Stays "auto" — exactly what every non-Safari browser does anyway. */
+    }
+
+    // OS interruptions (a phone call, Siri, another app taking the output)
+    // are otherwise invisible in the log: from the server they look
+    // identical to the user pausing.
+    if (typeof navigator.audioSession.addEventListener === "function") {
+      navigator.audioSession.addEventListener("statechange", () => {
+        reportPlayback("audio-session", { state: navigator.audioSession.state });
+      });
+    }
+  }
+
+  navigator.mediaSession.setActionHandler("play", () => {
+    reportMediaSessionAction("play");
+    activeAudio()
+      .play()
+      .catch((err) =>
+        reportPlayback("play-rejected", {
+          contentId: document.getElementById("player-root")?.dataset.contentId,
+          error: String(err?.name || err),
+          via: "media-session",
+        })
+      );
+  });
+  navigator.mediaSession.setActionHandler("pause", () => {
+    reportMediaSessionAction("pause");
+    activeAudio().pause();
+  });
   navigator.mediaSession.setActionHandler("seekbackward", () => {
     const audio = activeAudio();
     audio.currentTime = Math.max(0, audio.currentTime - SKIP_SECONDS);
@@ -648,26 +778,34 @@ function setupMediaSession() {
   };
 
   const syncPositionState = () => {
+    // Nothing rendering, nothing reported — deliberately, and *explicitly*.
+    // The OS extrapolates the lock screen's elapsed-time clock locally from
+    // the last playbackRate it was handed, on its own clock, independent of
+    // playbackState — so reporting position for a track iOS is silently
+    // refusing to start (loadedmetadata fires even then) would set that
+    // clock ticking over silence. This used to be attempted by switching the
+    // reported rate to zero for a silent element, but the spec makes a rate
+    // of zero a TypeError — paused is playbackState's job — so the call
+    // always threw, the catch below always swallowed it, and "no update at
+    // all" was what actually shipped. Same outcome, now stated instead of
+    // stumbled into:
+    // position state is published only from moments audio is really coming
+    // out, and the last published state simply stands while it isn't.
+    if (!rendering) return;
     const audio = activeAudio();
-    if (!audio.duration || Number.isNaN(audio.duration)) return;
+    // Number.isFinite, not a NaN check: a resource without a determinable
+    // end (duration Infinity) is a state setPositionState throws on too.
+    if (!Number.isFinite(audio.duration) || audio.duration <= 0) return;
     try {
-      // playbackRate has to be explicit, not left to its default of 1: the OS
-      // extrapolates the lock screen's displayed elapsed time locally from
-      // this rate, on its own clock, independent of playbackState.
-      // loadedmetadata (one of this function's two callers) fires as soon as
-      // the resource's metadata is available, which — unlike actually
-      // rendering audio — iOS permits even while backgrounded and even
-      // though play() itself is being silently refused. Without this, a
-      // background handoff into a track iOS won't start reports metadata,
-      // that call defaults playbackRate to 1, and the lock screen's clock
-      // visibly ticks forward for a track nobody can hear.
       navigator.mediaSession.setPositionState({
         duration: audio.duration,
-        position: audio.currentTime,
-        playbackRate: rendering ? 1 : 0,
+        // Clamped: mid-seek the two readings can momentarily cross, and
+        // position > duration is a TypeError rather than a correction.
+        position: Math.min(audio.currentTime, audio.duration),
+        playbackRate: audio.playbackRate || 1,
       });
     } catch (err) {
-      /* Throws if position momentarily exceeds duration mid-seek; harmless to skip. */
+      /* Never let the lock screen take playback down with it. */
     }
   };
   onPlayerEvent("loadedmetadata", syncPositionState);
@@ -684,7 +822,10 @@ function setupMediaSession() {
   // during the silent gap beforehand, where any of it may have been dropped.
   onPlayerEvent("playing", () => {
     setRendering(true);
-    applyNowPlayingMetadata();
+    // held: this is the one moment iOS is guaranteed to accept the publish —
+    // it marks the published state as trustworthy, which is what lets later
+    // `playing` events (buffering hitches, resumes) skip the re-publish.
+    applyNowPlayingMetadata({ held: true });
     syncPositionState();
     // The one thing the log couldn't previously settle: whether a lock screen
     // showing the wrong control is this side getting the state wrong, or iOS
