@@ -78,6 +78,18 @@ export function formatDuration(seconds) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+// Mirrors format_size() in app/formatting.py. A JS twin exists for the same
+// reason formatDuration's does — the figure it renders is one the server
+// never sees: how much of the device's own storage the offline copies take
+// (see offline.js). Kept byte-identical in output so the device total and
+// the server total below it don't disagree about how to write "4.1 MB".
+export function formatSize(numBytes) {
+  if (!numBytes) return "0 MB";
+  const megabytes = numBytes / (1024 * 1024);
+  if (megabytes >= 1024) return `${(megabytes / 1024).toFixed(2)} GB`;
+  return `${megabytes.toFixed(1)} MB`;
+}
+
 export function debounce(fn, delay) {
   let timer;
   return (...args) => {

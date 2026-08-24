@@ -12,6 +12,7 @@
 
 import { api, formatDuration, showToast } from "../core.js";
 import { refreshFragments, refreshQueuePanel } from "../fragments.js";
+import { openCoverUrl, openTrackUrl } from "../offline.js";
 import {
   activeAudio,
   applyNowPlayingMetadata,
@@ -87,6 +88,11 @@ const PREFETCH_MAX_BYTES = 24 * 1024 * 1024;
  */
 let upcomingTrack = null;
 
+// The blob: URL currently in the player's <img>, when the track came off
+// the device. Held so the next open can revoke it — nothing else has a
+// reference once the src is reassigned.
+let playerCoverUrl = null;
+
 // Caps openPlayer's auto-skip-on-failure (below) at this many failures in a
 // row before it gives up instead of trying yet another track. Without a
 // cap, a systemic hiccup — YouTube rate-limiting/bot-checking the IP, or
@@ -135,12 +141,18 @@ function collapsePlayer() {
   document.getElementById("player-overlay").hidden = true;
 }
 
-function syncMiniPlayerInfo(data) {
+// `coverSrc` is whatever the full player settled on, passed in rather than
+// re-derived: for a track playing off the device that is a blob: URL for the
+// saved cover, and letting this fall back to data.thumbnail_url would leave
+// the mini bar reaching for /image-proxy — the one request an offline track
+// is meant not to make. Both surfaces then show the same artwork, which is
+// the only sane outcome given they are the same track.
+function syncMiniPlayerInfo(data, coverSrc) {
   document.getElementById("mini-player-title").textContent = data.title;
   document.getElementById("mini-player-channel").textContent = data.channel_title || "";
   const img = document.getElementById("mini-player-art-img");
-  if (data.thumbnail_url) {
-    img.src = data.thumbnail_url;
+  if (coverSrc) {
+    img.src = coverSrc;
     img.hidden = false;
   } else {
     img.removeAttribute("src");
@@ -212,6 +224,26 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
     URL.revokeObjectURL(upcomingTrack.objectUrl);
   }
   upcomingTrack = null;
+
+  // Nothing was prepared for this open — but the track may be one the user
+  // keeps on the device, in which case its bytes are already here and the
+  // /stream request never needs to happen at all. Only consulted on the miss:
+  // a prefetch hit already holds the bytes, so a lookup there would add an
+  // await to the one path where the handoff has to be instant (an
+  // auto-advance while iOS has the app frozen — see cacheUpcomingAudio).
+  //
+  // On the miss it is the opposite: this replaces a whole-track network fetch
+  // with a local read, so a saved track auto-advances with no network at all.
+  let playingFromDevice = false;
+  if (!prefetchedAudio) {
+    const savedUrl = await openTrackUrl(contentId);
+    if (savedUrl) {
+      prefetchedAudio = savedUrl;
+      playingFromDevice = true;
+      reportPlayback("handoff-device", { contentId });
+    }
+  }
+
   // Ownership passes to player.js, which adopts this at the src assignment
   // and revokes it whether or not it gets that far. Called unconditionally,
   // null included: that is also what releases an offer made for a track the
@@ -256,8 +288,18 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
   // open, and the line styles itself back into plain text (see style.css).
   channelBtn.disabled = !data.artist_page_id;
   const artImg = document.getElementById("player-art-img");
-  if (data.thumbnail_url) {
-    artImg.src = data.thumbnail_url;
+  // The cover saved alongside the audio, for a track being played from the
+  // device. data.thumbnail_url points at /image-proxy, which is a request —
+  // so on the network this track no longer needs, the art would be the one
+  // thing still reaching for it, and would come back blank.
+  const savedCover = playingFromDevice ? await openCoverUrl(contentId) : null;
+  // The previous track's, now that nothing is showing it. An object URL pins
+  // its Blob until revoked, and these are whole images.
+  if (playerCoverUrl) URL.revokeObjectURL(playerCoverUrl);
+  playerCoverUrl = savedCover;
+  const coverSrc = savedCover || data.thumbnail_url;
+  if (coverSrc) {
+    artImg.src = coverSrc;
     artImg.hidden = false;
   } else {
     artImg.removeAttribute("src");
@@ -275,11 +317,18 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
   favBtn.querySelector("svg").setAttribute("fill", data.is_favorite ? "currentColor" : "none");
 
   root.dataset.contentId = String(data.id);
-  root.dataset.status = data.status;
-  root.dataset.unavailable = String(data.is_unavailable === true);
+  // What the server says about its own copy stops mattering once the bytes
+  // are on the device. Both of these would otherwise refuse a track that is
+  // sitting right here: a library cleared from the Downloads modal leaves the
+  // row "not_downloaded", which prepareAudio answers by starting a fresh
+  // download, and an `is_unavailable` row is skipped outright — a state a
+  // saved track can genuinely reach, since YouTube pulling a video has no
+  // bearing on a copy that was taken before it did.
+  root.dataset.status = playingFromDevice ? "ready" : data.status;
+  root.dataset.unavailable = String(!playingFromDevice && data.is_unavailable === true);
   root.dataset.stream = `/content/${data.id}/stream`;
 
-  syncMiniPlayerInfo(data);
+  syncMiniPlayerInfo(data, coverSrc);
 
   // setupMediaSession (player.js) only reads the DOM once, at page-load time
   // — on index.html that's before any track has ever been opened, so it can't
@@ -495,6 +544,23 @@ async function cacheUpcoming(contentId) {
 async function cacheUpcomingAudio(id) {
   let objectUrl = null;
   try {
+    // A track kept on the device is already downloaded, so the size cap below
+    // has nothing to protect against here — it exists to stop a large
+    // *transfer* being spent on a track nobody may listen to, and this is a
+    // local read. Doing it at prefetch time rather than leaving it to
+    // openPlayer's own device lookup is what keeps the handoff instant: the
+    // frozen-iOS auto-advance has to find the bytes already in the page, not
+    // go and await them at the moment the outgoing track runs out.
+    const savedUrl = await openTrackUrl(id);
+    if (savedUrl) {
+      if (upcomingTrack?.id !== id) {
+        URL.revokeObjectURL(savedUrl);
+        return;
+      }
+      upcomingTrack.objectUrl = savedUrl;
+      return;
+    }
+
     // Plain /stream, no marker of its own: asking for it no longer records a
     // play (see routers/content.py's stream_content), which is precisely
     // what makes fetching a track early safe to do.

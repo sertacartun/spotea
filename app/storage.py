@@ -53,6 +53,14 @@ class StoredItem:
     title: str
     channel_title: str | None
     size_bytes: int
+    # Carried for the copy the *browser* can keep (see static/js/offline.js),
+    # not for anything this list renders: a track saved to the device stores
+    # its own cover and duration alongside the audio, because a device with
+    # no network can't go and ask for either later. The cover is fetched
+    # through /image-proxy — same-origin, so its bytes are readable, which a
+    # direct CDN fetch's opaque response would not be.
+    thumbnail_url: str | None = None
+    duration_seconds: int | None = None
 
 
 @dataclass
@@ -121,6 +129,8 @@ def collect_usage(db: Session, user_id: int) -> StorageUsage:
                 title=row.title,
                 channel_title=row.display_artist,
                 size_bytes=row.file_size_bytes,
+                thumbnail_url=row.thumbnail_url,
+                duration_seconds=row.duration_seconds,
             )
         )
 

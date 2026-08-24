@@ -3,6 +3,14 @@
    Rendered inside index.html and on its own by GET /partials/downloads. This
    used to be built twice — once here in Jinja and once as a JS template
    literal in refreshStorageUsage, which had to be kept in step by hand.
+
+   Two places a file can live are described here, and only one of them is
+   something this template can render. The totals and the list below are the
+   *instance's* disk — what the server downloaded, which it knows. Whether a
+   given track is also kept on the phone is known only to the browser (see
+   static/js/offline.js), so the per-row toggle ships in its "off" state and
+   home/settings.js corrects it after every swap; #device-summary stays empty
+   and hidden until it has something true to say.
 #}
 <div class="storage-summary">
       <div>
@@ -15,6 +23,11 @@
       </div>
     </div>
 
+    <div class="device-summary" id="device-summary" hidden>
+      <span class="muted" id="device-summary-text"></span>
+      <button type="button" id="clear-device" class="btn-quiet">Remove from device</button>
+    </div>
+
     <ul id="storage-list" class="storage-list" {% if not usage.count %}hidden{% endif %}>
       {% for item in usage.items %}
       <li data-content-id="{{ item.id }}">
@@ -22,6 +35,11 @@
           <span class="storage-item-title">{{ item.title }}</span>
           <span class="storage-item-meta">{{ item.channel_title }} · {{ item.size_bytes | filesize }}</span>
         </div>
+        <button type="button" class="storage-keep" data-content-id="{{ item.id }}" aria-pressed="false" aria-label="Keep on this device"
+                data-title="{{ item.title }}" data-artist="{{ item.channel_title or '' }}"
+                data-cover="{{ item.thumbnail_url or '' }}" data-duration="{{ item.duration_seconds or '' }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-phone" /></svg>
+        </button>
         <a class="storage-export" href="/content/{{ item.id }}/stream?download=1" download aria-label="Export">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-download" /></svg>
         </a>

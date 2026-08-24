@@ -131,6 +131,25 @@ def test_media_src_allows_the_sources_the_player_actually_assigns(client):
     )
 
 
+def test_img_src_allows_cover_art_read_back_out_of_offline_storage(client):
+    """The twin of the media-src guard above, for the other half of a saved
+    track.
+
+    A track kept on the device stores its cover alongside its audio, because
+    a device with no network cannot go and fetch one. It is shown from a
+    blob: URL — and this fails in the quietest way there is: the audio plays,
+    the artwork alone stays blank, and nothing in the JS is wrong.
+    """
+    csp = client.get("/").headers["Content-Security-Policy"]
+
+    img = csp.split("img-src")[1].split(";")[0]
+    assert "'self'" in img
+    assert "blob:" in img, (
+        "an offline track's saved cover is blocked — the track plays with no "
+        "artwork, see static/js/offline.js's openCoverUrl"
+    )
+
+
 def test_the_inline_script_carries_the_nonce_from_the_header(client):
     """A nonce that doesn't match the header blocks the pre-paint script, which
     would leave every load rendering the wrong tab for a frame."""

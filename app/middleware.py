@@ -80,7 +80,13 @@ _CSP_TEMPLATE = "; ".join(
         "default-src 'self'",
         "script-src 'self' 'nonce-{nonce}'",
         "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' https://*.ytimg.com https://*.ggpht.com",
+        # blob: is for cover art read back out of offline storage — a track
+        # kept on the device carries its own copy of the cover, and it is
+        # shown from a blob: URL because the /image-proxy URL it was fetched
+        # from is a request, which is the one thing an offline track has to
+        # avoid (see static/js/offline.js). Without this the audio would play
+        # and the artwork alone would silently fail to render.
+        "img-src 'self' blob: https://*.ytimg.com https://*.ggpht.com",
         "media-src 'self' data: blob:",
         "connect-src 'self'",
         "worker-src 'self'",
