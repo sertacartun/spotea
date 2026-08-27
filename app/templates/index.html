@@ -34,7 +34,12 @@
     // resolves to, not a tab switch of its own.
     (function () {
       var VALID_TABS = ["home", "library", "explore", "settings"];
-      var PLAYLIST_KINDS = ["favorites", "new-uploads", "recently-played"];
+      // "downloads" is the device's own saved songs — a detail view like the
+      // three pinned playlists, except its rows come out of IndexedDB rather
+      // than the server (see home/device.js). It is in this list for exactly
+      // the same reason they are: so an open on #downloads paints the detail
+      // panel rather than Home for a frame.
+      var PLAYLIST_KINDS = ["favorites", "new-uploads", "recently-played", "downloads"];
       var DETAIL_PREFIXES = ["yt-artist/", "yt-artist-songs/", "yt-release/", "yt-playlist/", "yt-mood/"];
       var hash = location.hash.slice(1).split("?")[0];
       var isDetail =
@@ -131,7 +136,7 @@
      "the app is broken" and "the app is doing what it can". #}
   <div class="offline-banner" id="offline-banner" role="status" hidden>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-phone" /></svg>
-    <span>Offline — songs saved to this device still play.</span>
+    <span>Offline — open <strong>Downloads</strong> in your Library to play what's on this device.</span>
   </div>
 
   <main class="layout">
@@ -254,6 +259,37 @@
               <span class="settings-row-desc" id="settings-storage-desc">{% include "_storage_summary.html" %}</span>
             </div>
             <button type="button" id="open-downloads" class="btn-quiet">Manage downloads</button>
+          </div>
+
+          {# The other half of "Storage used" above: that row is the instance's
+             disk, this one is the phone's. It used to be a toggle on every
+             single row of the Downloads modal, which made keeping a library
+             for a flight a hundred separate taps — and hid the one number
+             that matters (how much of this device is spoken for) behind a
+             modal.
+
+             A switch rather than a "Save all" button, because what it turns
+             on is a standing arrangement, not a one-off transfer: while it is
+             on, anything the server downloads from then on lands on this
+             device too (see home/device.js's syncDevice). A button would have
+             to be pressed again after every new song, and nothing on screen
+             would ever say whether it was still true. #}
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <span class="settings-row-label">Offline playback</span>
+              {# Filled by home/device.js from IndexedDB — the server has no
+                 way of knowing any of it. data-count is what the "Clear all"
+                 confirmation in the Downloads modal reads to decide whether
+                 it has to warn that the device copies go too. #}
+              <span class="settings-row-desc" id="device-summary-text" data-count="0">
+                Keep every download on this phone, so it plays with no connection.
+              </span>
+            </div>
+            <label class="switch" for="offline-playback-toggle">
+              <input type="checkbox" id="offline-playback-toggle" class="switch-input" />
+              <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+              <span class="visually-hidden">Offline playback</span>
+            </label>
           </div>
 
           <div class="settings-row">

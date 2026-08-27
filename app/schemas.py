@@ -134,6 +134,22 @@ class FavoriteOut(BaseModel):
     is_favorite: bool
 
 
+class StoredItemOut(BaseModel):
+    """One downloaded track, for GET /storage/items.
+
+    The same five fields storage.StoredItem carries — this exists so the
+    dataclass stays the internal shape the templates render from and the wire
+    format is declared where every other one is.
+    """
+
+    id: int
+    title: str
+    channel_title: str | None
+    size_bytes: int
+    thumbnail_url: str | None = None
+    duration_seconds: int | None = None
+
+
 class LyricLineOut(BaseModel):
     text: str
     # Milliseconds from the start of the track, which is what the player's

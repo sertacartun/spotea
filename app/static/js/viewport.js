@@ -20,6 +20,17 @@
 // would stop running on exactly one platform. One behaviour on both is worth
 // more than a native-feeling half.
 
+import { reportPlayback } from "./player.js";
+
+// Whether this is the installed app rather than a browser tab. The difference
+// matters below: in a browser, the space between the screen and the layout
+// viewport is the browser's own chrome, and anything moved into it disappears
+// behind a toolbar. An installed app has no chrome, so the same gap can only
+// be viewport geometry.
+const STANDALONE =
+  window.matchMedia?.("(display-mode: standalone)").matches === true ||
+  window.navigator.standalone === true;
+
 // An on-screen keyboard is always taller than this. Safari's collapsing URL
 // bar is not, and neither is the accessory strip on its own — without a floor
 // the class would flicker on every scroll.
@@ -99,4 +110,55 @@ export function installKeyboardInset() {
   viewport.addEventListener("resize", update);
   viewport.addEventListener("scroll", update);
   update();
+}
+
+
+/**
+ * One beacon on boot with the geometry the bottom bar is laid out against.
+ *
+ * Everything here is invisible from the server and unreproducible off the
+ * device — which is the whole reason /debug/playback exists (see
+ * routers/debug.py). It has already earned its keep once: the installed app
+ * reports a 932pt screen against an 873pt viewport, and knowing that the
+ * missing 59pt is the status bar at the top rather than anything at the
+ * bottom is what stopped a second round of guessing at the bar's placement.
+ * Sent once per app open, so a household install adds a line a day.
+ */
+export function reportViewportGeometry() {
+  // After load, and a beat after that: the numbers this is about only mean
+  // something once the page has been laid out, and the document's height —
+  // which is the whole suspicion — is the last of them to settle.
+  window.addEventListener("load", () => setTimeout(sendGeometry, 500));
+}
+
+/** What env(safe-area-inset-*) actually resolves to here. There is no way to
+ *  read one directly, so each is measured off an element sized by it. */
+function safeAreaInsets() {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;top:0;left:0;width:1px;visibility:hidden;pointer-events:none;";
+  document.body.appendChild(probe);
+  const read = (edge) => {
+    probe.style.height = `env(safe-area-inset-${edge}, 0px)`;
+    return Math.round(probe.getBoundingClientRect().height);
+  };
+  const insets = `${read("top")}/${read("right")}/${read("bottom")}/${read("left")}`;
+  probe.remove();
+  return insets;
+}
+
+function sendGeometry() {
+  const vv = window.visualViewport;
+  const tabs = document.querySelector(".tabs");
+  const rect = tabs?.getBoundingClientRect();
+  reportPlayback("viewport-geometry", {
+    insets: safeAreaInsets(),
+    tabs: rect ? `${Math.round(rect.top)}..${Math.round(rect.bottom)} h${Math.round(rect.height)}` : "none",
+    tabsPad: tabs ? getComputedStyle(tabs).paddingBottom : "none",
+    standalone: STANDALONE,
+    screen: `${window.screen?.width}x${window.screen?.height}`,
+    inner: `${window.innerWidth}x${window.innerHeight}`,
+    visual: vv ? `${Math.round(vv.width)}x${Math.round(vv.height)}@${Math.round(vv.offsetTop)}` : "none",
+    doc: document.documentElement.scrollHeight,
+    dpr: window.devicePixelRatio,
+  });
 }

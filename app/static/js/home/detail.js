@@ -20,11 +20,12 @@
 // _mood_panel.html); their cards are wired below.
 
 import { unfollowArtist } from "../content-actions.js";
-import { classifyHash, showToast } from "../core.js";
+import { classifyHash, noteConnection, showToast } from "../core.js";
 import { refreshFragments, swapFragmentHtml } from "../fragments.js";
+import { deviceTrackIds, renderDownloadsPanel } from "./device.js";
 import { OPEN_ARTIST, openPlayer } from "./overlay.js";
 import { PLAYLIST_CHANGED, PLAYLIST_DELETED } from "./playlists.js";
-import { QUEUE_CHANGED, isShuffled, loadQueue, queueSource, toggleShuffle } from "./queue.js";
+import { QUEUE_CHANGED, isShuffled, loadQueue, queueSource, setQueue, toggleShuffle } from "./queue.js";
 import { wireScrollers } from "./scrollers.js";
 import { ARTIST_FOLLOWED, followArtist, playRemoteList, playRemoteVideo } from "./remote.js";
 import { activate } from "./tabs.js";
@@ -32,6 +33,14 @@ import { activate } from "./tabs.js";
 // Detail kinds whose rows come from YouTube rather than the database.
 const REMOTE_KINDS = ["yt-playlist", "yt-artist", "yt-artist-songs", "yt-release", "yt-mood"];
 const isRemoteKind = (kind) => REMOTE_KINDS.includes(kind);
+
+// The one kind that is neither: "downloads" is drawn from IndexedDB by
+// home/device.js, with no request of any sort. It routes exactly like a
+// pinned playlist (its kind is its whole identity, see core.js's
+// PLAYLIST_KINDS) and only the three places that would otherwise reach for
+// the network — the fragment fetch, Play all, and a row click's queue —
+// have to know the difference.
+const isDeviceKind = (kind) => kind === "downloads";
 
 // Remote fragment HTML already fetched this session, keyed by the exact
 // detailUrl() it came from (page included, so a different page is
@@ -126,9 +135,14 @@ async function resolveRelease(browseId) {
   try {
     res = await fetch(url);
   } catch (err) {
+    // The request never arrived, which says something about the connection
+    // rather than about this release — and this module's fetches are not
+    // api() calls, so nothing else here would tell the banner.
+    noteConnection(false);
     showToast("Could not load this page");
     return FAILED;
   }
+  noteConnection(true);
   if (!res.ok) {
     showToast(res.status === 404 ? "That's gone." : "Could not load this page");
     return FAILED;
@@ -155,6 +169,16 @@ async function resolveRelease(browseId) {
  *
  */
 export async function openDetail(kind, id, { page = 1, replace = false, title } = {}) {
+  // Every kind but one is a request, and offline a request is a spinner that
+  // resolves into a toast. The tiles that lead here are already out of reach
+  // (see style.css's body.is-offline), so what is left to catch is a deep
+  // link, a reload on an old hash, or the back button walking into one.
+  if (!isDeviceKind(kind) && document.body.classList.contains("is-offline")) {
+    showToast("You're offline — only your Downloads are available");
+    activate("library");
+    return;
+  }
+
   // A one-track release plays instead of opening (see routers/partials.py's
   // remote_release_fragment). Resolved here rather than at the click site so
   // that every way into a release goes through it — the card, a reload on a
@@ -183,6 +207,12 @@ export async function openDetail(kind, id, { page = 1, replace = false, title } 
   if (replace) history.replaceState(null, "", hash);
   else history.pushState(null, "", hash);
 
+  if (isDeviceKind(kind)) {
+    await renderDownloadsPanel();
+    afterPanelSwap();
+    return;
+  }
+
   const url = detailUrl(kind, id, page, title);
   const cached = isRemoteKind(kind) ? remoteFragmentCache.get(url) : undefined;
   if (cached !== undefined) {
@@ -197,9 +227,13 @@ export async function openDetail(kind, id, { page = 1, replace = false, title } 
   try {
     res = await fetch(url);
   } catch (err) {
+    // See resolveRelease above: this is often the very first thing to notice
+    // a connection has gone, since opening a list is what people do first.
+    noteConnection(false);
     showToast("Could not load this page");
     return;
   }
+  noteConnection(true);
   if (!res.ok) {
     showToast(res.status === 404 ? "That's gone." : "Could not load this page");
     return;
@@ -256,6 +290,19 @@ async function playAll(button) {
   if (!source) return;
   if (isRemoteKind(source.kind)) {
     playRemoteList(source, { button });
+    return;
+  }
+  // No /content/queue round trip for the device's own list: the panel was
+  // built from what is on this phone, so the ids are already here — and on
+  // the screen this exists for, the request would not arrive anyway.
+  if (isDeviceKind(source.kind)) {
+    const ids = deviceTrackIds();
+    if (!ids.length) {
+      showToast("Nothing to play here");
+      return;
+    }
+    const startId = setQueue(source, ids);
+    openPlayer(startId ?? ids[0]);
     return;
   }
   // The fetch is a round trip and the button is the kind people press twice;
@@ -463,7 +510,10 @@ export function setupDetailPanel() {
       // from now, and holding playback for a request that has nothing to do
       // with it would put a round trip in front of every single play.
       openPlayer(contentId);
-      if (!alreadyQueued && source) loadQueue(source, { startId: contentId });
+      if (alreadyQueued || !source) return;
+      // Same meaning, no request — see playAll above.
+      if (isDeviceKind(source.kind)) setQueue(source, deviceTrackIds(), { startId: contentId });
+      else loadQueue(source, { startId: contentId });
     }
   });
 

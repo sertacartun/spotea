@@ -23,6 +23,18 @@ export function onTabActivated(callback) {
 // Callers that already know the URL is correct (initial sync, popstate) pass
 // updateHistory: false so this doesn't stomp it with a redundant replaceState.
 export function activate(tabName, { updateHistory = true } = {}) {
+  // With no connection there is exactly one tab worth being on: Library,
+  // whose Downloads tile is the only thing in the app that does not need the
+  // server (see home/device.js). Guarded here rather than at each caller
+  // because this is the single door every tab switch goes through — a click,
+  // a hash, a popstate, the mobile menu — and the controls CSS puts out of
+  // reach are only the ones that are on screen. "detail" is exempt: the one
+  // detail view reachable offline is the device's own, and openDetail turns
+  // away every other kind before it gets here.
+  if (tabName !== "library" && tabName !== "detail" && document.body.classList.contains("is-offline")) {
+    tabName = "library";
+  }
+
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     const isActive = btn.dataset.tab === tabName;
     btn.classList.toggle("active", isActive);

@@ -113,11 +113,54 @@ export function consumeResumeState(contentId) {
 // — see /sw.js and static/manifest.json. Registered from every page rather
 // than just index.html so installing works no matter which page happens to
 // be open when the browser offers it.
+//
+// The registration used to be the whole of this: register once and never
+// speak of it again. That is enough for a browser tab, which re-checks the
+// worker script on every navigation — and not enough for the installed PWA,
+// which is the thing this exists for. An installed app is opened, suspended
+// and resumed for days without a single navigation, so the worker it was
+// installed with can stay in charge indefinitely. Measured on the real
+// install on 2026-08-27: the app kept serving the previous release's shell
+// out of a v5 cache long after the server had moved on, with no way for
+// anything shipped in the new release to reach it — including the fixes for
+// why it was showing a stale, offline-looking app in the first place.
+//
+// So this now asks (update), and reacts when the answer is yes
+// (controllerchange). Both are needed: update() is what fetches /sw.js
+// again, and the reload is what puts the new worker's markup in front of
+// the user rather than leaving the old page running against it.
 export function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
+
+  // Whether a worker is already driving this page. A first-ever install also
+  // fires controllerchange — the new worker calls clients.claim() (see
+  // sw.js), which claims this very page — and reloading for that would be a
+  // reload on every first visit, for nothing: the page was served by the
+  // network a moment ago and is already current.
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    window.location.reload();
+  });
+
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {
-      // Not fatal — the app works the same without it, just not installable.
-    });
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then((registration) => {
+        // Right away, and again every time the app comes back to the
+        // foreground — which for an installed PWA is the only regular event
+        // there is. /sw.js is served with Cache-Control: no-cache (see
+        // main.py), so a check with nothing to find costs one 304.
+        const check = () => registration.update().catch(() => {});
+        check();
+        document.addEventListener("visibilitychange", () => {
+          if (!document.hidden) check();
+        });
+      })
+      .catch(() => {
+        // Not fatal — the app works the same without it, just not installable.
+      });
   });
 }
