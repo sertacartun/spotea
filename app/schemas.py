@@ -127,6 +127,16 @@ class StatusOut(BaseModel):
     # See Content.is_unavailable. The player treats this as "skip now" rather
     # than "failed", so it has to travel with every status the player reads.
     is_unavailable: bool = False
+    # The row as it stands, and only from POST /{id}/download — the status
+    # poll leaves it None, since nothing about a row changes between ticks.
+    #
+    # It is here because that download is now also where a music video becomes
+    # the song it is a video of (see routers/content.py's _apply_song_version),
+    # and the caller has to be told: the title, the cover and the credit it
+    # asked about a moment earlier all belong to the video, not to the file
+    # about to arrive. Carrying it back is what let the client's three-call
+    # prefetch chain drop its separate swap request.
+    content: ContentOut | None = None
 
 
 class FavoriteOut(BaseModel):

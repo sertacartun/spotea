@@ -35,7 +35,15 @@ const POLL_STEADY_MS = 2000;
 
 // Driven by elapsed time rather than a step counter, so a slow response
 // can't shift the whole schedule out from under the window it's aimed at.
-function nextPollDelay(elapsedMs) {
+//
+// Exported because the queue's one-track-ahead prefetch follows its own
+// download exactly the same way (see home/overlay.js's cacheUpcoming) and was
+// still on a flat 1.5s grid, which is the arrangement the measurements above
+// were written to replace. Measured again on a real device on 2026-08-27,
+// this time on the prefetch path: 0.95s, 0.99s and 1.69s of dead air on three
+// consecutive tracks, against 0.09s on the same session's one track that came
+// through the ladder here.
+export function nextPollDelay(elapsedMs) {
   if (elapsedMs < POLL_TIGHT_UNTIL_MS) return POLL_TIGHT_MS;
   if (elapsedMs < POLL_RELAXED_UNTIL_MS) return POLL_RELAXED_MS;
   return POLL_STEADY_MS;
@@ -124,11 +132,27 @@ let activeVisibilityHandler = null;
 // "early-handoff" fires at most once per background auto-advance, in place
 // of the "track-ended" that advance no longer produces — without it the
 // log's per-track story would simply stop wherever the new path takes over.
-// "viewport-geometry" is not a playback event at all, and is here anyway:
-// this channel is the only way something the client can see reaches the
-// server, and the bottom bar's placement in the installed app turned out to
-// depend on numbers no desktop browser reproduces (see viewport.js's
-// reportViewportGeometry). One line per app open.
+// This channel has also carried things that are not playback at all, and the
+// precedent is worth keeping even though nothing is using it right now: it is
+// the only way something only the client can see reaches the server. The
+// installed app's bottom-bar placement was settled that way — it reported a
+// 932pt screen against an 873pt viewport, which located the missing 59pt at
+// the top rather than the bottom and ended several rounds of guessing. The
+// same channel then confirmed the fix (a 932pt viewport, the bar ending
+// exactly at the glass) and the beacon came out again, which is the shape
+// these are meant to have: added for a question, removed with its answer.
+// Temporary, for one open question, and two of the four that answered theirs
+// have already gone. On 2026-08-27 a track whose prefetch had provably
+// completed still started over the network while the track before it, prepared
+// the same way, played with no request at all. `handoff-cached` said which:
+// the entry was there and ready, and `buffered` was false — the bytes simply
+// had not finished arriving. `handoff-missed` separates that from having
+// nothing prepared at all, which is what a cold open looks like.
+//
+// Kept a while longer because they are also how the change that followed gets
+// checked: sending for the next track on the open rather than on its first
+// timeupdate (see home/overlay.js's prefetchUpcoming) should turn `buffered`
+// true where it was false. Remove all three once it has.
 const REPORTED_EVENTS = new Set([
   "play-rejected",
   "playback-stalled",
@@ -140,7 +164,9 @@ const REPORTED_EVENTS = new Set([
   "media-session-action",
   "audio-session",
   "early-handoff",
-  "viewport-geometry",
+  "handoff-cached",
+  "handoff-device",
+  "handoff-missed",
 ]);
 
 export function reportPlayback(event, detail = {}) {

@@ -213,6 +213,63 @@ def test_start_download_dispatches_and_settles_to_ready(client, db_session, monk
     assert item.file_path == str(fake_file)
 
 
+def test_start_download_swaps_the_music_video_before_it_fetches_anything(
+    client, db_session, monkeypatch, tmp_path
+):
+    """The download fetches whatever video_id the row names, so the swap has
+    to land first — and this is where it lands.
+
+    It used to be the client's to sequence: home/overlay.js's prefetch POSTed
+    the swap, waited, then POSTed the download, and the ordering held only
+    because it was written that way. Measured on a device on 2026-08-27 that
+    cost a whole round trip per track on the one path where seconds are the
+    point. The server can simply guarantee it.
+    """
+    from app.routers import content as content_router
+
+    item = _seed_one(db_session, thumbnail_url=_STILL, duration_seconds=235)
+    monkeypatch.setattr(content_router, "find_song_version", lambda *a: _song())
+
+    fetched = []
+    def record(video_id, *a, **k):
+        fetched.append(video_id)
+        path = tmp_path / f"{video_id}.m4a"
+        path.write_bytes(b"audio")
+        return path
+
+    monkeypatch.setattr(content_router, "download_audio", record)
+
+    res = client.post(f"/content/{item.id}/download")
+
+    assert res.status_code == 200
+    # The song's id, not the music video's the row was seeded with.
+    assert fetched == ["songvideo11"]
+
+    # And the answer carries the row it ended up with, because the caller's
+    # title, cover and credit all still describe the video at this point —
+    # this is what let the prefetch drop its separate metadata fetch too.
+    body = res.json()
+    assert body["content"]["title"] == "Download Me"
+    assert body["content"]["thumbnail_url"] == _SQUARE
+    assert body["content"]["duration_seconds"] == 200
+
+    db_session.refresh(item)
+    assert item.video_id == "songvideo11"
+
+
+def test_the_status_poll_carries_no_row_of_its_own(client, db_session):
+    """Only the download answers with `content`. Nothing about a row changes
+    between status ticks, and repeating it on every one of a poll that runs
+    at 200ms would be the payload of the whole chain, several times over, for
+    a field nobody reads there."""
+    item = _seed_one(db_session)
+
+    body = client.get(f"/content/{item.id}/status").json()
+
+    assert body["status"] == "not_downloaded"
+    assert body["content"] is None
+
+
 def test_start_download_409s_while_already_downloading(client, db_session):
     item = _seed_one(db_session, status="downloading")
     res = client.post(f"/content/{item.id}/download")

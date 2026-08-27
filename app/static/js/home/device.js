@@ -33,10 +33,13 @@ import {
   deviceUsage,
   isSupported as deviceStorageSupported,
   listSaved,
+  offlinePlaybackOn,
   openCoverUrl,
+  rememberOfflinePlayback,
   requestPersistence,
   saveTrack,
 } from "../offline.js";
+import { activeAudio, onPlayerEvent } from "../player.js";
 import { activate } from "./tabs.js";
 
 // The rows the open Downloads panel was built from, in the order it drew
@@ -114,29 +117,30 @@ export async function syncDeviceSummary() {
    Offline playback: one switch that keeps this device stocked
    ---------------------------------------------------------------------- */
 
-// A device preference, not an account one — the same login on a laptop and a
-// phone wants different answers, and the server has no business holding
-// either. localStorage rather than a cookie for the same reason: nothing
-// about this ever needs to reach a request.
-const OFFLINE_PREF_KEY = "spotea-offline-playback";
+// The preference itself lives in ../offline.js, beside the store it governs,
+// because the player reads it too — see storeTrack.
 
-export function offlinePlaybackOn() {
-  try {
-    return localStorage.getItem(OFFLINE_PREF_KEY) === "1";
-  } catch {
-    // Private browsing with storage disabled. The copies could not be kept
-    // either, so "off" is the only honest answer.
-    return false;
-  }
-}
+/* -------------------------------------------------------------------------
+   Giving way to the thing the user is actually listening to
+   ---------------------------------------------------------------------- */
 
-function rememberOfflinePlayback(on) {
-  try {
-    if (on) localStorage.setItem(OFFLINE_PREF_KEY, "1");
-    else localStorage.removeItem(OFFLINE_PREF_KEY);
-  } catch {
-    /* Nothing to remember it with; the switch still works for this session. */
-  }
+// The save currently in flight, so playback can call it off.
+let saveAbort = null;
+
+/**
+ * Whether the player needs the connection more than this does.
+ *
+ * readyState below HAVE_FUTURE_DATA on an element that is trying to play is
+ * exactly the "sitting at 0:00 with the spinner up" state — and those are the
+ * seconds in which pulling a whole other song down the same connection is the
+ * difference between a track starting and a track stalling. Once a track is
+ * playing steadily this answers false: audio is a few tens of KB a second and
+ * a background copy alongside it costs nothing anyone can hear.
+ */
+function playbackNeedsTheConnection() {
+  const audio = activeAudio();
+  if (!audio || audio.paused) return false;
+  return audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA;
 }
 
 // One sync at a time. The switch, the boot pass and the top-up after a new
@@ -159,6 +163,17 @@ function reportProgress(text) {
  * at a household server over a phone's connection is how a convenience turns
  * into a stall — the line reports progress instead, which is what makes the
  * wait legible.
+ *
+ * Sequential was not enough on its own, though, and the reason is worth
+ * keeping: this is scheduled by a fragment refresh, a fragment refresh is
+ * what happens when you play something, and the one track missing from the
+ * device at that moment is the one the server has just downloaded — the one
+ * playing. So the top-up reliably went and fetched the current track's whole
+ * file over the network, eight seconds into it, while the element was still
+ * buffering the same bytes. Breadcrumbs from a real device on 2026-08-27:
+ * three consecutive `playback-stalled` at readyState 0-1, with two full
+ * copies of the track in flight beside the element's own range requests. So
+ * the run now gives way — see playbackNeedsTheConnection.
  *
  * `announce` is off for the background top-up: that one runs after a track
  * finishes downloading, where a toast for something nobody asked for is just
@@ -191,27 +206,57 @@ async function syncDevice({ announce = false } = {}) {
 
     let saved = 0;
     let failure = null;
+    let deferred = false;
     for (const item of pending) {
+      // Asked before every single track rather than once at the top: a run
+      // over a whole library is minutes long, and the track the user starts
+      // in the middle of one is precisely the one that would otherwise stall.
+      if (playbackNeedsTheConnection()) {
+        deferred = true;
+        break;
+      }
       reportProgress(`Saving ${saved + 1} of ${pending.length}…`);
+      const controller = new AbortController();
+      saveAbort = controller;
       try {
-        await saveTrack(item.id, {
-          title: item.title,
-          artist: item.channel_title || "",
-          coverUrl: item.thumbnail_url || null,
-          duration: item.duration_seconds ?? null,
-        });
+        await saveTrack(
+          item.id,
+          {
+            title: item.title,
+            artist: item.channel_title || "",
+            coverUrl: item.thumbnail_url || null,
+            duration: item.duration_seconds ?? null,
+          },
+          { signal: controller.signal }
+        );
         saved += 1;
       } catch (err) {
+        // Called off because the element ran out of data (see the `waiting`
+        // handler in setupDeviceStorage). Not a failure — it is this module
+        // doing what it was told, and the rest goes on in a quieter moment.
+        if (err?.name === "AbortError") {
+          deferred = true;
+          break;
+        }
         // A full device ends the run rather than skipping one song: every
         // remaining save would fail the same way, and forty toasts saying so
         // is not a better answer than one.
         failure = err?.message || "Could not save one of these songs";
         break;
+      } finally {
+        saveAbort = null;
       }
     }
 
     if (failure) showToast(`Saved ${saved} of ${pending.length}. ${failure}`);
-    else if (announce) showToast(`Saved ${saved} song${saved === 1 ? "" : "s"} to this device`);
+    else if (deferred) {
+      // Neither finished nor broken. Saying "saved 0 songs" here would be a
+      // lie about a run that is going to carry on by itself.
+      if (announce) showToast(`Saving ${pending.length} songs in the background`);
+      scheduleTopUp(TOP_UP_RETRY_DELAY);
+    } else if (announce) {
+      showToast(`Saved ${saved} song${saved === 1 ? "" : "s"} to this device`);
+    }
   } finally {
     syncing = false;
     await syncDeviceSummary();
@@ -425,6 +470,13 @@ export function setupDeviceStorage() {
     else disableOfflinePlayback(toggle);
   });
 
+  // The element ran out of data mid-track. What this module has in flight
+  // when that happens is a whole audio file coming down the same connection,
+  // which makes it both the likeliest cause and the only one of the two that
+  // can wait. Bound rather than polled because it is the exact signal: no
+  // starvation, no abort.
+  onPlayerEvent("waiting", () => saveAbort?.abort());
+
   // Delegated from #detail-panel, whose children are replaced on every panel
   // open — a listener on a row would go with them.
   document.getElementById("detail-panel")?.addEventListener("click", (event) => {
@@ -455,12 +507,22 @@ export function setupDeviceStorage() {
 // then a favourite) collapses into one pass, and short enough that a song is
 // on the device before the phone is put down.
 const TOP_UP_DELAY = 8000;
+
+// And how long a run that gave way to playback waits before trying again.
+// Deliberately far longer: the reason it stopped is that the player is
+// struggling for the connection, and coming back every eight seconds to ask
+// the server for the download list is the same impatience in a smaller form.
+// Nothing is lost by waiting — the tracks being played are already being kept
+// as they go (see overlay.js's cacheUpcomingAudio), so this is only ever the
+// backlog of songs nobody is listening to right now.
+const TOP_UP_RETRY_DELAY = 30000;
+
 let topUpTimer = null;
 
-function scheduleTopUp() {
+function scheduleTopUp(delay = TOP_UP_DELAY) {
   if (topUpTimer !== null) return;
   topUpTimer = setTimeout(() => {
     topUpTimer = null;
     syncDevice();
-  }, TOP_UP_DELAY);
+  }, delay);
 }

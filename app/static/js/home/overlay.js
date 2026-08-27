@@ -12,13 +12,20 @@
 
 import { api, formatDuration, showToast } from "../core.js";
 import { refreshFragments, refreshQueuePanel } from "../fragments.js";
-import { openCoverUrl, openTrackUrl, readTrackMeta } from "../offline.js";
+import {
+  offlinePlaybackOn,
+  openCoverUrl,
+  openTrackUrl,
+  readTrackMeta,
+  storeTrack,
+} from "../offline.js";
 import {
   activeAudio,
   applyNowPlayingMetadata,
   clearNowPlayingMetadata,
   clearPreparing,
   loadedTrackId,
+  nextPollDelay,
   offerPrefetchedAudio,
   onPlayerEvent,
   paintRange,
@@ -51,13 +58,20 @@ import {
 // SKIP_SECONDS so scrubbing feels the same wherever the focus happens to be.
 const SEEK_STEP_SECONDS = 15;
 
-// How the prefetch follows its own download to completion, so the handoff
-// knows whether the next track is actually playable before it gets there
-// (see cacheUpcoming). Bounded well inside the length of a track — a
+// How long the prefetch will follow its own download before giving up, so the
+// handoff knows whether the next track is actually playable before it gets
+// there (see cacheUpcoming). Bounded well inside the length of a track — a
 // download that hasn't landed by then won't be helped by asking again, and
 // the handoff falls back to preparing it the ordinary way.
-const UPCOMING_POLL_MS = 1500;
-const UPCOMING_POLL_LIMIT = 20;
+//
+// The *cadence* inside that budget is player.js's nextPollDelay rather than a
+// grid of this module's own. It used to be a flat 1.5s, which is precisely the
+// arrangement player.js measured and abandoned — and the prefetch path simply
+// never got the fix. On a real device on 2026-08-27 it cost 0.95s, 0.99s and
+// 1.69s of dead air on three consecutive tracks: the file was on the server's
+// disk and the client had not asked yet. One of those three tracks then missed
+// its handoff by 1.4s.
+const UPCOMING_POLL_BUDGET_MS = 30000;
 
 // How close to a track's end the background early handoff fires (see the
 // timeupdate handler in setupPlayerOverlay). Wide enough that the roughly
@@ -87,6 +101,60 @@ const PREFETCH_MAX_BYTES = 24 * 1024 * 1024;
  * song until I opened the app again" was.
  */
 let upcomingTrack = null;
+
+// The prefetch's own transfer, so it can be called off.
+//
+// A superseded prefetch is not merely useless, and that is the point of
+// holding this. On the commonest miss — the bytes had not landed by the time
+// the handoff came for them — the file it is still pulling down is the exact
+// file the <audio> element has just started fetching for itself, so it spends
+// the whole of the buffer-up competing with the playback it existed to
+// smooth, for a Blob that is thrown away on arrival. Measured on 2026-08-27:
+// five range requests from the element over six seconds with two full copies
+// of the same track in flight beside them, and `playback-stalled` at
+// readyState 0.
+let upcomingAbort = null;
+
+function abortUpcomingFetch() {
+  upcomingAbort?.abort();
+  upcomingAbort = null;
+}
+
+// Which track's successor has already been sent for, so the several triggers
+// below collapse into one prefetch per track played.
+let prefetchedFor = null;
+
+/**
+ * Sends for whatever the queue says comes next.
+ *
+ * Fired from three places, and idempotent so that costs nothing: the track
+ * opening, the queue changing, and every timeupdate after that. Each covers a
+ * case the others miss — an open with no queue yet ("Play all" builds it
+ * after opening the first track), a queue that arrives while a track is
+ * already playing, and a track whose queue only becomes non-empty later.
+ *
+ * The open is the one that matters, and it was missing. This used to hang off
+ * timeupdate alone, which sounds equivalent and is not: **a stalled element
+ * emits no timeupdate**. So the moment one track failed to start promptly,
+ * the next one's preparation did not begin either — measured on a device on
+ * 2026-08-27, twice: a normal track sent for its successor 1.0-1.9s in, and a
+ * track that stalled sent for its successor 7.4s and 7.9s in. Both of those
+ * successors then stalled in turn. Firing on the open is what breaks that
+ * chain, and it is worth most in exactly the conditions that create it.
+ *
+ * Marked only once the prefetch is actually going out. Setting it before the
+ * queue had been consulted made the guard permanent for that track: a queue
+ * that was momentarily empty on this tick would never get a second chance,
+ * however long the track went on playing.
+ */
+function prefetchUpcoming() {
+  const playing = document.getElementById("player-root")?.dataset.contentId;
+  if (!playing || prefetchedFor === playing) return;
+  const upcoming = peekNextId();
+  if (upcoming == null) return;
+  prefetchedFor = playing;
+  cacheUpcoming(upcoming);
+}
 
 // The blob: URL currently in the player's <img>, when the track came off
 // the device. Held so the next open can revoke it — nothing else has a
@@ -218,12 +286,23 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
     data = upcomingTrack.data;
     prefetchedAudio = upcomingTrack.objectUrl;
     reportPlayback("handoff-cached", { contentId, status: data.status, buffered: Boolean(prefetchedAudio) });
-  } else if (upcomingTrack?.objectUrl) {
-    // Bytes pulled down for a track this open isn't going to. Nothing will
-    // ever read them, and an object URL pins its Blob until revoked.
-    URL.revokeObjectURL(upcomingTrack.objectUrl);
+  } else {
+    // `prepared` is the whole point of reporting this: it separates "the
+    // prefetch never ran for this track" from "it ran for a different one".
+    reportPlayback("handoff-missed", { contentId, prepared: upcomingTrack?.id ?? null });
+    if (upcomingTrack?.objectUrl) {
+      // Bytes pulled down for a track this open isn't going to. Nothing will
+      // ever read them, and an object URL pins its Blob until revoked.
+      URL.revokeObjectURL(upcomingTrack.objectUrl);
+    }
   }
   upcomingTrack = null;
+  // Whatever it had not finished pulling down belongs to nobody now: this
+  // open has already read objectUrl and taken whatever was there, so the rest
+  // of that transfer can only ever be discarded. Stopping it is what keeps it
+  // out of the way of the element, which on a miss is fetching the very same
+  // track — see abortUpcomingFetch.
+  abortUpcomingFetch();
 
   // Nothing was prepared for this open — but the track may be one the user
   // keeps on the device, in which case its bytes are already here and the
@@ -402,6 +481,11 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
   document.getElementById("mini-player").hidden = false;
   document.body.classList.add("has-mini-player");
 
+  // Before prepareAudio, not after: this track may be about to spend seconds
+  // downloading, and the whole point is that the next one's preparation runs
+  // alongside that rather than behind it.
+  prefetchUpcoming();
+
   const start = () => {
     prepareAudio(
       () => {
@@ -496,6 +580,14 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
  *
  * Best effort in both directions: a failed call, or a track with no song
  * version, hands back exactly what it was given.
+ *
+ * Only the cold open still calls this — the prefetch dropped it when the
+ * download started doing the swap itself. That path can't: it renders the
+ * title and the cover from this row *before* anything asks for a download, so
+ * taking the swap off the download's answer would leave the music video's name
+ * and its 16:9 still on screen under a song that is already playing. It costs
+ * a round trip once, on the one open where the listener is watching a spinner
+ * anyway, rather than on every track of a queue.
  */
 async function songVersionOf(data) {
   if (!data.is_music_video) return data;
@@ -520,50 +612,54 @@ async function songVersionOf(data) {
  */
 async function cacheUpcoming(contentId) {
   const id = String(contentId);
-  // The song swap runs *before* the download, not beside it: the row's
-  // video_id is what gets fetched, and the server refuses to rewrite it once
-  // a file exists (see swap_in_song_version). Resolving first means the
-  // prefetch pulls down the song rather than the video, and the handoff
-  // finds it already on disk.
-  const meta = await api(`/content/${id}`);
-  if (!meta.ok) return;
-  const resolved = await songVersionOf(meta.data);
+  // The queue named a different successor than the one still coming down.
+  abortUpcomingFetch();
 
-  // Published the moment it exists, rather than after the download POST
-  // below. Everything above this line is exactly what openPlayer would
-  // otherwise have to do for itself — and songVersionOf is a live search, the
-  // slowest thing on the whole path — so a Next press landing in this window
-  // used to find nothing here and repeat all of it before a single thing on
-  // screen changed. Now it finds the metadata and only the audio is still
-  // outstanding.
-  upcomingTrack = { id, data: { ...resolved }, objectUrl: null };
-
-  // The metadata and the swap used to run beside the download in one
-  // Promise.all. They can't any more: the download fetches whatever
-  // video_id the row currently names, so the swap has to have landed first
-  // or the prefetch pulls down the music video and the handoff arrives to
-  // find the wrong file already on disk.
+  // One request where there used to be three. This used to fetch the row,
+  // POST the song swap, and only then POST the download — in that order, and
+  // the ordering was this module's to get right, because the download fetches
+  // whatever video_id the row currently names. The server does the swap on its
+  // way into the download now (see routers/content.py's start_download), so
+  // the ordering is guaranteed rather than arranged, and the answer carries
+  // the row it ended up with.
   const download = await api(`/content/${id}/download`, { method: "POST" });
-  // Taken by the handoff while that was in flight — this entry is somebody
-  // else's now (or nobody's), and writing to it would resurrect a cache for
-  // the track that is already playing.
-  if (upcomingTrack?.id !== id) return;
 
-  // The POST's answer is the more recent of the two, and the only one that
-  // can say "already on disk" for a track that needed no download at all.
-  const data = upcomingTrack.data;
-  if (download.ok && download.data) {
+  let data = null;
+  if (download.data?.content) {
+    data = { ...download.data.content };
     data.status = download.data.status;
     data.is_unavailable = download.data.is_unavailable === true;
+  } else {
+    // No row in that answer, which is a 409 nearly every time: something else
+    // already has this one downloading — another tab, or this one having sent
+    // for the same successor twice across a queue change. The track is
+    // perfectly fine, it just isn't this response's to describe, so ask for it
+    // the old way and carry on into the poll below. Left as the slow path
+    // deliberately: it is the uncommon one, and paying a round trip for it is
+    // what keeps the common one down to a single request.
+    const meta = await api(`/content/${id}`);
+    if (!meta.ok) return;
+    data = { ...meta.data };
   }
+
+  // Published here, where it used to go up between the swap and the download.
+  // The window a Next press can land in and find nothing is much the same
+  // either way — the live song search dominates both arrangements — and the
+  // chain around it is two round trips shorter. What is not on offer is
+  // publishing early off the *unswapped* row: the handoff renders straight
+  // from this, so that would put the music video's title and its 16:9 still on
+  // screen for a track that is about to play the song.
+  upcomingTrack = { id, data, objectUrl: null };
+
   if (data.is_unavailable || data.status === "error") return;
   if (data.status === "ready") {
     await cacheUpcomingAudio(id);
     return;
   }
 
-  for (let attempt = 0; attempt < UPCOMING_POLL_LIMIT; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, UPCOMING_POLL_MS));
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < UPCOMING_POLL_BUDGET_MS) {
+    await new Promise((resolve) => setTimeout(resolve, nextPollDelay(Date.now() - startedAt)));
     // Superseded (the queue moved on, or the handoff already took this) —
     // whatever comes back now belongs to nothing.
     if (upcomingTrack?.id !== id) return;
@@ -596,6 +692,12 @@ async function cacheUpcoming(contentId) {
  */
 async function cacheUpcomingAudio(id) {
   let objectUrl = null;
+  // Hoisted so the finally can tell "my transfer is over" from "somebody
+  // else's has already started": an abort rejects this call's fetch, and by
+  // the time that rejection is handled the newer prefetch has usually
+  // published its own controller. Clearing unconditionally would strand that
+  // one, leaving the transfer that is actually running impossible to stop.
+  let controller = null;
   try {
     // A track kept on the device is already downloaded, so the size cap below
     // has nothing to protect against here — it exists to stop a large
@@ -617,7 +719,13 @@ async function cacheUpcomingAudio(id) {
     // Plain /stream, no marker of its own: asking for it no longer records a
     // play (see routers/content.py's stream_content), which is precisely
     // what makes fetching a track early safe to do.
-    const res = await fetch(`/content/${id}/stream`);
+    controller = new AbortController();
+    upcomingAbort = controller;
+    // Read now rather than after the transfer: this is the metadata for the
+    // track being fetched, and by the time the bytes land upcomingTrack may
+    // have moved on to a different song entirely.
+    const meta = upcomingTrack?.id === id ? upcomingTrack.data : null;
+    const res = await fetch(`/content/${id}/stream`, { signal: controller.signal });
     if (!res.ok) return;
     // Declined before buffering when the server says how big it is, and
     // again afterwards for the case where it didn't.
@@ -626,8 +734,34 @@ async function cacheUpcomingAudio(id) {
     const blob = await res.blob();
     if (blob.size > PREFETCH_MAX_BYTES) return;
     objectUrl = URL.createObjectURL(blob);
+
+    // The whole track is in the page now, and with offline playback on this
+    // device is meant to end up holding it anyway. Keeping it here rather
+    // than leaving it to the sync is what stops the same file being fetched
+    // twice: the sync's own pass is scheduled by the fragment refresh that
+    // playing this track triggers, so without this the second transfer landed
+    // squarely on top of the first (see offline.js's storeTrack).
+    //
+    // Best effort and deliberately not awaited into the handoff's path: a
+    // full device must not cost the listener the track that is already here.
+    if (meta && offlinePlaybackOn()) {
+      // Measured on a device on 2026-08-27, since web.dev's guidance is that
+      // structured cloning runs on the main thread and scales with size:
+      // 543-745ms for 2.8-3.7MB, on a write that is not awaited by anything.
+      // Nowhere near the seconds that would make it worth moving off this
+      // path, so it stays where the bytes already are.
+      storeTrack(id, blob, {
+        title: meta.title || "",
+        artist: meta.channel_title || "",
+        coverUrl: meta.thumbnail_url || null,
+        duration: meta.duration_seconds ?? null,
+      }).catch(() => {});
+    }
   } catch (err) {
     return;
+  } finally {
+    // Aborted, failed, or finished — whichever, this call's transfer is over.
+    if (upcomingAbort === controller) upcomingAbort = null;
   }
 
   // Superseded while the bytes were in flight — the handoff has already been
@@ -1067,32 +1201,19 @@ export function setupPlayerOverlay() {
   // press paid for the metadata round trip, the live song-version search
   // behind it, and the whole download.
   //
-  // So it goes out with the track now. `timeupdate` rather than the open
-  // itself because it is also the retry: "Play all" builds the queue *after*
-  // opening the first track, so peekNextId() is still null at that point,
-  // and this fires again a quarter of a second later when it isn't. A track
-  // genuinely skipped past before it ever plays a frame still prefetches
-  // nothing, since no timeupdate ever fires for it.
+  // Then it went out on the first timeupdate instead, which was nearly right
+  // and quietly kept the worst case: an element that never starts never ticks
+  // (see prefetchUpcoming). The open is the trigger now, and these two are
+  // what catch the opens that could not send for anything yet — "Play all"
+  // builds its queue after opening the first track, so the open finds
+  // peekNextId() null and the queue's own event is what starts it.
   //
   // What it does cost: skipping through tracks that each play for a moment
   // now starts a download for each one's successor. Server-side that is a
   // no-op for anything already on disk (see routers/content.py's
   // start_download), but a fresh one is a real yt-dlp run against YouTube.
-  let prefetchedFor = null;
-  onPlayerEvent("timeupdate", () => {
-    const playing = document.getElementById("player-root").dataset.contentId;
-    if (!playing || prefetchedFor === playing) return;
-    const upcoming = peekNextId();
-    if (upcoming == null) return;
-    // Marked only once the prefetch is actually going out. Setting it before
-    // the queue had been consulted made the guard permanent for that track: a
-    // queue that was momentarily empty on this tick never got a second
-    // chance, however long it went on playing — which is exactly the state
-    // "Play all" is in on its first tick, since it builds the queue after
-    // opening the track.
-    prefetchedFor = playing;
-    cacheUpcoming(upcoming);
-  });
+  document.addEventListener(QUEUE_CHANGED, prefetchUpcoming);
+  onPlayerEvent("timeupdate", prefetchUpcoming);
 
   // The early handoff: in the background, the next track starts *before*
   // this one ends, so the element never passes through `ended` off screen.

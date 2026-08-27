@@ -177,9 +177,14 @@ def test_report_playback_only_sends_the_unexpected_events() -> None:
         "media-session-action",
         "audio-session",
         "early-handoff",
-        # Not playback. The one thing about the installed app's layout that no
-        # desktop browser reproduces, on the only channel that can carry it.
-        "viewport-geometry",
+        # Temporary, and player.js says what for: one track whose prefetch had
+        # completed still started over the network, and nothing on the server
+        # distinguished it from the track before it that did not. `buffered`
+        # answered that, and these are now how the fix for it gets checked.
+        # They come out once it has been.
+        "handoff-cached",
+        "handoff-device",
+        "handoff-missed",
     }
 
     # The allowlist alone proves nothing if reportPlayback doesn't actually
@@ -911,12 +916,20 @@ def test_a_music_video_row_is_swapped_for_the_song_before_it_plays() -> None:
 
     assert "songVersionOf" in source
     assert "is_music_video" in source
-    # The whole function, not a fixed slice of it: this used to read the
-    # first 1400 characters and broke on a comment being added above the
-    # download, which says nothing about the ordering it is checking.
+
+    # The prefetch used to enforce the ordering itself, with its own swap
+    # request placed ahead of its own download request. That is now the
+    # server's job — start_download swaps on the way in, so the ordering is
+    # guaranteed rather than arranged, and there is nothing left here to
+    # order. See test_content_api.py's coverage of the download endpoint.
     prefetch = source[source.index("async function cacheUpcoming(contentId) {") :]
     prefetch = prefetch[: prefetch.index("\n}\n")]
-    assert prefetch.index("songVersionOf") < prefetch.index("/download")
+    assert "songVersionOf" not in prefetch
+
+    # The cold open is the one path that still has to do it for itself: it
+    # draws the title and the cover from the row before anything asks for a
+    # download, so it cannot wait for the download's answer to carry the swap.
+    assert "await songVersionOf(data);" in source
 
 
 def test_start_playback_does_not_reload_the_track_already_loaded() -> None:
@@ -983,11 +996,11 @@ def test_the_prefetch_guard_is_set_only_once_the_prefetch_goes_out() -> None:
     # Matched as contiguous text rather than by comparing indexes: peekNextId
     # is called from the transport sync earlier in this same file, so a plain
     # source.index() finds that one and compares the wrong pair.
-    assert "prefetchedFor = playing;\n    const upcoming = peekNextId();" not in source, (
+    assert "prefetchedFor = playing;\n  const upcoming = peekNextId();" not in source, (
         "prefetchedFor is marked before peekNextId() is consulted — a track "
         "whose queue was momentarily empty never prefetches again"
     )
-    assert "const upcoming = peekNextId();\n    if (upcoming == null) return;" in source, (
+    assert "const upcoming = peekNextId();\n  if (upcoming == null) return;" in source, (
         "the prefetch no longer bails out before marking the guard"
     )
 
@@ -1115,7 +1128,13 @@ def test_every_prefetched_object_url_is_released() -> None:
     assert "if (upcomingTrack?.id !== id) {\n    URL.revokeObjectURL(objectUrl);" in overlay, (
         "a prefetch superseded while its bytes were in flight leaks its Blob"
     )
-    assert "} else if (upcomingTrack?.objectUrl) {" in overlay, (
+    # Braced rather than the one-liner the close path uses, deliberately: the
+    # two revoke the same expression, and an assertion that matched either
+    # would pass with one of them deleted.
+    assert (
+        "    if (upcomingTrack?.objectUrl) {\n"
+        "      // Bytes pulled down for a track this open isn't going to."
+    ) in overlay, (
         "bytes prefetched for a track the user then skipped past leak their Blob"
     )
     assert "if (upcomingTrack?.objectUrl) URL.revokeObjectURL(upcomingTrack.objectUrl);" in overlay, (
@@ -1157,29 +1176,41 @@ def test_the_prefetch_goes_out_with_the_track_not_part_way_through_it() -> None:
     )
 
 
-def test_the_upcoming_track_is_cached_before_its_download_is_asked_for() -> None:
-    """Everything openPlayer would otherwise have to do itself — the metadata
-    fetch and songVersionOf's live search — is already done by this point, so
-    publishing it here rather than after the download POST is what makes a
-    Next press landing mid-prefetch instant on screen instead of repeating all
-    of it.
+def test_the_upcoming_track_is_published_before_its_audio_is_fetched() -> None:
+    """A Next press landing mid-prefetch has to find something here, or it
+    repeats the whole chain before anything on screen changes.
 
-    The write after the POST has to re-check that the entry is still ours: the
-    handoff can take it while that request is in flight, and writing to it
-    then resurrects a cache entry for the track that is already playing."""
+    This used to publish between the swap request and the download request,
+    which was the earliest point the row was trustworthy back when the client
+    made three calls. It now publishes off the download's own answer — later
+    in the function, and yet *earlier* in wall-clock terms, because two round
+    trips came out from in front of it: the live song search dominates either
+    arrangement, and the metadata fetch and the swap request no longer sit
+    ahead of it. What must not come back is publishing ahead of the swap, off
+    a row still naming the music video.
+
+    What has to stay after the publish is the audio: the fetch is a whole
+    track and the poll loop that waits for it can run for thirty seconds, so
+    an entry that only appeared at the end of those would be no entry at all
+    for most of the window it exists to cover."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
     body = source[source.index("async function cacheUpcoming(contentId) {") :]
     body = body[: body.index("\n}\n")]
 
-    published = body.index("upcomingTrack = { id, data: { ...resolved }, objectUrl: null };")
-    posted = body.index('await api(`/content/${id}/download`, { method: "POST" })')
-    assert published < posted, (
-        "the upcoming track is only cached after its download POST returns — a "
-        "Next press before then repeats the metadata fetch and the live search"
+    published = body.index("upcomingTrack = { id, data, objectUrl: null };")
+    assert published < body.index("cacheUpcomingAudio(id)"), (
+        "the upcoming track is published only after its audio is fetched — a "
+        "Next press before then finds nothing and repeats the whole chain"
     )
-    assert "if (upcomingTrack?.id !== id) return;" in body[posted:], (
-        "the post-download write doesn't re-check that the entry is still ours"
+    assert published < body.index("while (Date.now() - startedAt"), (
+        "the upcoming track is published after the poll loop, which can run "
+        "for the whole budget before it ever gets there"
+    )
+    # The handoff can take the entry while the poll is in flight, and writing
+    # to it then resurrects a cache for the track that is already playing.
+    assert "if (upcomingTrack?.id !== id) return;" in body[published:], (
+        "the post-publish writes don't re-check that the entry is still ours"
     )
 
 
@@ -1765,3 +1796,257 @@ def test_a_library_card_with_nothing_to_open_is_not_a_navigation() -> None:
         "the Library grid opens a detail panel for any .channel-card, "
         "including ones with no kind to open"
     )
+
+
+def test_a_superseded_prefetch_stops_pulling_the_track_down() -> None:
+    """A prefetch nobody is going to read must not keep using the connection.
+
+    The prefetch downloads the whole of the next track. When the handoff
+    arrives before those bytes do, openPlayer reads a null objectUrl, hands
+    the element the stream URL instead, and drops the entry — but the fetch
+    behind it used to run on to completion, and its Blob was revoked on
+    arrival. So on every prefetch miss the page spent the buffer-up pulling
+    down a second full copy of the exact file the <audio> element had just
+    started fetching for itself.
+
+    Measured on a real device on 2026-08-27: five range requests from the
+    element over six seconds, two concurrent full-file transfers of the same
+    track beside them, and `playback-stalled` at readyState 0 — the track
+    sitting at 0:00.
+    """
+    source = (JS_DIR / "home" / "overlay.js").read_text()
+
+    assert "let upcomingAbort = null;" in source
+    assert "await fetch(`/content/${id}/stream`, { signal: controller.signal })" in source, (
+        "the prefetch's stream fetch is no longer given an abort signal, so "
+        "nothing can call it off once it has been superseded"
+    )
+
+    # Both places that supersede a prefetch: the handoff taking (or missing)
+    # it, and the queue naming a different successor.
+    handoff = source[source.index("export async function openPlayer") : source.index("async function cacheUpcoming(")]
+    assert "abortUpcomingFetch();" in handoff, (
+        "openPlayer drops upcomingTrack without stopping the transfer behind "
+        "it — the bytes keep coming for a Blob that will be revoked"
+    )
+    queued = source[source.index("async function cacheUpcoming(") : source.index("async function cacheUpcomingAudio(")]
+    assert "abortUpcomingFetch();" in queued, (
+        "a new prefetch no longer calls off the previous one, so two whole "
+        "tracks can be in flight at once"
+    )
+
+    # The subtle half. An abort rejects the fetch, and by the time that
+    # rejection reaches the finally the *next* prefetch has usually published
+    # its controller — clearing unconditionally strands it, which leaves the
+    # transfer that is actually running impossible to stop.
+    audio = source[source.index("async function cacheUpcomingAudio(") :]
+    assert "if (upcomingAbort === controller) upcomingAbort = null;" in audio, (
+        "cacheUpcomingAudio clears upcomingAbort without checking it is still "
+        "its own — a superseded call now disarms the live prefetch"
+    )
+
+
+def test_the_device_sync_gives_way_to_a_track_that_is_still_buffering() -> None:
+    """The offline sync must not be what stops a track from starting.
+
+    It is scheduled by a fragment refresh; a fragment refresh is what happens
+    when you play something; and the one track missing from the device at
+    that moment is the one the server has just downloaded for you — the one
+    playing. So the top-up reliably fetched the current track's whole file
+    over the network, eight seconds in, while the element was still buffering
+    those same bytes.
+
+    Two things hold it off. It will not *start* a save while the player is
+    trying to play and has not buffered enough to survive it, and it drops
+    one already in flight the moment the element says it has run out.
+    """
+    source = (JS_DIR / "home" / "device.js").read_text()
+
+    check = source[
+        source.index("function playbackNeedsTheConnection() {") : source.index("// One sync at a time.")
+    ]
+    assert "audio.paused" in check and "HAVE_FUTURE_DATA" in check, (
+        "the gate no longer asks whether the element is starving — anything "
+        "coarser either never runs the sync or never gets out of its way"
+    )
+
+    body = source[source.index("async function syncDevice(") : source.index("async function enableOfflinePlayback(")]
+    gate = body.index("if (playbackNeedsTheConnection()) {")
+    save = body.index("await saveTrack(")
+    assert gate < save, "the sync starts a save before asking whether playback needs the connection"
+    assert "signal: controller.signal" in body, (
+        "saveTrack is no longer given an abort signal, so a whole track keeps "
+        "coming down after playback has starved"
+    )
+    assert 'if (err?.name === "AbortError")' in body, (
+        "an aborted save is being reported to the user as a failure — it is "
+        "this module doing what it was told"
+    )
+
+    setup = source[source.index("export function setupDeviceStorage() {") :]
+    assert 'onPlayerEvent("waiting", () => saveAbort?.abort());' in setup, (
+        "nothing calls the in-flight save off any more; `waiting` is the "
+        "element saying it has run out, which is the exact signal"
+    )
+
+
+def test_a_prefetched_track_is_kept_rather_than_fetched_a_second_time() -> None:
+    """With offline playback on, the prefetch already holds what the sync
+    would go and get.
+
+    Both pull the same file over the same connection, and the sync's pass is
+    scheduled by the fragment refresh that playing the track triggers — so
+    the second transfer landed squarely on top of the first. Storing the
+    Blob the prefetch is holding removes it entirely.
+
+    The metadata has to be read *before* the transfer: by the time the bytes
+    land, upcomingTrack may name a different song, and a record saved under
+    the wrong title is invisible to every listing that could delete it.
+    """
+    source = (JS_DIR / "home" / "overlay.js").read_text()
+
+    body = source[source.index("async function cacheUpcomingAudio(") :]
+    meta = body.index("const meta = upcomingTrack?.id === id ? upcomingTrack.data : null;")
+    fetched = body.index("await fetch(`/content/${id}/stream`")
+    stored = body.index("storeTrack(id, blob, {")
+    assert meta < fetched < stored, (
+        "the prefetch's metadata is read after its transfer, so a superseded "
+        "call can save one track's bytes under another track's name"
+    )
+    assert "if (meta && offlinePlaybackOn()) {" in body, (
+        "the prefetch now writes to the device whatever the user asked for — "
+        "keeping every track played is what the switch is for, not the default"
+    )
+
+    # It must not become something the handoff waits on: a full device would
+    # otherwise cost the listener a track that is already in the page.
+    assert "storeTrack(id, blob, {" in body and "await storeTrack" not in body, (
+        "the device write is awaited into the prefetch's path, where a slow "
+        "or failing IndexedDB delays the handoff it exists to make instant"
+    )
+
+
+def test_the_prefetch_follows_its_download_on_the_shared_poll_ladder() -> None:
+    """Both status polls in this app watch the same thing — a yt-dlp run that
+    takes two to three seconds — so they have no business using different
+    cadences.
+
+    player.js measured this and moved to an elapsed-time ladder (200ms for the
+    first four seconds, then 500ms, then 2s), because a coarse grid means the
+    file is on the server's disk and the client simply has not asked yet. The
+    prefetch never got that fix and stayed on a flat 1.5s. On a real device on
+    2026-08-27 that cost 0.95s, 0.99s and 1.69s of dead air on three
+    consecutive tracks, against 0.09s for the one track of the same session
+    that came through player.js's own poll — and one of the three then missed
+    its handoff by 1.4s.
+    """
+    overlay = (JS_DIR / "home" / "overlay.js").read_text()
+    player = (JS_DIR / "player.js").read_text()
+
+    assert "export function nextPollDelay" in player, (
+        "nextPollDelay is no longer exported, so the prefetch cannot share the "
+        "ladder and will drift back to a grid of its own"
+    )
+    body = overlay[overlay.index("async function cacheUpcoming(") : overlay.index("async function cacheUpcomingAudio(")]
+    assert "nextPollDelay(Date.now() - startedAt)" in body, (
+        "the prefetch is back on a fixed poll interval — the exact arrangement "
+        "player.js's own comment says it measured and abandoned"
+    )
+    # Elapsed-driven rather than counted, for the reason player.js gives: a
+    # slow response must not shift the schedule out from under the window.
+    assert "UPCOMING_POLL_BUDGET_MS" in body and "attempt < UPCOMING_POLL_LIMIT" not in body, (
+        "the poll is bounded by a step count again, so a variable delay changes "
+        "how long it watches for rather than how often it asks"
+    )
+
+
+def test_the_prefetch_asks_for_the_download_and_nothing_else() -> None:
+    """The queue's one-track-ahead prefetch used to make three serial requests
+    before yt-dlp could start: fetch the row, POST the song swap, POST the
+    download. The order mattered and was this module's to keep — the download
+    fetches whatever video_id the row names at the time — which is exactly the
+    kind of ordering a server can guarantee instead.
+
+    Measured on a device on 2026-08-27, per track: ~0.5s for the metadata and
+    0.62-3.42s for the swap, ahead of a 2.0-2.5s download. Folding the swap
+    into the download (see routers/content.py's start_download) takes two legs
+    off that chain, and its answer carries the row the server ended up with.
+    """
+    overlay = (JS_DIR / "home" / "overlay.js").read_text()
+    body = overlay[overlay.index("async function cacheUpcoming(") : overlay.index("async function cacheUpcomingAudio(")]
+
+    assert "songVersionOf" not in body, "the prefetch is making its own swap request again"
+
+    # The download goes first and is the only request on the common path. The
+    # row fetch survives as the fallback for the answer that carries no row — a
+    # 409 from another tab already downloading it — and being *after* the
+    # download is what keeps it off the path that matters.
+    posted = body.index('await api(`/content/${id}/download`, { method: "POST" })')
+    assert posted < body.index("api(`/content/${id}`)"), (
+        "the prefetch is fetching the row ahead of the download again — the "
+        "download's own answer already carries it"
+    )
+    assert "if (download.data?.content) {" in body, (
+        "the prefetch no longer takes the row off the download's answer, so "
+        "the fallback fetch is the only path left and nothing was saved"
+    )
+
+    # The row published for the handoff has to be the one the swap produced.
+    # Publishing the pre-swap row early would put the music video's title and
+    # its 16:9 still on screen for a track about to play the song — which is
+    # also why the fallback re-reads the row rather than reusing whatever the
+    # caller had: by then the swap has landed on the server either way.
+    assert "data = { ...download.data.content };" in body, (
+        "upcomingTrack is being built from something other than the download's "
+        "own answer, which is the only post-swap row this path ever sees"
+    )
+    published = body.index("upcomingTrack = { id, data, objectUrl: null };")
+    assert body.index("data = { ...download.data.content };") < published
+    assert posted < published, "the row is published before the swap that produced it has landed"
+
+    # The cold open keeps its separate call, and must: it renders from the row
+    # before anything asks for a download.
+    assert "await songVersionOf(data);" in overlay, (
+        "the cold open lost its swap, so a first play shows the music video's "
+        "title and cover under the song it actually plays"
+    )
+
+
+def test_the_next_track_is_sent_for_when_this_one_opens() -> None:
+    """A stalled element emits no timeupdate, so hanging the prefetch off
+    timeupdate alone made every stall cost the *next* track as well.
+
+    Measured on a device on 2026-08-27. A track that started normally sent for
+    its successor 1.0s and 1.8s in; the two tracks that stalled sent for
+    theirs 7.4s and 7.9s in — and both of those successors then stalled in
+    turn, one of them still `downloading` when the handoff came for it. Three
+    consecutive misses at the end of a session that began with three
+    consecutive hits.
+
+    So the open is the trigger. The other two registrations stay as the
+    catch-ups for an open that had nothing to send for yet: "Play all" builds
+    its queue after opening the first track, so that open finds peekNextId()
+    null and the queue's own event is what starts it.
+    """
+    source = (JS_DIR / "home" / "overlay.js").read_text()
+
+    opened = source.index("export async function openPlayer(")
+    setup = source.index("export function setupPlayerOverlay(")
+    body = source[opened:setup]
+    assert "prefetchUpcoming();" in body, (
+        "opening a track no longer sends for the next one, so a track that "
+        "stalls holds up its successor's preparation too"
+    )
+    # Before the current track's own preparation, which is the whole point:
+    # this track may be about to spend seconds downloading.
+    assert body.index("prefetchUpcoming();") < body.index("prepareAudio("), (
+        "the next track is sent for only after this one's own download has "
+        "been arranged, which is the wait it exists to run alongside"
+    )
+
+    registrations = source[setup:]
+    assert "document.addEventListener(QUEUE_CHANGED, prefetchUpcoming);" in registrations, (
+        '"Play all" opens its first track before it has a queue, so without '
+        "this the first pair of tracks prefetches nothing"
+    )
+    assert 'onPlayerEvent("timeupdate", prefetchUpcoming);' in registrations

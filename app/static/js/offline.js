@@ -37,6 +37,40 @@ export function isSupported() {
   return typeof indexedDB !== "undefined";
 }
 
+/* -------------------------------------------------------------------------
+   Whether this device is meant to keep everything
+   ---------------------------------------------------------------------- */
+
+// A device preference, not an account one — the same login on a laptop and a
+// phone wants different answers, and the server has no business holding
+// either. localStorage rather than a cookie for the same reason: nothing
+// about this ever needs to reach a request.
+//
+// It lives down here rather than beside the switch that sets it (see
+// home/device.js) because the player reads it too: a prefetch that has just
+// pulled the next track into memory keeps those bytes when this is on, which
+// is what stops the sync fetching the very same file again a moment later.
+const OFFLINE_PREF_KEY = "spotea-offline-playback";
+
+export function offlinePlaybackOn() {
+  try {
+    return localStorage.getItem(OFFLINE_PREF_KEY) === "1";
+  } catch {
+    // Private browsing with storage disabled. The copies could not be kept
+    // either, so "off" is the only honest answer.
+    return false;
+  }
+}
+
+export function rememberOfflinePlayback(on) {
+  try {
+    if (on) localStorage.setItem(OFFLINE_PREF_KEY, "1");
+    else localStorage.removeItem(OFFLINE_PREF_KEY);
+  } catch {
+    /* Nothing to remember it with; the switch still works for this session. */
+  }
+}
+
 let dbPromise = null;
 
 function openDb() {
@@ -229,19 +263,43 @@ export async function openCoverUrl(contentId) {
  * that can play the audio but can't say what the song is called is not
  * usable offline.
  *
+ * `signal` calls the transfer off. The sync passes one so that a whole
+ * track's bytes stop coming down the moment the player runs out of its own
+ * (see home/device.js) — this is a convenience, and the song the user is
+ * actually listening to is not.
+ */
+export async function saveTrack(contentId, track = {}, { signal } = {}) {
+  const id = Number(contentId);
+
+  const res = await fetch(`/content/${id}/stream`, { signal });
+  if (!res.ok) throw new Error(`Could not fetch this track (${res.status})`);
+  const audio = await res.blob();
+
+  return storeTrack(id, audio, track);
+}
+
+/**
+ * Keeps bytes the page is already holding, without going and getting them.
+ *
+ * Split out of saveTrack for the prefetch, which pulls the whole of the next
+ * track into memory while the current one plays (see home/overlay.js's
+ * cacheUpcomingAudio) and until now dropped it again the moment the handoff
+ * was done with it — leaving the sync to fetch that exact file a second time,
+ * over the same connection, while the element was still buffering it. That
+ * second transfer is what made tracks sit at 0:00.
+ *
  * The cover goes through /image-proxy rather than YouTube's CDN directly.
  * Not a detail: a cross-origin fetch of an image is opaque, and an opaque
  * Blob is unreadable — it would store bytes that could never be displayed.
  * The proxy is same-origin, so its response is a real one (and it is also
  * the only way the app renders covers at all — see main.py's image_proxy).
  */
-export async function saveTrack(contentId, track = {}) {
+export async function storeTrack(contentId, audio, track = {}) {
   const id = Number(contentId);
 
-  const res = await fetch(`/content/${id}/stream`);
-  if (!res.ok) throw new Error(`Could not fetch this track (${res.status})`);
-  const audio = await res.blob();
-
+  // Deliberately not given the caller's abort signal: by the time this runs
+  // the audio is already down, and throwing a finished transfer away because
+  // a few kilobytes of artwork got cancelled would be perverse.
   let cover = null;
   if (track.coverUrl) {
     try {

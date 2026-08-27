@@ -235,11 +235,26 @@ def swap_in_song_version(
     if content is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
 
+    _apply_song_version(db, content, user.id)
+    return ContentOut.from_content(content)
+
+
+def _apply_song_version(db: Session, content: Content, user_id: int) -> None:
+    """Rewrites `content` into the song it is a music video of, in place.
+
+    Split out of the endpoint above so POST /{id}/download can do it too. The
+    prefetch used to call both in turn — one round trip to swap, another to
+    start the fetch — and the ordering between them was the client's to get
+    right. Now the download owns it: the swap happens on the way in, so the
+    file that comes down is the one the row ends up naming, and the client's
+    three-call chain (metadata, swap, download) loses a leg. See
+    home/overlay.js's cacheUpcoming.
+    """
     if not is_music_video(content) or content.status != "not_downloaded":
         # Already the song, or already downloaded — rewriting video_id under
         # a file that has been fetched would orphan it and leave the row
         # pointing at audio it no longer names.
-        return ContentOut.from_content(content)
+        return
 
     song = find_song_version(
         content.title,
@@ -247,7 +262,7 @@ def swap_in_song_version(
         content.artist.channel_id if content.artist else None,
     )
     if song is None:
-        return ContentOut.from_content(content)
+        return
 
     # The unique constraint is on (user_id, video_id): this same song may
     # already be in the library from a search. Left alone in that case —
@@ -255,22 +270,22 @@ def swap_in_song_version(
     # take the playing track out of the queue it came from.
     taken = (
         db.query(Content.id)
-        .filter(Content.user_id == user.id, Content.video_id == song.video_id)
+        .filter(Content.user_id == user_id, Content.video_id == song.video_id)
         .first()
     )
     if taken is not None:
-        return ContentOut.from_content(content)
+        return
 
     # Resolved before anything is written: get_or_create_placeholder commits,
     # and calling it mid-mutation would land half of this swap.
-    artist_id = _credited_artist_id(db, content, song, user.id)
+    artist_id = _credited_artist_id(db, content, song, user_id)
 
     # Recorded before it's overwritten. The playlist this row came from still
     # lists the video's id, and POST /explore/tracks/batch looks rows up by
     # exactly that — so without this the next tap on the same row finds
     # nothing, creates a second row, and plays the music video's audio from
     # the start. See SwappedVideo for the measurements.
-    db.add(SwappedVideo(user_id=user.id, video_id=content.video_id, content_id=content.id))
+    db.add(SwappedVideo(user_id=user_id, video_id=content.video_id, content_id=content.id))
 
     if artist_id is not None:
         content.artist_id = artist_id
@@ -293,7 +308,6 @@ def swap_in_song_version(
         content.duration_seconds = song.duration_seconds
     db.commit()
     db.refresh(content)
-    return ContentOut.from_content(content)
 
 
 # Registered ahead of the /{content_id}/... routes below — a literal segment
@@ -339,7 +353,12 @@ def start_download(
     # gone (storage cleared out from under us), which is the one case where
     # taking "ready" at face value would strand playback.
     if content.status == "ready" and content.file_path and Path(content.file_path).exists():
-        return StatusOut(id=content.id, status=content.status, error_message=None)
+        return StatusOut(
+            id=content.id,
+            status=content.status,
+            error_message=None,
+            content=ContentOut.from_content(content),
+        )
 
     # YouTube has already told us, on every client, that it won't serve this
     # one (see Content.is_unavailable). Answering from the row costs nothing
@@ -354,7 +373,16 @@ def start_download(
             status=content.status,
             error_message=content.error_message,
             is_unavailable=True,
+            content=ContentOut.from_content(content),
         )
+
+    # Before the id is validated and before the fetch is scheduled, so what
+    # comes down is the song rather than the music video it was listed as.
+    # This used to be the caller's job, in a separate request placed just so
+    # (see home/overlay.js's cacheUpcoming) — a whole round trip, on the one
+    # path where seconds are the entire point, to enforce an ordering the
+    # server can simply guarantee.
+    _apply_song_version(db, content, user.id)
 
     if not VIDEO_ID_RE.match(content.video_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid video id")
@@ -366,8 +394,19 @@ def start_download(
     background_tasks.add_task(
         _run_download, content.id, content.video_id, user.audio_quality, user.id
     )
+    # Was GET /{id}'s job, and moved here with the call the prefetch dropped
+    # (see get_content). This is the better place for it anyway: the swap
+    # above can have just replaced the thumbnail, and caching the one the row
+    # ends up with beats caching the music video's still it no longer uses.
+    if needs_thumbnail_caching(content.thumbnail_url):
+        background_tasks.add_task(cache_thumbnail, content.video_id, content.thumbnail_url)
 
-    return StatusOut(id=content.id, status=content.status, error_message=content.error_message)
+    return StatusOut(
+        id=content.id,
+        status=content.status,
+        error_message=content.error_message,
+        content=ContentOut.from_content(content),
+    )
 
 
 @router.get("/{content_id}/status", response_model=StatusOut)
