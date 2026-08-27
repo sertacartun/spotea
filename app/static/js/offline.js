@@ -146,8 +146,14 @@ export async function deviceUsage() {
   return { count: records.length, bytes, quota, ids: records.map((record) => record.id) };
 }
 
-/** Every saved track's metadata, newest first. Never touches the audio. */
-async function listSaved() {
+/**
+ * Every saved track's metadata, newest first. Never touches the audio.
+ *
+ * Exported because it is the whole source of the Downloads panel's rows (see
+ * home/device.js): offline there is no /partials to render a track list from,
+ * so what was stored beside the bytes is the list.
+ */
+export async function listSaved() {
   if (!isSupported()) return [];
   try {
     const records = await transact(META_STORE, "readonly", (tx) =>

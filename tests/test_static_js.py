@@ -177,6 +177,9 @@ def test_report_playback_only_sends_the_unexpected_events() -> None:
         "media-session-action",
         "audio-session",
         "early-handoff",
+        # Not playback. The one thing about the installed app's layout that no
+        # desktop browser reproduces, on the only channel that can carry it.
+        "viewport-geometry",
     }
 
     # The allowlist alone proves nothing if reportPlayback doesn't actually
@@ -411,7 +414,10 @@ def test_both_panel_swaps_run_the_same_wiring() -> None:
     anything one needs wired the other does too. They used to diverge."""
     source = (JS_DIR / "home" / "detail.js").read_text()
 
-    assert source.count("  afterPanelSwap();") == 2, (
+    # Three of them now: a cached remote fragment, a freshly fetched one, and
+    # the device's own Downloads panel, which is built in the browser but is
+    # still the same markup with the same controls in it.
+    assert source.count("  afterPanelSwap();") == 3, (
         "a swap path skips afterPanelSwap — its shelves won't drag-scroll, "
         "or its shuffle button won't match the current preference"
     )
@@ -765,8 +771,12 @@ def test_the_keyboard_is_measured_without_the_scroll_offset() -> None:
     source = (JS_DIR / "viewport.js").read_text()
 
     assert "const covered = window.innerHeight - viewport.height;" in source
+    # Scoped to the function that does the measuring, not the whole file: this
+    # is about one subtraction, and a file-wide ban on the string also forbids
+    # unrelated code from ever reading the offset for something else.
+    body = _function_body(source, "installKeyboardInset")
     # In the note explaining why, not in the arithmetic.
-    code = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("//"))
+    code = "\n".join(line for line in body.splitlines() if not line.lstrip().startswith("//"))
     assert "viewport.offsetTop" not in code
 
 
@@ -1454,25 +1464,59 @@ def test_offline_metadata_and_audio_live_in_separate_stores() -> None:
     )
 
 
-def test_the_device_toggle_can_actually_be_hidden() -> None:
-    """It shares the row-button rule with .storage-export/.storage-remove,
-    which sets an explicit `display` — and an explicit display beats the
-    [hidden] attribute. Without a rule of its own, the button syncDeviceState
-    hides on a browser with no IndexedDB stays on screen offering something
-    that cannot work.
+def test_elements_js_hides_are_not_pinned_open_by_a_display_rule() -> None:
+    """An explicit `display` beats the [hidden] attribute, so anything the JS
+    hides by setting `.hidden = true` needs a [hidden] rule of its own or it
+    simply stays on screen.
+
+    This has bitten three separate elements now (the offline banner, the
+    Downloads modal's old per-row toggle, Settings' "Remove all"), which is
+    why it is a test rather than a comment.
     """
     css = (JS_DIR.parent / "css" / "style.css").read_text()
 
-    assert ".storage-keep[hidden]" in css, (
-        "no [hidden] rule for .storage-keep, which an explicit display "
-        "otherwise overrides"
-    )
-    assert ".device-summary[hidden]" in css, (
-        "no [hidden] rule for .device-summary, which is display: flex"
-    )
     assert ".offline-banner[hidden]" in css, (
         "no [hidden] rule for .offline-banner, which is display: flex — it "
         "would show permanently, for everyone, connection or not"
+    )
+    assert ".btn-quiet[hidden]" in css, (
+        "no [hidden] rule for .btn-quiet, which is display: inline-block — "
+        "any quiet button the JS hides would stay on screen"
+    )
+    assert ".prompt-label[hidden]" in css, (
+        "no [hidden] rule for .prompt-label, which is display: block"
+    )
+
+
+def test_the_installed_app_can_actually_pick_up_a_new_worker() -> None:
+    """register() alone is enough for a browser tab and not for the PWA.
+
+    An installed app is opened, suspended and resumed for days without a
+    navigation, which is the only thing that makes a browser re-check
+    /sw.js on its own — so the worker it was installed with stays in charge,
+    serving the release it was installed with. That happened on the real
+    install: a v5 cache kept answering long after the server had shipped v6,
+    and nothing in the new release could reach the device to say so.
+    """
+    body = _function_body((JS_DIR / "resume.js").read_text(), "registerServiceWorker")
+
+    assert ".update()" in body, (
+        "nothing asks the browser to re-check /sw.js, so an installed PWA can "
+        "keep an old worker (and its cache) indefinitely"
+    )
+    assert "visibilitychange" in body, (
+        "the update check only runs on load — for an installed app, coming "
+        "back to the foreground is the only regular event there is"
+    )
+    assert "controllerchange" in body, (
+        "a new worker takes over without the page it is now driving ever "
+        "being re-rendered from it"
+    )
+    # A first-ever install claims this very page, which fires controllerchange
+    # too — reloading for that is a reload on every first visit.
+    assert "hadController" in body, (
+        "the controllerchange reload is unguarded, so a first install reloads "
+        "the page it just claimed"
     )
 
 
@@ -1590,17 +1634,66 @@ def test_the_offline_banner_does_not_run_on_navigator_online_alone() -> None:
 
 def test_a_reachable_server_is_the_only_thing_that_lowers_the_banner() -> None:
     """The `online` event fires with the same untrustworthy value the guard
-    above is about, so it must not clear the state by itself — it has to go
-    through the same "did a request actually arrive" path as everything else.
+    above is about, so it must not clear the state by itself — it may only
+    ask for the banner to be re-derived from what is actually known.
+
+    It used to call noteConnection(true), which set `requestsFailing = false`
+    outright: an event whose value is wrong precisely when the page is served
+    from the service worker's cache was allowed to declare the connection
+    good.
     """
     source = CORE_JS.read_text()
     watch = _function_body(source, "watchConnection")
 
     online_handler = watch[watch.index('addEventListener("online"') :]
     online_handler = online_handler[: online_handler.index("\n")]
-    assert "noteConnection(true)" in online_handler, (
+    assert "noteConnection(true)" not in online_handler, (
         "the online event clears the offline state directly rather than "
         "letting a successful request prove it"
+    )
+    assert "syncConnectionBanner()" in online_handler, (
+        "the online event does nothing at all — the banner will not even be "
+        "re-derived when a connection comes back"
+    )
+
+
+def test_the_banner_is_re_derived_on_every_connection_report() -> None:
+    """noteConnection used to return early whenever the call did not change
+    `requestsFailing`, which quietly made the banner unlowerable in the one
+    case that has nothing to do with that flag: raised by
+    `navigator.onLine === false` alone (a PWA cold launch reports that for a
+    moment), it left the flag false the whole time, so every later
+    noteConnection(true) hit the early return and the app showed "Offline"
+    for the rest of the session on a working connection.
+    """
+    body = _function_body(CORE_JS.read_text(), "noteConnection")
+    # Comments explain the bug this guards, so they mention it by name.
+    body = "\n".join(
+        line for line in body.splitlines() if not line.strip().startswith("//")
+    )
+
+    assert "return" not in body, (
+        "noteConnection can return without re-rendering the banner, which is "
+        "how a banner raised by navigator.onLine alone gets stuck up"
+    )
+    assert "syncConnectionBanner()" in body
+
+
+def test_the_connection_probe_is_never_answered_from_the_cache() -> None:
+    """core.js polls /health to find out whether the connection is back. The
+    service worker caches every same-origin GET it is not told to leave
+    alone, and a probe answered out of the cache can only ever say "online" —
+    which pins the banner *down* while the app is offline, the exact
+    opposite failure of the one the probe exists to fix.
+    """
+    core = CORE_JS.read_text()
+    worker = (JS_DIR / "sw.js").read_text()
+
+    assert '"/health"' in core, "core.js no longer probes /health"
+    prefixes = worker[worker.index("const API_PREFIXES") : worker.index("function isApiPath")]
+    assert '"/health"' in prefixes, (
+        "/health is not in the service worker's API_PREFIXES, so the "
+        "connection probe can be answered from the cache"
     )
 
 

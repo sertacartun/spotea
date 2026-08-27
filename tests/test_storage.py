@@ -204,3 +204,34 @@ def test_export_with_nothing_downloaded_is_a_conflict(client, db_session):
     res = client.get("/storage/export")
 
     assert res.status_code == 409
+
+
+def test_items_endpoint_carries_what_a_device_copy_needs(client, db_session, tmp_path):
+    """Settings' "Save all to this device" has no rendered list to scrape, so
+    the endpoint has to hand over everything a copy kept in the browser needs
+    to render itself later with no server to ask (see static/js/offline.js):
+    the title, the artist, the cover and the duration."""
+    content, _audio = _ready_content(
+        db_session, tmp_path, video_id="items000001", size_bytes=7, stored_size=7
+    )
+    content.thumbnail_url = "/image-proxy?u=https%3A%2F%2Fexample.com%2Fc.jpg"
+    content.duration_seconds = 212
+    db_session.commit()
+
+    res = client.get("/storage/items")
+
+    assert res.status_code == 200
+    (item,) = res.json()
+    assert item["id"] == content.id
+    assert item["title"] == "Track items000001"
+    assert item["channel_title"] == "Storage Channel"
+    assert item["size_bytes"] == 7
+    assert item["thumbnail_url"] == "/image-proxy?u=https%3A%2F%2Fexample.com%2Fc.jpg"
+    assert item["duration_seconds"] == 212
+
+
+def test_items_endpoint_is_empty_with_nothing_downloaded(client, db_session):
+    res = client.get("/storage/items")
+
+    assert res.status_code == 200
+    assert res.json() == []

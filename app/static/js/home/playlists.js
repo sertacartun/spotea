@@ -34,8 +34,12 @@ let pickerContentId = null;
  * with the reason as the question, rather than a toast that would appear
  * behind the modal that caused it.
  */
-async function createPlaylist(message = "Name your playlist") {
-  const name = await promptDialog(message, { confirmLabel: "Create" });
+async function createPlaylist(message = "Give it a name you'll recognise later.") {
+  const name = await promptDialog(message, {
+    title: "New playlist",
+    confirmLabel: "Create",
+    placeholder: "Late night, Gym, Road trip…",
+  });
   if (!name) return null;
 
   const { ok, status, data } = await api("/playlists", {
@@ -46,7 +50,7 @@ async function createPlaylist(message = "Name your playlist") {
 
   // 409 is the one failure worth another go: the name is taken, and the user
   // is one edit away from a name that isn't.
-  if (status === 409) return createPlaylist("You already have a playlist called that. Another name?");
+  if (status === 409) return createPlaylist("You already have a playlist called that — try another name.");
   showToast("Could not create that playlist");
   return null;
 }

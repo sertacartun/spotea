@@ -124,6 +124,11 @@ let activeVisibilityHandler = null;
 // "early-handoff" fires at most once per background auto-advance, in place
 // of the "track-ended" that advance no longer produces — without it the
 // log's per-track story would simply stop wherever the new path takes over.
+// "viewport-geometry" is not a playback event at all, and is here anyway:
+// this channel is the only way something the client can see reaches the
+// server, and the bottom bar's placement in the installed app turned out to
+// depend on numbers no desktop browser reproduces (see viewport.js's
+// reportViewportGeometry). One line per app open.
 const REPORTED_EVENTS = new Set([
   "play-rejected",
   "playback-stalled",
@@ -135,6 +140,7 @@ const REPORTED_EVENTS = new Set([
   "media-session-action",
   "audio-session",
   "early-handoff",
+  "viewport-geometry",
 ]);
 
 export function reportPlayback(event, detail = {}) {

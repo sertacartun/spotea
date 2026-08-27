@@ -1,13 +1,21 @@
-{# Library's channel grid: three pinned virtual-playlist tiles, then one card
-   per followed artist.
+{# Library's channel grid: the pinned tiles and the hand-made lists, then one
+   card per followed artist.
 
    Rendered inside index.html and on its own by GET /partials/library. The
    search input above it deliberately stays in index.html: it holds what the
    user has typed, and the only things that would change its presence (the
    first artist ever followed, or unfollowing the last one) both navigate away
    anyway.
+
+   Everything above the artist cards renders whether or not anyone is
+   followed. It used to be the other way round — one artists check around
+   the whole grid — so a profile following nobody got "Your library is empty"
+   and nothing else, hiding Recently Played, Favorites, Downloads and their
+   own playlists behind a follow they had not made yet. None of those depend
+   on following anyone: you can play something from Explore, or make a list,
+   long before you follow an artist, and then the one place those live said
+   there was nothing here.
 #}
-{% if artists %}
     <div class="channel-grid">
       {# First of the three, because it is the only one that changes on its
          own: Favorites and Recently Played are both consequences of
@@ -41,6 +49,27 @@
           <span class="channel-card-count">{{ recently_played_count }} song{{ '' if recently_played_count == 1 else 's' }}</span>
         </span>
       </a>
+      {# The fourth pinned tile, and the only one whose contents the server
+         cannot render: what this device itself has saved (see
+         static/js/home/device.js). It is here rather than in Settings because
+         offline it is the only thing in the app that still works, and the
+         Library is where anyone looks for "what can I actually play".
+
+         Here whether or not anyone is followed, like every other pinned
+         tile: what this device is holding has nothing to do with who the
+         library follows. #}
+      <a class="channel-card" href="/#downloads" data-detail-kind="downloads">
+        <span class="channel-card-avatar channel-card-icon is-downloads">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-phone" /></svg>
+        </span>
+        <span class="channel-card-info">
+          <span class="channel-card-title">Downloads</span>
+          {# Filled in by home/device.js once IndexedDB has been read; the
+             server has no way of knowing the number, and a count rendered as
+             0 here would be a claim rather than a placeholder. #}
+          <span class="channel-card-count" id="downloads-card-count">On this device</span>
+        </span>
+      </a>
       {# The hand-made lists, after the three pinned ones and before the
          artists. They sit in the same grid because they answer the same
          question the pinned tiles do — "what do I want to put on" — and a
@@ -69,7 +98,7 @@
           <span class="channel-card-count">Make your own list</span>
         </span>
       </button>
-      {% for artist in artists %}
+      {% for artist in artists %}{# the only part of this grid that needs one #}
       {% set video_count = artist_track_counts.get(artist.id, 0) %}
       {% set release_count = artist_release_counts.get(artist.id, 0) %}
       {# An artist followed minutes ago is still having its first sync run
@@ -127,10 +156,13 @@
       {% endfor %}
     </div>
     <p id="channel-search-empty" class="muted" hidden>No artists match your search.</p>
-    {% else %}
+    {% if not artists %}
+    {# Under the tiles, not instead of them. This says what is missing — nobody
+       followed — rather than claiming the whole library is empty, which was
+       never true of the tiles right above it. #}
     <div class="empty-state">
-      <p class="empty-state-title">Your library is empty</p>
-      <p class="empty-state-help">Follow an artist and their releases collect here.</p>
+      <p class="empty-state-title">You're not following anyone yet</p>
+      <p class="empty-state-help">Follow an artist and their new releases collect here.</p>
       <a class="btn-primary empty-state-cta" href="/#explore">Find artists</a>
     </div>
     {% endif %}

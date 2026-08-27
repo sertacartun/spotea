@@ -33,7 +33,13 @@
 // for — opened to the browser's own "no internet" page. Nothing it holds is
 // wrong, but a v4 cache has none of the precached entries, and the shell is
 // only ever written on install.
-const CACHE_NAME = "spotea-v5";
+//
+// Bumped to v6 for a purge again: /health was not in API_PREFIXES, so a v5
+// cache can hold a 200 for it. That endpoint is now what core.js polls to
+// find out whether the connection is back (see probeConnection), and a probe
+// answered out of the cache is a probe that can only ever say "online" —
+// which would pin the offline banner's *opposite* failure in place forever.
+const CACHE_NAME = "spotea-v6";
 
 // The shell: enough to boot the app with no network. Every module in the
 // import graph is here because an ES module that 404s takes the whole graph
@@ -67,6 +73,7 @@ const PRECACHE_URLS = [
   "/static/js/resume.js",
   "/static/js/viewport.js",
   "/static/js/home/detail.js",
+  "/static/js/home/device.js",
   "/static/js/home/explore.js",
   "/static/js/home/library.js",
   "/static/js/home/lyrics.js",
@@ -101,6 +108,9 @@ const PRECACHE_URLS = [
 const API_PREFIXES = [
   "/content",
   "/feeds",
+  // Never a cached answer, by definition: this is the endpoint core.js polls
+  // to decide whether the connection has come back.
+  "/health",
   "/profiles",
   "/settings",
   "/storage",

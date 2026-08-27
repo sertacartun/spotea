@@ -2,6 +2,7 @@
 // channel/playlist detail panel and player overlay drilled into from them.
 
 import { watchConnection } from "../core.js";
+import { setupDeviceStorage, setupOfflineMode } from "../home/device.js";
 import { handleInitialRoute, setupDetailPanel } from "../home/detail.js";
 import { refreshRecommendations, setupExploreSearch, setupRecommendations } from "../home/explore.js";
 import {
@@ -25,12 +26,17 @@ import {
 import { setupTabs } from "../home/tabs.js";
 import { installVisibilityBreadcrumb, setupFavorite, setupPlayer } from "../player.js";
 import { installBfcacheReload, registerServiceWorker } from "../resume.js";
-import { installHeaderOffset, installKeyboardInset } from "../viewport.js";
+import {
+  installHeaderOffset,
+  installKeyboardInset,
+  reportViewportGeometry,
+} from "../viewport.js";
 
 installBfcacheReload();
 registerServiceWorker();
 installKeyboardInset();
 installHeaderOffset();
+reportViewportGeometry();
 
 setupTabs();
 setupPlayer();
@@ -39,6 +45,10 @@ installVisibilityBreadcrumb();
 setupPlayerOverlay();
 // After setupPlayer: onPlayerEvent binds to the audio element that exists
 // now, and setupPlayer is what puts it there.
+// Before watchConnection, which raises the banner (and so announces the
+// state) as its very first act — a listener registered after it would miss
+// the one announcement that matters, the app opening with no connection.
+setupOfflineMode();
 // Before anything that might fail: offline, the banner is the context for
 // every failure that follows it.
 watchConnection();
@@ -55,6 +65,7 @@ handleInitialRoute();
 setupExploreSearch();
 setupRecommendations();
 setupDownloadsOverlay();
+setupDeviceStorage();
 setupStorage();
 setupSettings();
 setupInterests();

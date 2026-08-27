@@ -1,15 +1,9 @@
 // The Settings tab's controls, plus the Downloads modal they open.
 
-import { api, confirmDialog, formatSize, setupOverlay, showToast } from "../core.js";
-import { onFragmentsSwapped, refreshDownloadsBody, refreshFragments } from "../fragments.js";
-import {
-  clearAll as clearDeviceCopies,
-  deleteTrack,
-  deviceUsage,
-  isSupported as deviceStorageSupported,
-  requestPersistence,
-  saveTrack,
-} from "../offline.js";
+import { api, confirmDialog, setupOverlay, showToast } from "../core.js";
+import { refreshDownloadsBody, refreshFragments } from "../fragments.js";
+import { clearAll as clearDeviceCopies, deleteTrack } from "../offline.js";
+import { syncDeviceSummary } from "./device.js";
 import { reloadRecommendations } from "./explore.js";
 import { activate } from "./tabs.js";
 
@@ -20,117 +14,8 @@ export function setupDownloadsOverlay() {
   // on a round trip, just freshens it right after in case anything changed
   // since (another tab, the background refresh finishing a download).
   document.getElementById("open-downloads")?.addEventListener("click", () => {
-    // setupOverlay registered its own listener on this button first, so the
-    // overlay is already open by the time this runs — which is what
-    // syncDeviceState checks before doing anything.
-    //
-    // Both, and in this order: the rows on screen were server-rendered with
-    // every device toggle off (the server cannot know what the phone holds),
-    // and waiting for the refetch below to land would show them wrong for
-    // the whole round trip.
-    syncDeviceState();
     refreshDownloadsBody();
   });
-}
-
-/**
- * Corrects the per-row toggles and the device line to what is actually on
- * this device.
- *
- * The rows are server-rendered and the server has no way of knowing any of
- * this — the copies live in the browser (see offline.js) — so every row
- * ships "off" and is corrected here. Registered against every fragment swap
- * rather than called from the places that swap: the Downloads body is
- * replaced wholesale by refreshDownloadsBody *and* by anything that calls
- * refreshFragments while the modal is open, and a swap that skipped this
- * would silently un-tick tracks that are still saved.
- *
- * Deliberately one read for both jobs. savedIds() and deviceUsage() would be
- * two passes over the same store for figures that have to agree.
- */
-async function syncDeviceState() {
-  // Only while the modal is actually on screen. This is registered against
-  // every fragment swap, which means after every play and every favorite —
-  // and correcting toggles nobody is looking at would spend an IndexedDB read
-  // and a storage estimate on each of them. Opening the modal fetches its own
-  // body (see setupDownloadsOverlay), so the open case still lands here.
-  if (document.getElementById("downloads-overlay")?.hidden !== false) return;
-
-  const summary = document.getElementById("device-summary");
-  const buttons = [...document.querySelectorAll(".storage-keep")];
-  if (!summary && !buttons.length) return;
-
-  // A browser with no IndexedDB (private mode in some, chiefly) can't keep
-  // anything, and a toggle that silently fails is worse than no toggle.
-  if (!deviceStorageSupported()) {
-    for (const button of buttons) button.hidden = true;
-    if (summary) summary.hidden = true;
-    return;
-  }
-
-  const { count, bytes, quota, ids } = await deviceUsage();
-  const saved = new Set(ids.map(Number));
-  for (const button of buttons) {
-    const on = saved.has(Number(button.dataset.contentId));
-    button.setAttribute("aria-pressed", String(on));
-    button.classList.toggle("is-on", on);
-    button.setAttribute("aria-label", on ? "Remove from this device" : "Keep on this device");
-  }
-
-  if (!summary) return;
-  summary.hidden = count === 0;
-  if (!count) return;
-  // "about", because the browser's quota figure is advisory, covers the whole
-  // origin rather than this feature, and on iOS is both smaller and less
-  // predictable than elsewhere. Shown anyway: a device that refuses the next
-  // save is a lot less mysterious when the ceiling was visible beforehand.
-  const ceiling = quota ? ` of about ${formatSize(quota)}` : "";
-  document.getElementById("device-summary-text").textContent =
-    `${count} song${count === 1 ? "" : "s"} on this device · ${formatSize(bytes)}${ceiling}`;
-}
-
-/**
- * Saves this row's track to the device, or forgets it.
- *
- * Disabled while it runs. A save is a whole-file transfer, and a second press
- * partway through would start a competing one for the same id — both would
- * write, and the loser's bytes would be orphaned in the blob store under a
- * record the winner had already replaced.
- */
-async function toggleDeviceCopy(button) {
-  if (button.disabled) return;
-  const id = Number(button.dataset.contentId);
-  const keeping = button.getAttribute("aria-pressed") !== "true";
-
-  button.disabled = true;
-  button.classList.add("is-working");
-  try {
-    if (keeping) {
-      // Asked for at the moment the user first commits to keeping something,
-      // not on boot: an unprompted permission request before there is
-      // anything to protect is the kind a browser is most likely to refuse
-      // (and most likely to ask the user about).
-      await requestPersistence();
-      await saveTrack(id, {
-        title: button.dataset.title,
-        artist: button.dataset.artist,
-        coverUrl: button.dataset.cover || null,
-        duration: Number(button.dataset.duration) || null,
-      });
-      showToast("Saved to this device");
-    } else {
-      await deleteTrack(id);
-      showToast("Removed from this device");
-    }
-  } catch (err) {
-    showToast(err?.message || "Could not change what is kept on this device");
-  } finally {
-    button.disabled = false;
-    button.classList.remove("is-working");
-    // From storage, not from what was just attempted — a save that failed
-    // halfway must leave the toggle saying what is really there.
-    syncDeviceState();
-  }
 }
 
 /** What "Clear all" is about to delete, in the numbers already on screen.
@@ -143,7 +28,10 @@ async function toggleDeviceCopy(button) {
 function clearDownloadsPrompt() {
   const total = document.getElementById("storage-total")?.textContent.trim();
   const scale = total ? ` (${total})` : "";
-  const onDevice = document.getElementById("device-summary")?.hidden === false;
+  // The device's own copies are described in Settings now, not in this modal
+  // (see index.html's "Songs on this device"), but they are still what this
+  // button deletes — so the count is read from where it lives.
+  const onDevice = Number(document.getElementById("device-summary-text")?.dataset.count) > 0;
   // Only said when there is something to say. The device copies are the ones
   // that survive having no signal, so a prompt that let them go silently
   // would be the most expensive thing on this screen to get wrong.
@@ -174,7 +62,12 @@ async function confirmedAction(
   // download is the user saying they want it gone, and the row it was on is
   // about to disappear from this list — leaving the device copy behind would
   // strand bytes with no remaining handle in the UI to delete them by.
-  if (alsoDevice) await alsoDevice().catch(() => {});
+  if (alsoDevice) {
+    await alsoDevice().catch(() => {});
+    // The Settings line and Library's tile both count what is on the device,
+    // and one of them just stopped being true.
+    syncDeviceSummary();
+  }
   // A fragment refresh rather than a reload: these run from inside the
   // Downloads modal, and reloading closed it out from under the user.
   refreshFragments();
@@ -210,19 +103,6 @@ export function setupStorage() {
       return;
     }
 
-    // Purely local — no request, so it goes straight to the confirmation
-    // rather than through confirmedAction, which exists to wrap one.
-    if (event.target.closest("#clear-device")) {
-      clearDeviceOnly();
-      return;
-    }
-
-    const keepBtn = event.target.closest(".storage-keep");
-    if (keepBtn) {
-      toggleDeviceCopy(keepBtn);
-      return;
-    }
-
     const removeBtn = event.target.closest(".storage-remove");
     if (removeBtn) {
       const contentId = removeBtn.dataset.contentId;
@@ -235,29 +115,6 @@ export function setupStorage() {
       );
     }
   });
-
-  // Every swap of this region re-renders the rows from the server, which
-  // cannot know what the device holds — so the correction has to run again
-  // each time. See syncDeviceState.
-  onFragmentsSwapped(syncDeviceState);
-}
-
-/** Drops the device's copies and leaves the server's downloads alone. */
-async function clearDeviceOnly() {
-  const line = document.getElementById("device-summary-text")?.textContent.trim();
-  const scale = line ? ` (${line.split(" · ").slice(1).join(" · ")})` : "";
-  const confirmed = await confirmDialog(
-    `Remove everything kept on this device${scale}? ` +
-      "The downloads on the server stay, so these play again whenever you have a connection.",
-    "Remove"
-  );
-  if (!confirmed) return;
-  try {
-    await clearDeviceCopies();
-  } catch {
-    showToast("Could not clear this device's copies");
-  }
-  syncDeviceState();
 }
 
 // The interests Explore's recommendations are searched from. Held here as

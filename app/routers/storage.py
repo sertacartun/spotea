@@ -14,11 +14,32 @@ from app.config import settings
 from app.deps import get_current_user, get_db, require_login
 from app.formatting import format_size, safe_filename
 from app.models import Content, User
-from app.storage import EXPORT_TEMP_SUFFIX, clear_all
+from app.schemas import StoredItemOut
+from app.storage import EXPORT_TEMP_SUFFIX, clear_all, collect_usage
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/storage", tags=["storage"], dependencies=[Depends(require_login)])
+
+
+@router.get("/items")
+def storage_items(
+    user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> list[StoredItemOut]:
+    """Every downloaded track, as JSON rather than as the Downloads modal's
+    markup.
+
+    The one caller is Settings' "Save all to this device" (see
+    static/js/home/device.js), which needs the same four fields the per-row
+    save always did — title, artist, cover, duration — because a copy kept in
+    the browser has to be able to render itself with no server to ask (see
+    static/js/offline.js). It could have scraped them off the modal's rendered
+    rows, which is what the per-row button did; that only worked because the
+    button was *in* the modal. A bulk save started from Settings has no such
+    list on screen, and rendering one invisibly just to read data attributes
+    back off it is not a list, it is a response with extra steps.
+    """
+    return [StoredItemOut(**vars(item)) for item in collect_usage(db, user.id).items]
 
 
 @router.delete("")

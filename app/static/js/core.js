@@ -12,7 +12,11 @@
 // necessarily duplicates the same prefix rules in plain JS — this is the one
 // place everything after that first paint agrees with it.
 const VALID_TABS = ["home", "library", "explore", "settings"];
-const PLAYLIST_KINDS = ["favorites", "new-uploads", "recently-played"];
+// "downloads" rides with the three pinned playlists because it routes like
+// one — a detail view whose kind is its whole identity, with no id. It is the
+// only one whose rows never come from the server: they are what this device
+// has saved (see home/device.js), which is the whole point of it existing.
+const PLAYLIST_KINDS = ["favorites", "new-uploads", "recently-played", "downloads"];
 // Detail routes that carry an id. The "yt-" ones are the same panel
 // showing something the library doesn't have yet — a recommended YouTube
 // playlist, a channel nobody follows, a YouTube Music artist, or one of
@@ -117,33 +121,108 @@ export function formatSize(numBytes) {
 let requestsFailing = false;
 let syncConnectionBanner = () => {};
 
+/**
+ * "The app just went offline" / "the app just came back", announced rather
+ * than acted on — the offline experience (which tab you are allowed on, what
+ * Library still offers) is home/device.js's, and core.js has no business
+ * importing it.
+ */
+export const CONNECTION_CHANGED = "spotea:connection";
+
 /** Called by api() with whether the request reached the server. */
 export function noteConnection(reachable) {
-  if (requestsFailing === !reachable) return;
   requestsFailing = !reachable;
+  // Unconditionally, not only when this call changed `requestsFailing`. It
+  // used to return early when the flag already matched, which quietly made
+  // the banner unlowerable in the one case that has nothing to do with the
+  // flag: a banner raised purely by `navigator.onLine === false` (a PWA cold
+  // launch reports that for a moment before the network stack is up) leaves
+  // `requestsFailing` false the whole time, so the `online` event's
+  // noteConnection(true) hit `false === false` and returned without ever
+  // re-rendering. The app then showed "Offline" for the rest of the session
+  // on a device that had a perfectly good connection.
   syncConnectionBanner();
+}
+
+// How long to wait before asking the server whether it is back, and the
+// ceiling that backoff climbs to. A probe exists because neither signal the
+// banner runs on is self-healing: `navigator.onLine` fires no event when it
+// was wrong rather than late, and `requestsFailing` only clears when
+// something else happens to make a request — which, on a screen the user is
+// just looking at, may be never.
+const PROBE_FIRST_DELAY = 3000;
+const PROBE_MAX_DELAY = 30000;
+let probeTimer = null;
+let probeDelay = PROBE_FIRST_DELAY;
+
+/** GET /health, which is the cheapest thing here that proves a round trip.
+ *  `cache: "no-store"` and sw.js's API_PREFIXES both have to exclude it —
+ *  a probe answered out of a cache is a probe that always says "online". */
+async function probeConnection() {
+  // Cleared rather than just forgotten: this is also called directly (on
+  // visibilitychange), and leaving a pending timeout behind would leave two
+  // probe chains running against each other for the rest of the session.
+  if (probeTimer !== null) clearTimeout(probeTimer);
+  probeTimer = null;
+  if (document.hidden) {
+    scheduleProbe();
+    return;
+  }
+  try {
+    await fetch("/health", { cache: "no-store" });
+    noteConnection(true);
+  } catch {
+    probeDelay = Math.min(probeDelay * 2, PROBE_MAX_DELAY);
+    scheduleProbe();
+  }
+}
+
+function scheduleProbe() {
+  if (probeTimer !== null) return;
+  probeTimer = setTimeout(probeConnection, probeDelay);
+}
+
+function stopProbing() {
+  if (probeTimer !== null) clearTimeout(probeTimer);
+  probeTimer = null;
+  probeDelay = PROBE_FIRST_DELAY;
 }
 
 /**
  * Keeps the offline banner in step with whether there is a connection.
  *
- * Raised by either signal, lowered only when a request actually succeeds —
- * onLine going true on its own is not enough, since that is the value the
- * cached document reports while still offline.
+ * Raised by either signal. Lowering it is the part that has to be robust:
+ * onLine going true is not proof on its own (that is the value the cached
+ * document reports while still offline), and waiting for the app's next
+ * request can mean waiting forever, so while the banner is up this polls
+ * /health with a backoff until one actually lands.
  */
 export function watchConnection() {
   const banner = document.getElementById("offline-banner");
   if (!banner) return;
+  let wasOffline = null;
   syncConnectionBanner = () => {
     const offline = navigator.onLine === false || requestsFailing;
     banner.hidden = !offline;
     document.body.classList.toggle("is-offline", offline);
+    if (offline) scheduleProbe();
+    else stopProbing();
+    if (offline === wasOffline) return;
+    wasOffline = offline;
+    document.dispatchEvent(new CustomEvent(CONNECTION_CHANGED, { detail: { offline } }));
   };
   // The event is worth listening to even though its value can't be trusted
   // on its own: it fires the instant a connection comes back, where the next
-  // successful request might be a while away.
-  window.addEventListener("online", () => noteConnection(true));
+  // successful request might be a while away. It only re-renders — the probe
+  // above is what actually confirms it.
+  window.addEventListener("online", () => syncConnectionBanner());
   window.addEventListener("offline", () => syncConnectionBanner());
+  // Coming back to a phone that has been in a pocket is the most common way
+  // a connection returns without anything in the page noticing, and it is
+  // also the one moment the banner is about to be looked at.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && !banner.hidden) probeConnection();
+  });
   syncConnectionBanner();
 }
 
@@ -331,9 +410,18 @@ document.addEventListener("keydown", (event) => {
  * session. Onboarding clears the attribute when it's done and the same overlay
  * behaves like every other one from then on.
  */
+// Built to the same shape as the modals that are in index.html — a header
+// with the title and a close button, then the body, then the actions. It
+// used to be a bare paragraph, a field and two buttons with no header at
+// all, which next to the Downloads and interests modals read as a browser
+// prompt that had wandered in rather than as part of the app.
 const PROMPT_MARKUP = `
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="prompt-message">
-    <p id="prompt-message"></p>
+  <div class="modal modal-prompt" role="dialog" aria-modal="true" aria-labelledby="prompt-title">
+    <div class="modal-header">
+      <h2 id="prompt-title"></h2>
+      <button type="button" id="prompt-close" class="modal-close" aria-label="Close">×</button>
+    </div>
+    <label class="prompt-label" for="prompt-input" id="prompt-message"></label>
     <input type="text" id="prompt-input" class="prompt-input" autocomplete="off" autocapitalize="sentences" />
     <div class="modal-actions">
       <button type="button" id="prompt-cancel" class="btn-quiet">Cancel</button>
@@ -368,28 +456,50 @@ function ensurePromptModal() {
  * confirmDialog: this guards nothing destructive, and the next thing the user
  * wants to do is type.
  */
-export function promptDialog(message, { value = "", confirmLabel = "Save", maxLength = 100 } = {}) {
+export function promptDialog(
+  message,
+  { value = "", confirmLabel = "Save", maxLength = 100, title = "", placeholder = "" } = {}
+) {
   const overlay = ensurePromptModal();
   const input = overlay.querySelector("#prompt-input");
   const confirmBtn = overlay.querySelector("#prompt-confirm");
   const cancelBtn = overlay.querySelector("#prompt-cancel");
+  const closeBtn = overlay.querySelector("#prompt-close");
 
-  overlay.querySelector("#prompt-message").textContent = message;
+  overlay.querySelector("#prompt-title").textContent = title || message;
+  const label = overlay.querySelector("#prompt-message");
+  // The title carries the message when there is no separate one, so repeating
+  // it under the header would just be the same sentence twice.
+  label.textContent = title ? message : "";
+  label.hidden = !title;
   confirmBtn.textContent = confirmLabel;
   input.value = value;
   input.maxLength = maxLength;
+  input.placeholder = placeholder;
   overlay.hidden = false;
-  input.focus();
-  input.select();
+  // On the next frame, not now. Focusing an element inside a box the browser
+  // has not laid out yet is what made this dialog visibly slide: iOS scrolls
+  // to the focused field using the geometry it has at that instant, then the
+  // keyboard opens and the visual viewport moves again underneath it. Letting
+  // the overlay paint first means the field it scrolls to is already where it
+  // is going to be.
+  requestAnimationFrame(() => {
+    input.focus();
+    input.select();
+  });
 
   return new Promise((resolve) => {
     function cleanup(result) {
       overlay.hidden = true;
       confirmBtn.removeEventListener("click", onConfirm);
       cancelBtn.removeEventListener("click", onCancel);
+      closeBtn.removeEventListener("click", onCancel);
       overlay.removeEventListener("click", onBackdrop);
       input.removeEventListener("keydown", onInputKey);
       document.removeEventListener("keydown", onKey);
+      // Otherwise the keyboard stays up over whatever the dialog was
+      // covering, on a page that no longer has anything to type into.
+      input.blur();
       resolve(result);
     }
     const submit = () => {
@@ -419,6 +529,7 @@ export function promptDialog(message, { value = "", confirmLabel = "Save", maxLe
 
     confirmBtn.addEventListener("click", onConfirm);
     cancelBtn.addEventListener("click", onCancel);
+    closeBtn.addEventListener("click", onCancel);
     overlay.addEventListener("click", onBackdrop);
     input.addEventListener("keydown", onInputKey);
     document.addEventListener("keydown", onKey);

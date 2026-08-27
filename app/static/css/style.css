@@ -65,6 +65,10 @@
   /* The hand-made lists' tile badge — see _library_grid.html. Green so it
      reads as a fourth kind rather than a variation on one of the three. */
   --user-playlist: #16a34a;
+  /* The "Downloads" tile: what this device itself is holding. Amber because
+     it is the one tile that still means something with no connection, and
+     the offline banner it belongs with is the same warm end of the palette. */
+  --on-device: #d97706;
 
   /* Seek/volume slider's unfilled track */
   --track-empty: #4d4d4d;
@@ -155,6 +159,28 @@ html {
      pull-to-refresh UI), so the page just stops dead at its scroll limits,
      like a native app. The page still scrolls normally in between. */
   overscroll-behavior-y: none;
+  /* The band of screen an installed iOS app does not cover.
+     `apple-mobile-web-app-status-bar-style: black-translucent` plus
+     `viewport-fit=cover` (see _base.html) starts the web view at the very top
+     of the screen — which is why env(safe-area-inset-top) resolves to the
+     status bar's height rather than to 0 — while leaving its *height* at
+     screen minus status bar. What is left over is a strip at the bottom,
+     exactly as tall as the top inset, that the page never reaches; the
+     bottom navigation is `position: fixed; bottom: 0` against a viewport
+     that ends above it, so it sits that far up the screen with the strip
+     showing beneath.
+
+     Measured from the device that reported it: a 932pt screen, an 873pt
+     viewport, insets 59/0/34/0, and the bar's own box ending at 873 — right
+     where it was asked to, 59pt short of the glass.
+
+     Extending the document past the viewport by that much is the documented
+     fix, and it is also why the bug looked like it was about page height:
+     a tab with enough content to scroll (Explore, once its shelves load) was
+     already past it and rendered correctly, while a new account's empty Home
+     and Library came to exactly one viewport and did not. Nothing changes
+     anywhere the inset is 0, which is every browser and every desktop. */
+  min-height: calc(100% + env(safe-area-inset-top, 0px));
 }
 
 @media (max-width: 480px) {
@@ -523,19 +549,27 @@ select {
     display: inline-flex;
   }
 
-  /* Keeps the header + tabs pinned while the page scrolls, instead of
-     scrolling away with the content below them. One sticky wrapper around
-     both (rather than stickying .topbar and .tabs separately) avoids having
-     to hardcode .tabs' top offset to .topbar's rendered height. z-index
-     just needs to clear ordinary page content — .mobile-menu (1050) and the
-     modal layers above it still stack correctly since they're descendants
-     of this wrapper, not siblings. */
-  .app-header-sticky {
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    background: var(--bg-page);
-  }
+}
+
+/* Keeps the header + tabs pinned while the page scrolls, instead of scrolling
+   away with the content below them. One sticky wrapper around both (rather
+   than stickying .topbar and .tabs separately) avoids having to hardcode
+   .tabs' top offset to .topbar's rendered height. z-index just needs to clear
+   ordinary page content — .mobile-menu (1050) and the modal layers above it
+   still stack correctly since they're descendants of this wrapper, not
+   siblings.
+
+   Every width, not only the phone one it started at. On a phone the tab strip
+   moves to the bottom bar and only the logo row rides along up here, so
+   losing the header to a scroll cost nothing you couldn't reach anyway —
+   but at every width above that breakpoint the tab strip *is* this element,
+   and scrolling any list far enough took the app's primary navigation off
+   screen with it. */
+.app-header-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--bg-page);
 }
 
 .tabs {
@@ -623,12 +657,31 @@ html[data-active-tab="detail"][data-detail-home="explore"] .tab-btn[data-tab="ex
     position: fixed;
     left: 0;
     right: 0;
+    /* The bottom of the layout viewport, which — measured on the device that
+       reported the gap — is the bottom of the screen: the installed app
+       reports a 932pt screen and an 873pt viewport, and the missing 59pt is
+       the status bar at the *top*, not anything at the bottom. A previous
+       attempt pushed this down by that difference and sent most of the bar
+       off the screen. */
     bottom: 0;
     z-index: 900;
     background: var(--bg-raised);
     border-top: 1px solid var(--border-subtle);
     border-bottom: none;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    /* Capped, not the raw inset. The bar still runs to the very bottom of the
+       screen — its background has to sit under the home indicator, or that
+       strip renders in the page colour and reads as a seam — but the amount
+       of *empty bar* left under the labels is this app's choice, not the
+       platform's. At the full 34pt inset the bar came to 91pt against iOS's
+       own 83pt tab bar, and the dead strip below the labels was the most
+       noticeable thing about it. 20px keeps the labels clear of the
+       indicator and takes the bar under native height.
+
+       min() also contains the case this was reported from, where the
+       reported inset was visibly larger than the 34pt a phone of that size
+       should give: whatever the platform claims, this is the most bar that
+       can be nothing. */
+    padding-bottom: min(env(safe-area-inset-bottom, 0px), 20px);
   }
 
   .tabs-inner {
@@ -1318,7 +1371,6 @@ button.track-link {
 }
 
 .storage-export,
-.storage-keep,
 .storage-remove {
   background: none;
   border: none;
@@ -1335,45 +1387,9 @@ button.track-link {
 }
 
 .storage-export svg,
-.storage-keep svg,
 .storage-remove svg {
   width: 16px;
   height: 16px;
-}
-
-/* The shared rule above sets display: inline-flex, and an explicit display
-   beats the [hidden] attribute — so hiding this button for a browser with no
-   IndexedDB (see home/settings.js's syncDeviceState) needs its own rule or it
-   stays on screen, offering something that cannot work. */
-.storage-keep[hidden] {
-  display: none;
-}
-
-.storage-keep:hover {
-  color: var(--accent);
-}
-
-/* On, meaning the audio itself is on this device. Filled rather than merely
-   tinted: this is the one state in the row that says something is stored
-   somewhere the server can't see, and it has to read at a glance. */
-.storage-keep.is-on {
-  color: var(--accent);
-}
-
-.storage-keep.is-on svg {
-  fill: currentColor;
-  stroke: currentColor;
-}
-
-/* A whole-file transfer, so it runs for seconds rather than instantly. */
-.storage-keep.is-working {
-  animation: pulse 1s ease-in-out infinite;
-  cursor: default;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
 }
 
 .offline-banner {
@@ -1397,23 +1413,6 @@ button.track-link {
 /* display: flex above beats the [hidden] attribute, so this is what actually
    keeps the banner off screen for everyone with a connection. */
 .offline-banner[hidden] {
-  display: none;
-}
-
-.device-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-  padding: 0.6rem 1rem;
-  margin-top: -0.6rem;
-  margin-bottom: 1rem;
-  font-size: 0.8rem;
-  flex-shrink: 0;
-}
-
-.device-summary[hidden] {
   display: none;
 }
 
@@ -2611,7 +2610,12 @@ button.track-link {
   height: var(--vvh, 100vh);
   background: rgba(0, 0, 0, 0.65);
   display: flex;
-  align-items: center;
+  /* `safe`, not a bare `center`: a centred flex item taller than its
+     container overflows in *both* directions, and the part that goes off the
+     top cannot be scrolled back to. safe center lays out from the start
+     instead the moment that would happen, which is the only case top
+     alignment was ever needed for. */
+  align-items: safe center;
   justify-content: center;
   padding: 1rem;
   z-index: 1100;
@@ -2835,6 +2839,13 @@ button.track-link {
 
 .btn-quiet:hover {
   color: var(--white);
+}
+
+/* display: inline-block above beats the [hidden] attribute, so this is what
+   actually keeps a hidden .btn-quiet off screen — Settings' "Remove all",
+   which only exists once there is something on the device to remove. */
+.btn-quiet[hidden] {
+  display: none;
 }
 
 /* Quiet by default. This was a solid fill, which made deleting every
@@ -4246,17 +4257,17 @@ body.has-mini-player .layout {
 @media (max-width: 480px) {
   /* Above the bar, not behind it. */
   .mini-player {
-    bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
+    bottom: calc(var(--bottom-nav-height) + min(env(safe-area-inset-bottom, 0px), 20px));
   }
 
   /* The bar is always on screen, so the page always has to clear it — unlike
      the mini player, which only reserves room while a track is loaded. */
   .layout {
-    padding-bottom: calc(var(--bottom-nav-height) + 1rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(var(--bottom-nav-height) + 1rem + min(env(safe-area-inset-bottom, 0px), 20px));
   }
 
   body.has-mini-player .layout {
-    padding-bottom: calc(var(--bottom-nav-height) + 5.5rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(var(--bottom-nav-height) + 5.5rem + min(env(safe-area-inset-bottom, 0px), 20px));
   }
 }
 
@@ -4372,3 +4383,219 @@ body.has-mini-player .layout {
     padding-bottom: calc(var(--keyboard-inset) + 1rem);
   }
 }
+
+/* ---------------------------------------------------------------------------
+   What this device is holding (templates/_library_grid.html's Downloads tile,
+   Settings' "Songs on this device" row, and the panel the tile opens).
+--------------------------------------------------------------------------- */
+
+.channel-card-icon.is-downloads {
+  background: var(--on-device);
+}
+
+/* The Offline playback switch. A real <input type="checkbox"> under a drawn
+   track, rather than a button pretending: it comes with the keyboard
+   behaviour, the focus ring and the announced state already correct, and the
+   only thing left to do is not draw the native box. */
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  /* The 44px touch target every other control in this app has; the track
+     itself is deliberately smaller than that. */
+  min-height: 44px;
+  padding-left: 0;
+}
+
+.switch-input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.switch-track {
+  /* Drawn, never hit. The input is absolutely positioned under this and the
+     track paints over it, so without this a tap in the middle of the switch
+     lands on a decorative <span> — it still works, because the whole thing is
+     inside a <label>, but "the control is a label round some spans" is a
+     fragile way for it to work and it makes the switch untappable the moment
+     anything reaches for the element under the finger. */
+  pointer-events: none;
+  width: 46px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.switch-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.switch-input:checked + .switch-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.switch-input:checked + .switch-track .switch-thumb {
+  transform: translateX(18px);
+  background: var(--white);
+}
+
+.switch-input:focus-visible + .switch-track {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.switch-input:disabled + .switch-track {
+  opacity: 0.4;
+  cursor: default;
+}
+
+@media (max-width: 480px) {
+  /* Same reason the row's other controls get it: the row is a column here,
+     and a stretched switch would drift to the middle of that width instead
+     of sitting left with the text above it. */
+  .settings-row > .switch {
+    align-self: flex-start;
+  }
+}
+
+/* Reachable by a screen reader, invisible on screen — the switch's own name,
+   which the drawn track cannot carry. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Taking one song back off the device, from a row of the Downloads panel.
+   Deliberately not .track-remove: that class is wired to "remove from this
+   playlist" (see home/playlists.js), and a row that carried it with no
+   playlist behind it would send that request with no id. */
+.track-forget {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.track-forget svg {
+  width: 15px;
+  height: 15px;
+}
+
+.track-forget:hover {
+  color: var(--danger);
+}
+
+/* ---------------------------------------------------------------------------
+   No connection.
+
+   Everything in this app but one thing is a request away, so with no network
+   the honest UI is not a broken one — it is a smaller one. Library stays,
+   with its Downloads tile, and the rest is visibly out of reach rather than
+   live-looking and silently dead. home/device.js does the other half: it
+   moves you to Library if the connection goes while you are somewhere else.
+
+   pointer-events rather than the disabled attribute, because half of these
+   are <a> elements, which have no such attribute — one mechanism for both
+   beats two that have to be kept in step.
+--------------------------------------------------------------------------- */
+
+body.is-offline .tab-btn[data-tab="home"],
+body.is-offline .tab-btn[data-tab="explore"],
+body.is-offline .tab-btn[data-tab="settings"],
+body.is-offline #library-grid .channel-card:not([data-detail-kind="downloads"]),
+body.is-offline #refresh-artists-btn,
+body.is-offline #mobile-menu-refresh {
+  pointer-events: none;
+  opacity: 0.35;
+  /* The selected-tab colour is set by higher-up rules keyed on
+     html[data-active-tab]; without this an offline user dropped back on
+     Library would still see Home or Settings underlined as if it were live. */
+  color: var(--text-muted);
+  border-bottom-color: transparent;
+}
+
+/* Filtering a grid whose only reachable tile is Downloads is a control with
+   nothing to do. */
+body.is-offline #tab-library .search-input-wrap {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+   The prompt dialog (core.js's promptDialog).
+
+   Last in the file for the same reason the keyboard block above it is: these
+   override .modal-overlay's own centring, and an equally specific rule placed
+   earlier simply loses.
+--------------------------------------------------------------------------- */
+
+.modal-prompt {
+  max-width: 420px;
+}
+
+.prompt-label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.prompt-label[hidden] {
+  display: none;
+}
+
+/* The field is the whole dialog, so it gets the room a single-field form
+   deserves rather than the inline sizing it had beside a paragraph. */
+.modal-prompt .prompt-input {
+  margin-top: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  font-size: 1rem;
+}
+
+.modal-prompt .modal-actions {
+  margin-top: 1.25rem;
+}
+
+/* A dialog taller than the space left for it has to scroll inside the
+   overlay; centring alone just pushes its top edge off screen, where it
+   cannot be scrolled back to. */
+.modal-overlay {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* This dialog is centred like every other modal, including with the keyboard
+   up — the overlay's box tracks the *visual* viewport (see .modal-overlay's
+   --vvh/--vvt above), so "the middle" means the middle of what is actually on
+   screen rather than of a layout viewport half-hidden behind the keys. It was
+   briefly pinned to the top instead, which fixed a slide that had a different
+   cause (the field was focused before the overlay had been laid out — see
+   core.js's promptDialog) and cost the centring for nothing. */
