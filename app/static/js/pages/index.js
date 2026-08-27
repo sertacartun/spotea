@@ -26,17 +26,12 @@ import {
 import { setupTabs } from "../home/tabs.js";
 import { installVisibilityBreadcrumb, setupFavorite, setupPlayer } from "../player.js";
 import { installBfcacheReload, registerServiceWorker } from "../resume.js";
-import {
-  installHeaderOffset,
-  installKeyboardInset,
-  reportViewportGeometry,
-} from "../viewport.js";
+import { installHeaderOffset, installKeyboardInset } from "../viewport.js";
 
 installBfcacheReload();
 registerServiceWorker();
 installKeyboardInset();
 installHeaderOffset();
-reportViewportGeometry();
 
 setupTabs();
 setupPlayer();

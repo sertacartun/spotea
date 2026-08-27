@@ -214,6 +214,7 @@ def add_video_batch(
 BATCH_INSERT_ATTEMPTS = 3
 
 
+
 def _insert_batch(db: Session, user_id: int, items: list) -> VideoBatchResult:
     """One attempt at add_video_batch's insert. Separate so the retry above
     re-runs the *reads* too — re-running only the writes would keep acting on
