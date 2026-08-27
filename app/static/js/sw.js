@@ -72,6 +72,7 @@ const PRECACHE_URLS = [
   "/static/js/player.js",
   "/static/js/resume.js",
   "/static/js/viewport.js",
+  "/static/js/home/ambient.js",
   "/static/js/home/detail.js",
   "/static/js/home/device.js",
   "/static/js/home/explore.js",

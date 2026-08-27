@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "id": "spotea",
+  "title": "Spotea",
+  "createdAt": "2026-08-27T19:17:35.223Z",
+  "updatedAt": "2026-08-27T20:44:52.666Z",
+  "stage": "built",
+  "surface": "mobile-app",
+  "platform": "web",
+  "artifactId": "home",
+  "manifestPath": ".styleseed/manifests/home.json",
+  "methodHash": "sha256:616cbf8f5b63ccb67789f3d54bb630d75050c18e232fde9c90249ed44ee4a749",
+  "outputs": {
+    "prototype": "/#home",
+    "recording": ".styleseed/studio/spotea/evidence/recordings/ambient-tint-change.webm"
+  }
+}

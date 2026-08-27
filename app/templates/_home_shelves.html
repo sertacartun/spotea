@@ -13,6 +13,42 @@
    visible and letting JS hide the non-scrollable ones after the fact flashes
    a link that then vanishes on every load; starting hidden never does.
 #}
+{# Cover as Canvas — the one thing Home is asking you to do, with the room lit
+   by the record you were last on.
+
+   The wash behind it is derived from this cover at runtime (home/ambient.js)
+   and clamped before it is ever applied, so the colour changes with the music
+   while the text and the primary action keep the contrast they were measured
+   at. Nothing here is decorative: this is the only filled primary action on
+   the page, which is what makes it the focal point rather than a sixth shelf.
+
+   Guarded on home_recently_played rather than has_content: with a library but
+   no play history there is no "where you left off" to offer, and a hero that
+   invents one would be worse than no hero. The shelves below cover that case. #}
+{% if home_recently_played %}
+{% set hero = home_recently_played[0] %}
+<section class="home-hero" aria-labelledby="home-hero-title">
+  <div class="ambient-field home-hero-ambient" aria-hidden="true"></div>
+  {% set hero_cover = hero | cover %}
+  {% if hero_cover %}
+  <div class="home-hero-cover">
+    {# id, not a class: ambient.js samples exactly this one image. #}
+    <img id="home-hero-art" data-ambient-source src="{{ hero_cover }}" alt="" />
+  </div>
+  {% endif %}
+  <div class="home-hero-row">
+    <div class="home-hero-text">
+      <p class="home-hero-kicker">Pick up where you left off</p>
+      <h2 class="home-hero-title" id="home-hero-title" title="{{ hero.title }}">{{ hero.title }}</h2>
+      <p class="home-hero-artist" title="{{ hero.display_artist }}">{{ hero.display_artist }}</p>
+    </div>
+    <a class="home-hero-play" href="/#player/{{ hero.id }}" aria-label="Play {{ hero.title }}">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><use href="#i-play" /></svg>
+    </a>
+  </div>
+</section>
+{% endif %}
+
 {% if home_recent_artists %}
     <div class="shelf">
       <div class="shelf-header">
@@ -55,7 +91,9 @@
 
        No data-queue-kind: there is nothing here to queue. A one-track single
        plays on click (see the release handler); anything longer opens. #}
-    <div class="shelf">
+    {# shelf--lead: the first content shelf on the panel, sized larger than the
+       ones under it so Home is not four identical rows. #}
+    <div class="shelf shelf--lead">
       <div class="shelf-header">
         <h2 class="shelf-title">New releases</h2>
         <a class="shelf-see-more" href="/#new-uploads" data-detail-kind="new-uploads" hidden>See more ›</a>

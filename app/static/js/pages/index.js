@@ -2,6 +2,7 @@
 // channel/playlist detail panel and player overlay drilled into from them.
 
 import { watchConnection } from "../core.js";
+import { setupAmbientTint } from "../home/ambient.js";
 import { setupDeviceStorage, setupOfflineMode } from "../home/device.js";
 import { handleInitialRoute, setupDetailPanel } from "../home/detail.js";
 import { refreshRecommendations, setupExploreSearch, setupRecommendations } from "../home/explore.js";
@@ -58,6 +59,11 @@ resumeOverlayIfNeeded();
 // separate, higher-priority thing to resolve on boot.
 handleInitialRoute();
 setupExploreSearch();
+// After the shelves exist and after setupTabs, which is what decides Home is
+// the visible panel: the tint is sampled from an <img> that has to be laid
+// out, and the header observer measures against a hero that has to be on
+// screen to intersect anything.
+setupAmbientTint();
 setupRecommendations();
 setupDownloadsOverlay();
 setupDeviceStorage();

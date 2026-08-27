@@ -6,18 +6,22 @@
    list underneath is a preview rather than the whole thing, so Play all
    can't promise more than it would deliver. #}
 <div class="channel-hero">
+  {# Same treatment as Home's hero: the page is lit by the artwork it is
+     showing. Rendered for every kind — with no artwork there is nothing to
+     sample and it stays at the page colour, which is what it already was. #}
+  <div class="ambient-field detail-hero-ambient" aria-hidden="true"></div>
   {% if remote %}
   {# Artwork is the playlist's first track or, for a channel, whatever avatar
      the recommendation search already cached — either can be missing, and the
      empty span is the same placeholder box an artist with no avatar renders. #}
   {% if hero_image %}
-  <img class="channel-hero-avatar{{ '' if hero_is_avatar else ' is-artwork' }}" src="{{ hero_image }}" alt="" />
+  <img class="channel-hero-avatar{{ '' if hero_is_avatar else ' is-artwork' }}" data-ambient-source src="{{ hero_image }}" alt="" />
   {% else %}
   <span class="channel-hero-avatar"></span>
   {% endif %}
   {% elif artist %}
   {% if artist.avatar_url %}
-  <img class="channel-hero-avatar" src="{{ artist.avatar_url }}" alt="" />
+  <img class="channel-hero-avatar" data-ambient-source src="{{ artist.avatar_url }}" alt="" />
   {% else %}
   <span class="channel-hero-avatar avatar-initial">{{ (artist.name or artist.channel_id)[:1] | upper }}</span>
   {% endif %}

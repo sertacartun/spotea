@@ -10,6 +10,7 @@
 // partial); everything here is the glue specific to reusing that DOM across
 // several tracks in one page load instead of once per load.
 
+import { applyAmbientTint } from "./ambient.js";
 import { api, formatDuration, showToast } from "../core.js";
 import { refreshFragments, refreshQueuePanel } from "../fragments.js";
 import {
@@ -432,6 +433,10 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
     artImg.removeAttribute("src");
     artImg.hidden = true;
   }
+  // Purely the backdrop colour behind this card — it reads the image that was
+  // just set and writes two custom properties. Nothing here touches the audio
+  // element, the queue, or anything else on the playback path.
+  applyAmbientTint();
   document.getElementById("duration-time").textContent = data.duration_seconds
     ? formatDuration(data.duration_seconds)
     : "0:00";

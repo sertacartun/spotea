@@ -1,0 +1,64 @@
+{
+  "items": [
+    {
+      "id": "R1",
+      "role": "structure",
+      "source": "http://localhost:10113/login (rendered at 390x844, screenshot)",
+      "observedAt": "2026-08-27",
+      "observation": "Near-black canvas with one raised card centred vertically; the primary button is a filled red and the register link is the same red text, so two elements compete for the single primary action. Large dead space above and below the card at phone height.",
+      "principle": "Exactly one element may carry the action colour as a fill; secondary navigation drops to a neutral or underlined treatment.",
+      "confidence": "high",
+      "rights": "Own project, self-hosted instance"
+    },
+    {
+      "id": "R2",
+      "role": "structure",
+      "source": "app/templates/_home_shelves.html",
+      "observedAt": "2026-08-27",
+      "observation": "Home is a repeat of identical .shelf blocks, each a .shelf-header (title plus see-more) over one horizontally scrolling .shelf-row, plus a .channel-row of circular artist chips.",
+      "principle": "A dashboard needs one dominant element before the repeated rows; identical consecutive sections must be varied in height, density or composition.",
+      "confidence": "high",
+      "rights": "Own project source"
+    },
+    {
+      "id": "R3",
+      "role": "navigation",
+      "source": "app/templates/index.html, app/static/css/style.css:3918",
+      "observedAt": "2026-08-27",
+      "observation": "Four bottom tabs (home, library, explore, settings) with a fifth 'detail' state that borrows a tab's active styling, and a .mini-player docked above the bar.",
+      "principle": "Tab bar and mini player must read as one chrome block so content padding is computed once and the last row is never covered.",
+      "confidence": "high",
+      "rights": "Own project source"
+    },
+    {
+      "id": "R4",
+      "role": "signature",
+      "source": "app/static/js/home/overlay.js:200-209,480",
+      "observedAt": "2026-08-27",
+      "observation": "expandPlayer/collapsePlayer only toggle the player-overlay element's `hidden` attribute; there is no positional or shared-element transition between the mini player and the full player.",
+      "principle": "The mini-to-full player move is the app's most repeated transition and is currently a hard cut, so it is the highest-value place to spend continuity.",
+      "confidence": "high",
+      "rights": "Own project source"
+    },
+    {
+      "id": "R5",
+      "role": "asset-language",
+      "source": "app/routers/content.py /image-proxy, app/templates/_content_card.html",
+      "observedAt": "2026-08-27",
+      "observation": "All imagery is real YouTube Music artwork proxied through the app: square release covers and circular artist avatars. No illustration or generated imagery exists anywhere in the product.",
+      "principle": "Cover art is the only imagery language; any generated media must stay behind or beside it and never carry UI text or state.",
+      "confidence": "high",
+      "rights": "Third-party cover art proxied for personal use; not redistributable and not to be used as a design reference for generated media"
+    },
+    {
+      "id": "R6",
+      "role": "motion",
+      "source": ".styleseed/bundles/home.md (native-mobile lineage: Apple HIG)",
+      "observedAt": "2026-08-27",
+      "observation": "The compiled brand recipe requires transitions that preserve spatial continuity and adapt to device insets, text scaling and reduced motion.",
+      "principle": "Motion budget goes to continuity between surfaces, not to decorative entrances on shelves.",
+      "confidence": "medium",
+      "rights": "StyleSeed built-in recipe, cites Apple HIG as lineage"
+    }
+  ]
+}

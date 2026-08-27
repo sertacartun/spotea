@@ -201,10 +201,10 @@ function recPlaylistCardHtml(playlist) {
 
 /** A whole shelf, or nothing at all when that kind came back empty — an
  *  empty "Playlists" heading is worse than no heading. */
-function shelfHtml(title, items, cardHtml) {
+function shelfHtml(title, items, cardHtml, lead = false) {
   if (!items.length) return "";
   return `
-    <div class="shelf">
+    <div class="shelf${lead ? " shelf--lead" : ""}">
       <div class="shelf-header"><h3 class="shelf-title">${escapeHtml(title)}</h3></div>
       <div class="shelf-row">${items.map(cardHtml).join("")}</div>
     </div>
@@ -268,7 +268,9 @@ function renderRecommendations(data) {
     // services/recommendations.py's _songs_from_followed and
     // _similar_to_followed) — empty for a library with nothing followed
     // yet, and deliberately not seeded with anything else in that case.
-    shelfHtml("Songs", data.videos, recVideoCardHtml),
+    // lead: the first content shelf here, sized larger so Explore is not five
+    // identical rows stacked on each other.
+    shelfHtml("Songs", data.videos, recVideoCardHtml, true),
     shelfHtml("Playlists", data.playlists, recPlaylistCardHtml),
     // Labelled "Artists you may like" rather than "Similar artists": the
     // shelf is a personal recommendation built from everyone followed, not

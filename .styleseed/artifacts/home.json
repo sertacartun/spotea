@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "id": "home",
+  "target": {
+    "kind": "component",
+    "locator": "app/templates/_home_shelves.html"
+  },
+  "selection": {
+    "grammar": "consumer-service",
+    "adapter": null,
+    "domain": null,
+    "page": "dashboard",
+    "recipe": null,
+    "palette": null,
+    "profile": null,
+    "fallback": "consumer-service"
+  },
+  "decisions": {
+    "primaryDecision": "Home answers what to put on right now without waiting on the network.",
+    "primaryAction": "Resume or start playback from the first shelf.",
+    "signatureMove": "One calm continue-listening hero above the shelves, read from stored state so Home never blocks on a fetch."
+  },
+  "implementation": {
+    "sourceRoots": [
+      "app/templates",
+      "app/static/css",
+      "app/static/js"
+    ],
+    "tokenFiles": [
+      "app/static/css/style.css"
+    ]
+  },
+  "validation": {
+    "scoreFloor": 80,
+    "requiredRenders": [
+      {
+        "id": "mobile-loaded",
+        "state": "loaded",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        }
+      },
+      {
+        "id": "mobile-empty",
+        "state": "empty",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        }
+      },
+      {
+        "id": "desktop-loaded",
+        "state": "loaded",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    ],
+    "temporal": {
+      "required": false,
+      "scenarios": []
+    },
+    "humanAcceptance": true
+  }
+}

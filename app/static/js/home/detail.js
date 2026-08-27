@@ -22,6 +22,7 @@
 import { unfollowArtist } from "../content-actions.js";
 import { classifyHash, noteConnection, showToast } from "../core.js";
 import { refreshFragments, swapFragmentHtml } from "../fragments.js";
+import { applyAmbientTint } from "./ambient.js";
 import { deviceTrackIds, renderDownloadsPanel } from "./device.js";
 import { OPEN_ARTIST, openPlayer } from "./overlay.js";
 import { PLAYLIST_CHANGED, PLAYLIST_DELETED } from "./playlists.js";
@@ -257,6 +258,9 @@ function afterPanelSwap() {
   // An artist profile arrives with shelves in it. Nothing else this panel
   // renders has a horizontal row, so this is a no-op for every other kind.
   wireScrollers();
+  // The panel brings its own hero and its own artwork, so the wash behind it
+  // has to be sampled again from whatever just arrived.
+  applyAmbientTint();
 }
 
 // What the panel currently shows, in the shape queue.js takes: the channel
