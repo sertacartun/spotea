@@ -660,7 +660,7 @@ def test_the_card_is_already_filling_in_when_the_response_lands(client, monkeypa
 
 def test_backfilling_lists_only_this_users_running_syncs(client, db_session):
     mine = Artist(user_id=USER_ID, channel_id="https://example.com/mine", name="Mine")
-    other_user = User(email="someone-else@example.com", password_hash="x")
+    other_user = User(username="someone-else", password_hash="x")
     db_session.add_all([mine, other_user])
     db_session.commit()
     theirs = Artist(

@@ -22,7 +22,7 @@ def _second_user(db_session, **user_kwargs) -> User:
     """A whole second login, with one followed artist — for the scoping test
     below. A real User row rather than a bare user_id: foreign keys are
     enforced now (see app/database.py)."""
-    defaults = {"email": "second@example.com", "password_hash": hash_password("x")}
+    defaults = {"username": "second", "password_hash": hash_password("x")}
     defaults.update(user_kwargs)
     user = User(**defaults)
     db_session.add(user)

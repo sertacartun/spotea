@@ -44,7 +44,7 @@ def _track(db_session, video_id, *, user_id=USER_ID):
 def _second_user(db_session):
     user = db_session.query(User).filter(User.id == OTHER_USER_ID).one_or_none()
     if user is None:
-        user = User(id=OTHER_USER_ID, email="other@example.com", password_hash="x")
+        user = User(id=OTHER_USER_ID, username="other", password_hash="x")
         db_session.add(user)
         db_session.commit()
     return user

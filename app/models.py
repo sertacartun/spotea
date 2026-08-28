@@ -17,9 +17,14 @@ class User(Base):
     (one person, one library), so the credentials moved onto the row that
     already owned the artists and the content, and `accounts` went away.
 
-    Email is always stored lowercased (normalized at the auth-router call
-    sites), so a plain unique constraint is enough without a case-insensitive
-    collation.
+    Logging in was by email address for the app's first releases. Nothing
+    ever sent one — no verification, no reset, no notification — so the field
+    was a username that had to contain an @ and a dot, and it is a username
+    now. An existing database has the column renamed and its values shortened
+    to the part before the @ at startup (see main._rename_email_to_username).
+
+    Always stored lowercased (normalized at the auth-router call sites), so a
+    plain unique constraint is enough without a case-insensitive collation.
     """
 
     __tablename__ = "users"
@@ -28,22 +33,27 @@ class User(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True)
+    # The width is what the email column this was renamed from already had,
+    # and it is not the real bound: SQLite does not enforce a VARCHAR length
+    # at all, so the length that means anything is routers/auth's
+    # MAX_USERNAME_LENGTH, which is checked before an INSERT is attempted.
+    username: Mapped[str] = mapped_column(String(255), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
-    audio_quality: Mapped[str] = mapped_column(String(10), default="high")
+    # Data saver by default. New downloads are what a phone's storage and a
+    # tethered connection actually pay for, and the high-quality itag is the
+    # deliberate opt-in rather than the thing you have to notice and turn
+    # off — see routers/settings.AUDIO_QUALITIES for the two values.
+    audio_quality: Mapped[str] = mapped_column(String(10), default="low")
     # Newline-separated free-text tags — genres, artists, moods — that
     # Explore's recommendations are built from. Parsed and written only
     # through app/interests.py, which owns the format (and the reason it
     # isn't a table of its own).
     interests: Mapped[str | None] = mapped_column(Text, default=None)
-    # How often the background scheduler refreshes this library — see
-    # scheduler.py.
-    refresh_interval_minutes: Mapped[int] = mapped_column(default=30)
-    # When the scheduler last refreshed it. None means never, which the
-    # scheduler treats the same as "overdue" — so a fresh account's first
-    # tick refreshes it immediately rather than waiting a full interval with
-    # nothing to compare against.
+    # Whether this library has ever been checked for new releases, and when.
+    # None means never, and never is the only thing that makes a library due
+    # on its own — see services/refresh.py. Every check after the first one
+    # is the Refresh button.
     refreshed_at: Mapped[datetime | None] = mapped_column(default=None)
 
     artists: Mapped[list["Artist"]] = relationship(back_populates="user", cascade="all, delete-orphan")

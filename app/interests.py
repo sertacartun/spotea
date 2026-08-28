@@ -21,8 +21,10 @@ from collections.abc import Iterable
 # normalize_interests truncates, so a user who turned on more chips than this
 # would have the extras dropped on save with nothing to say so. There are
 # len(SUGGESTED_GENRES) chips plus whatever a profile already had, so this
-# sits above the former with room for the latter.
-MAX_INTERESTS = 30
+# sits above the former with room for the latter. It was 30 against 28 chips,
+# which is not room for anything — adding four genres would have made turning
+# them all on lose two of a profile's own tags in silence.
+MAX_INTERESTS = 40
 MAX_INTEREST_LENGTH = 60
 
 # How many have to be on before first-run onboarding will let go (see
@@ -108,6 +110,13 @@ def interests_signature(values: Iterable[str]) -> str:
 #   - "Punk" leads with "phonk 2026" for the same reason. "Punk Rock" leads
 #     with pop-punk and alternative, which is the shelf that was meant.
 #
+# The same check is why there is no "Rock'n'Roll" chip here. Both spellings
+# were run: "Rock'n'Roll" returns Classic Rock Party, Feel-Good Rock Hits and
+# High-Energy Hard Rock, and "Rock and Roll" returns Feel-Good Rock Hits and
+# '80s Rock. Neither returns the genre — they return what the "Rock" chip
+# above already returns, so the chip would have been a second button for the
+# same shelf.
+#
 # Ordered by family rather than alphabetically: the picker draws these as a
 # wrapping grid, and someone scanning for what they like reads neighbours.
 #
@@ -122,6 +131,7 @@ SUGGESTED_GENRES = (
     "Punk Rock",
     "Metal",
     "Hip-Hop",
+    "Rap",
     "Trap",
     "R&B",
     "Soul",
@@ -130,7 +140,9 @@ SUGGESTED_GENRES = (
     "Blues",
     "Jazz",
     "Classical",
+    "Soundtrack",
     "Electronic",
+    "Dance",
     "House",
     "Techno",
     "Drum & Bass",
@@ -141,6 +153,7 @@ SUGGESTED_GENRES = (
     "Folk",
     "Reggae",
     "Latin",
+    "Reggaeton",
     "Afrobeats",
     "K-Pop",
 )

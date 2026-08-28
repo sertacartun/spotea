@@ -49,8 +49,7 @@ def home(
             "audio_quality": user.audio_quality,
             # Labels the Settings panel — the login is otherwise never shown
             # anywhere in the app after registration.
-            "account_email": user.email,
-            "refresh_interval_minutes": user.refresh_interval_minutes,
+            "account_name": user.username,
             # Server-rendered rather than fetched by home/settings.js on boot:
             # the interest chips are part of the Settings panel's first paint,
             # and filling them in afterwards flashes an empty editor on every

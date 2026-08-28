@@ -8,12 +8,16 @@ closed, because nothing is shown until someone opens the app. A library of
 150 artists was being fetched around the clock so that a page nobody was
 looking at could be right.
 
-So the check moved to the moment it matters: opening the app. The interval
-in Settings is now a floor rather than a clock — "when you open this, don't
-go and look again unless it has been at least this long" — which is why the
-control still exists and still means something. Refreshing goes on happening
-in the background either way (see queue_due_refresh), so nothing waits on a
-page load; the results land in the next render.
+So the check moved to the moment it matters: opening the app. For a while
+that was governed by an interval in Settings — a floor rather than a clock,
+"don't go and look again unless it has been at least this long". That
+control is gone too. A followed artist's back catalogue does not change
+between two openings of the app, and the one thing the interval bought was
+that every visitor paid for someone else's staleness on a schedule nobody
+chose. What is left is the two moments a check is actually wanted: the first
+time a library is opened at all, and whenever Refresh is pressed. Refreshing
+goes on happening in the background either way (see queue_due_refresh), so
+nothing waits on a page load; the results land in the next render.
 
 The one-at-a-time guard below matters more here than it did in the loop. A
 loop ticks once; opening the app happens whenever it happens, on however
@@ -42,15 +46,20 @@ _lock = threading.Lock()
 
 
 def is_due(user: User) -> bool:
-    """Whether this user's library is old enough to go and look again.
+    """Whether opening the app should send this user's library off to look
+    for new releases.
 
-    A never-refreshed user (a brand new account, or one upgrading from
-    before this was recorded) is always due.
+    Only ever true once: for a library that has never been checked, which is
+    a brand new account, or one upgrading from before this was recorded. Age
+    does not make a library due any more — after the first check, going and
+    looking is something the Refresh button does and nothing else.
+
+    Still a function rather than an inlined `is None`, because the callers
+    are what makes it correct: queue_due_refresh asks before spending a
+    background task, and refresh_if_due asks again after the response has
+    gone out, by which time another tab may have answered it.
     """
-    if user.refreshed_at is None:
-        return True
-    elapsed_minutes = (utcnow() - user.refreshed_at).total_seconds() / 60
-    return elapsed_minutes >= user.refresh_interval_minutes
+    return user.refreshed_at is None
 
 
 def refresh_if_due(user_id: int) -> None:

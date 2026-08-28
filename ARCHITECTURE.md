@@ -72,7 +72,7 @@ app/
     explore.py       search, and turning a remote row into a playable one
     content.py       download, stream, favorite, save, queues
     recommendations.py  the Explore batch (GET/POST)
-    settings.py      audio quality, interests, refresh interval
+    settings.py      audio quality, interests
     storage.py       clear all, export zip
     auth.py          register, login, logout
     debug.py         playback breadcrumbs the server can't otherwise see
@@ -82,7 +82,7 @@ app/
     artist_sync.py     release-snapshot diff; the only writer of new Content
     initial_sync.py    the background first sync, and its progress registry
     remote_detail.py   artist / release / playlist panels
-    recommendations.py the Explore batch, its cache and its TTL
+    recommendations.py the Explore batch and its cache
 
   youtube/
     music.py         the ytmusicapi client — search, artist, release, charts, moods
@@ -113,11 +113,10 @@ profiles); the profile model is gone.
 
 | column | notes |
 |---|---|
-| `email`, `password_hash` | email lowercased at the router; unique |
-| `audio_quality` | `high` / `low`, both remux rather than re-encode |
+| `username`, `password_hash` | username lowercased at the router; unique. Was `email` until logins stopped pretending to need one — an existing database is renamed and shortened to the local part at startup (`main._rename_email_to_username`) |
+| `audio_quality` | `high` / `low`, both remux rather than re-encode; `low` by default |
 | `interests` | newline-separated free text; owned by `app/interests.py` |
-| `refresh_interval_minutes` | 15 / 30 / 60 / 120 — a floor between checks, not a background clock |
-| `refreshed_at` | NULL means never, which counts as due |
+| `refreshed_at` | NULL means never, and never is the only thing that counts as due — every later check is the Refresh button |
 
 ### `artists`
 
@@ -222,8 +221,11 @@ against `GET /artists/syncing`).
 `services/artist_sync.py`, triggered two ways: opening the app when the
 library is due (`services/refresh.py`, queued behind the response so the page
 never waits — that render shows what was already stored, the next one shows
-what arrived), and the Refresh button, which ignores the interval and fetches
-straight away.
+what arrived), and the Refresh button. "Due" means "never checked": a library
+is looked at once, the first time its owner opens the app, and every check
+after that is the button. There was an interval in Settings for a while,
+governing how stale a library was allowed to get before an opening triggered
+another look; it is gone, along with the column behind it.
 
 There is no background refresh loop. There was one, ticking every five
 minutes whether or not anyone was using the app; with the feed gone there is
@@ -261,7 +263,7 @@ their profile.
 per channel to find out how long anything was, plus a Shorts filter. What it
 gives up is the exact publish timestamp — YouTube Music reports a year and
 nothing finer, so a new release is stamped with when it was first seen, which
-on a 30-minute interval is within half an hour of the truth. What it gains:
+is as close to the truth as the last press of Refresh. What it gains:
 durations and cover art arrive with the tracks, and a guest verse on someone
 else's record is caught, which never reaches the artist's own Topic channel
 at all.
@@ -330,7 +332,7 @@ list. Picking a playlist from there opens it the ordinary
 | GET | `/content/{id}/stream` | play it (Range-capable FileResponse) |
 | GET | `/content/queue/playlist/{kind}` | the ids behind a Play all |
 | POST/DELETE | `/content/{id}/{favorite,save}` | engagement flags |
-| GET/PUT | `/settings` | quality, interests, interval |
+| GET/PUT | `/settings` | quality, interests |
 | GET/POST | `/recommendations`, `/recommendations/refresh` | the Explore batch |
 | DELETE/GET | `/storage`, `/storage/export` | clear all, zip |
 | GET | `/avatars/*`, `/thumbnails/*`, `/image-proxy` | images |
@@ -429,8 +431,8 @@ path unchanged.
 - **SQLite in WAL mode** with foreign keys on. Fetches fan out across a small
   thread pool; DB writes never happen inside it.
 - **Sessions** are signed cookies (`itsdangerous`). Passwords are bcrypt, and
-  a login for an unknown email still pays a real bcrypt check so timing
-  doesn't reveal which emails are registered.
+  a login for an unknown username still pays a real bcrypt check so timing
+  doesn't reveal which names are registered.
 - **Login is rate limited** per client, because each attempt costs ~420ms of
   a shared threadpool worker.
 - **Every outbound URL is host-checked** before it is fetched, so an

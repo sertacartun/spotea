@@ -1,9 +1,11 @@
 """Opening the app is what checks for new releases (app/services/refresh.py).
 
-This replaced a background loop that ran whether or not anyone was there. The
-properties that matter: it only fires when the library is actually due, it
-never blocks the page that triggered it, only one runs at a time, and a
-failure inside it cannot reach the response that already went out.
+This replaced a background loop that ran whether or not anyone was there, and
+then an interval that decided how stale a library was allowed to get. Neither
+is left: a library is checked the first time it is opened, and after that only
+when Refresh is pressed. The properties that matter: it fires exactly once on
+its own, it never blocks the page that triggered it, only one runs at a time,
+and a failure inside it cannot reach the response that already went out.
 """
 
 from datetime import timedelta
@@ -44,34 +46,32 @@ def test_a_never_refreshed_user_is_due(db_session):
     assert is_due(user)
 
 
-def test_a_user_past_their_own_interval_is_due(db_session):
+def test_a_refreshed_user_is_never_due_again_however_long_it_has_been(db_session):
+    """The interval this replaced would have made a library a year old the
+    most overdue thing in the app. Age is not what decides any more."""
     user = db_session.get(User, DEFAULT_USER_ID)
-    user.refresh_interval_minutes = 30
-    user.refreshed_at = utcnow() - timedelta(minutes=31)
-
-    assert is_due(user)
-
-
-def test_a_user_inside_their_own_interval_is_not_due(db_session):
-    user = db_session.get(User, DEFAULT_USER_ID)
-    user.refresh_interval_minutes = 30
-    user.refreshed_at = utcnow() - timedelta(minutes=10)
+    user.refreshed_at = utcnow() - timedelta(days=365)
 
     assert not is_due(user)
 
 
-def test_two_users_are_judged_by_their_own_interval_independently(db_session):
-    """One account picking a short interval must not drag another's check
-    forward, and vice versa."""
-    short = db_session.get(User, DEFAULT_USER_ID)
-    short.refresh_interval_minutes = 15
-    short.refreshed_at = utcnow() - timedelta(minutes=20)
+def test_a_user_refreshed_a_moment_ago_is_not_due(db_session):
+    user = db_session.get(User, DEFAULT_USER_ID)
+    user.refreshed_at = utcnow() - timedelta(minutes=1)
 
-    long = User(email="long@example.com", password_hash="x", refresh_interval_minutes=120)
-    long.refreshed_at = utcnow() - timedelta(minutes=20)
+    assert not is_due(user)
 
-    assert is_due(short)
-    assert not is_due(long)
+
+def test_one_users_first_open_does_not_make_another_due(db_session):
+    """Being due is per library, not a property of the deployment."""
+    fresh = db_session.get(User, DEFAULT_USER_ID)
+    fresh.refreshed_at = None
+
+    already = User(username="already-checked", password_hash="x")
+    already.refreshed_at = utcnow() - timedelta(minutes=20)
+
+    assert is_due(fresh)
+    assert not is_due(already)
 
 
 def test_opening_the_app_queues_a_refresh_when_due(client, db_session):
@@ -89,7 +89,6 @@ def test_opening_the_app_queues_a_refresh_when_due(client, db_session):
 
 def test_opening_the_app_queues_nothing_when_not_due(db_session):
     user = db_session.get(User, DEFAULT_USER_ID)
-    user.refresh_interval_minutes = 120
     user.refreshed_at = utcnow() - timedelta(minutes=5)
 
     tasks = _Recorder()
@@ -116,7 +115,6 @@ def test_a_refresh_that_is_no_longer_due_by_the_time_it_runs_does_nothing(db_ses
     response — another tab's refresh may have landed in between, and
     re-reading is cheaper than the fetch it avoids."""
     user = db_session.get(User, DEFAULT_USER_ID)
-    user.refresh_interval_minutes = 120
     stamp = utcnow() - timedelta(minutes=5)
     user.refreshed_at = stamp
     db_session.commit()

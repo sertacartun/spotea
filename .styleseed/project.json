@@ -11,7 +11,7 @@
     "fallback": "consumer-service"
   },
   "brand": {
-    "keyColor": "#A98BFF",
+    "keyColor": "#FF4343",
     "paletteCharacter": "deep",
     "paletteMode": "dark",
     "paletteHarmony": "auto",

@@ -10,8 +10,6 @@ live under /artists because they're about artists the user might add, and these
 aren't about artists at all.
 """
 
-from datetime import timedelta
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -27,11 +25,9 @@ router = APIRouter(
 
 
 def _recommendations_out(db: Session, user: User, *, force: bool) -> RecommendationsOut:
-    # The batch goes stale on the same interval the user picked for background
-    # artist refreshes, rather than on a cadence of its own — see
-    # services/recommendations.py.
-    ttl = timedelta(minutes=user.refresh_interval_minutes)
-    batch, generated_at = get_recommendations(db, user, ttl=ttl, force=force)
+    # No expiry to pass: a batch is good until the interests behind it change
+    # or someone presses Refresh — see services/recommendations.py.
+    batch, generated_at = get_recommendations(db, user, force=force)
     return RecommendationsOut(
         interests=parse_interests(user.interests),
         generated_at=generated_at,

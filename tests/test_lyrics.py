@@ -113,7 +113,7 @@ def test_the_cache_is_keyed_by_recording_not_by_content_row(client, db_session, 
     property of the recording, not of anyone's library."""
     _, calls = fake_lyrics
     mine = _content(db_session)
-    other_user = User(email="lyrics-other@example.com", password_hash="x")
+    other_user = User(username="lyrics-other", password_hash="x")
     db_session.add(other_user)
     db_session.commit()
     db_session.refresh(other_user)
@@ -129,7 +129,7 @@ def test_the_cache_is_keyed_by_recording_not_by_content_row(client, db_session, 
 
 def test_another_users_track_is_not_readable(client, db_session, fake_lyrics):
     _, calls = fake_lyrics
-    other_user = User(email="lyrics-stranger@example.com", password_hash="x")
+    other_user = User(username="lyrics-stranger", password_hash="x")
     db_session.add(other_user)
     db_session.commit()
     db_session.refresh(other_user)

@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 from app.content_query import query_content_page
+from app.images import proxied_image_url, unproxied_image_url
 from app.models import Artist, Content, User
 
 USER_ID = 1
@@ -49,6 +50,7 @@ def test_get_single_content_returns_full_shape(client, db_session):
         "video_id",
         "title",
         "thumbnail_url",
+        "artwork",
         "duration_seconds",
         "published_at",
         "status",
@@ -60,6 +62,42 @@ def test_get_single_content_returns_full_shape(client, db_session):
     }
     assert body["id"] == items[0].id
     assert body["channel_title"] == "Test Channel"
+
+
+def test_the_payload_carries_the_cover_at_several_declared_sizes(client, db_session):
+    """What the player publishes to the OS's Now Playing surface. iOS picks
+    an entry per surface and will not resize a large one down for a small
+    one — given only art above 128px it draws a grey box on the compact
+    player, which is the Dynamic Island. Every cover here is stored at
+    music.COVER_SIZE (544), so a single entry was always in that range.
+    """
+    _feed, items = _seed(db_session, count=1)
+    items[0].thumbnail_url = proxied_image_url(
+        "https://yt3.ggpht.com/COVER=w544-h544-l90-rj"
+    )
+    db_session.commit()
+
+    artwork = client.get(f"/content/{items[0].id}").json()["artwork"]
+
+    assert [entry["sizes"] for entry in artwork] == ["96x96", "192x192", "512x512"]
+    # The same picture each time, only the size segment differs.
+    assert all("COVER" in entry["src"] for entry in artwork)
+    assert "w96-h96" in unproxied_image_url(artwork[0]["src"])
+    assert "w512-h512" in unproxied_image_url(artwork[-1]["src"])
+
+
+def test_a_cover_that_cannot_be_resized_is_published_once_without_a_size(client, db_session):
+    """A video still ignores the size segment — it carries a signed query
+    instead — so three identical URLs claiming three different sizes would
+    be a lie the OS acts on. One honest entry instead."""
+    _feed, items = _seed(db_session, count=1)
+    items[0].thumbnail_url = None
+    db_session.commit()
+
+    artwork = client.get(f"/content/{items[0].id}").json()["artwork"]
+
+    assert len(artwork) == 1
+    assert "sizes" not in artwork[0]
 
 
 def test_the_payload_says_how_to_open_the_artist(client, db_session):
@@ -116,7 +154,7 @@ def test_get_single_content_404_for_nonexistent_id(client, db_session):
 
 
 def test_get_single_content_404_for_another_users_content(client, db_session):
-    other_user = User(email="other1@example.com", password_hash="x")
+    other_user = User(username="other1", password_hash="x")
     db_session.add(other_user)
     db_session.commit()
     db_session.refresh(other_user)
@@ -152,7 +190,7 @@ def test_queue_endpoints_404_for_unknown_targets(client, db_session):
 
 
 def test_channel_queue_404s_for_another_users_channel(client, db_session):
-    other_user = User(email="other2@example.com", password_hash="x")
+    other_user = User(username="other2", password_hash="x")
     db_session.add(other_user)
     db_session.commit()
     db_session.refresh(other_user)

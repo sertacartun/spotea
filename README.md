@@ -12,9 +12,9 @@ from your browser — a personal, free alternative to a streaming subscription.
   what YouTube Music lists for your artists against what it listed last time,
   and Home's **New releases** shelf shows what they've put out — read from
   what that check already stored, so opening Home never waits on the network.
-  The check runs behind the page rather than in front of it, and no more
-  often than the interval in Settings; the Refresh button ignores that and
-  looks straight away. Only artists can be followed — this app holds music
+  The check runs behind the page rather than in front of it, and only the
+  first time you ever open the app; after that the Refresh button is what
+  goes and looks. Only artists can be followed — this app holds music
   and nothing else.
 - A brand new library asks what you listen to and fills Explore from the
   answer, rather than handing you an empty page.
@@ -102,8 +102,8 @@ start the app, and register again.
 ### Exposing it beyond your local network
 
 Login is real per-account authentication (hashed passwords, isolated data
-per account) — but there's no email verification, and only login is rate
-limited. If you expose
+per account) — but accounts are a username and a password with nothing to
+verify them against, and only login is rate limited. If you expose
 this instance to the internet, put it behind a reverse proxy with HTTPS
 (e.g. Caddy, nginx, Traefik), and consider whether you want registration
 open to anyone who finds the URL.

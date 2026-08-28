@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 
 from app.config import settings
-from app.youtube.urls import is_video_still, video_still_url
+from app.youtube.urls import cover_url_at_size, is_video_still, video_still_url
 
 FETCH_TIMEOUT_SECONDS = 10
 
@@ -206,12 +206,68 @@ def is_music_video(item) -> bool:
     stored = getattr(item, "thumbnail_url", None)
     if not stored:
         return False
-    # Stored proxied — /image-proxy?u=<escaped remote url> — so the real URL
-    # has to come back out before it can be recognised.
-    if stored.startswith("/image-proxy"):
-        _, _, query = stored.partition("?")
-        stored = urllib.parse.unquote(urllib.parse.parse_qs(query).get("u", [""])[0])
-    return is_video_still(stored)
+    return is_video_still(unproxied_image_url(stored))
+
+
+def unproxied_image_url(url: str) -> str:
+    """The remote URL behind one of ours.
+
+    Covers are stored and served proxied — /image-proxy?u=<escaped remote
+    url> — and anything that needs to reason about the *remote* URL (what
+    host it is on, what size it names) has to get it back out first. Was
+    inline in is_music_video until a second caller needed the same three
+    lines.
+
+    A URL that isn't one of ours comes back untouched, so this is safe to
+    call on a value that may already be remote.
+    """
+    if not url.startswith("/image-proxy"):
+        return url
+    _, _, query = url.partition("?")
+    return urllib.parse.unquote(urllib.parse.parse_qs(query).get("u", [""])[0])
+
+
+# What to offer the OS's Now Playing surface, smallest first.
+#
+# Not one image, and not one big one. iOS picks an entry per surface and it
+# will not resize a big one down for a small surface: given only art larger
+# than 128 pixels it draws a grey translucent box on the compact player —
+# which on a modern iPhone is the Dynamic Island, the exact surface this is
+# for. Every cover this app stores is asked for at music.COVER_SIZE (544),
+# so the single entry that used to be published was always in that failing
+# range.
+#
+# 512 for the expanded player and the lock screen, 96 for the compact one,
+# and 192 between them, all declared with `sizes` so the OS can choose
+# rather than guess. They cost one URL each and no request: Google's image
+# CDN resizes from the size named in the URL (see youtube/urls.
+# cover_url_at_size), so this is the same picture three ways.
+NOW_PLAYING_ARTWORK_SIZES = (96, 192, 512)
+
+
+def track_artwork(item) -> list[dict[str, str]]:
+    """The cover a track should hand the OS, at every size it might want.
+
+    Separate from track_cover, which answers what to *draw* in the page —
+    one image at one size, into an element whose size the CSS already knows.
+    This answers what to publish to MediaSession, where the sizes are the
+    whole point (see NOW_PLAYING_ARTWORK_SIZES).
+
+    A cover that cannot be resized comes back as a single entry with no
+    declared size rather than as three identical URLs claiming three
+    different ones: video stills carry a signed query and ignore the size
+    segment entirely (see youtube/urls.video_still_url), and a lie about
+    what an image is would be worse than saying nothing.
+    """
+    cover = track_cover(item)
+    if not cover:
+        return []
+
+    remote = unproxied_image_url(cover)
+    sized = {size: proxied_image_url(cover_url_at_size(remote, size)) for size in NOW_PLAYING_ARTWORK_SIZES}
+    if len(set(sized.values())) == 1:
+        return [{"src": cover}]
+    return [{"src": url, "sizes": f"{size}x{size}"} for size, url in sized.items()]
 
 
 def cached_avatar_or_hotlink(channel_id: str, remote_url: str | None) -> str | None:

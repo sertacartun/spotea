@@ -67,33 +67,37 @@
   --text-faint-alt: #b4b9bf;
   --text-disabled: #4a5058;
 
-  /* Accent. Violet is the palette's primary role: it marks the one action a
-     screen is asking for, and nothing else. --accent-hover lifts rather than
-     deepens, matching how the color it replaced behaved — a hover that
-     darkens reads as the control switching off on a near-black page. */
-  --accent: #a48af1; /* 7.32:1 on --bg-page */
-  --accent-hover: #c1b0ff;
-  --accent-tint: rgba(164, 138, 241, 0.1);
+  /* Accent. Red is the brand's colour and the palette's primary role: it
+     marks the one action a screen is asking for, and nothing else. A violet
+     took this slot for one release and was not kept. --accent-hover lifts
+     rather than deepens — a hover that darkens reads as the control
+     switching off on a near-black page. */
+  --accent: #ff4343; /* 6.02:1 on --bg-page */
+  --accent-hover: #ff6161;
+  --accent-tint: rgba(255, 67, 67, 0.1);
 
-  /* Danger / destructive actions */
+  /* Danger / destructive actions.
+     A pale coral rather than a second saturated red. With the accent red
+     again these two are neighbours on the wheel, and the thing that has to
+     stay obvious is which one is *this screen's action* and which one
+     destroys something — so they are separated by lightness instead of by
+     hue: 9.76:1 here against the accent's 6.02:1, on top of the accent
+     being a fill and this being text. The pairing the old red palette used
+     (#f15e6c) matched the accent in both hue and lightness and read as a
+     weaker accent rather than as a different meaning. */
   --danger: #ff968a;
   --danger-hover: #ffb3aa;
 
   /* The library tiles used to carry five different fills, one per kind. That
      read as rainbow categories — destinations coloured as if they were
-     statuses — so the four navigational ones now share a neutral fill and are
-     told apart by their glyph, and only the two colours below survived,
-     because both of them mean something.
+     statuses — so every one of them now shares a neutral fill and they are
+     told apart by their glyph. Nothing in this block is left but the one
+     note below, because no tile has a hue of its own any more.
 
-     --on-device: what this device itself is holding. It is the one tile that
-     still means anything with no connection, and it is the same warm colour
-     as the offline banner it belongs with. White-on-fill measures 5.08:1,
-     where the amber it replaced managed 3.19:1.
-     The "new list" tile keeps a colour too, but it takes --accent rather than
-     one of its own: it is the only *action* on this screen, as against five
+     The "new list" tile keeps a colour, but it takes --accent rather than one
+     of its own: it is the only *action* on this screen, as against five
      destinations, and the accent is what an action is drawn in here. That
      also gives Library the one identifiable primary action it was missing. */
-  --on-device: #9a6212;
 
   /* Seek/volume slider's unfilled track */
   --track-empty: #303942;
@@ -604,11 +608,22 @@ select {
   background: var(--bg-page);
 }
 
-/* Home's hero runs under this bar. While the top of the wash is still behind
-   it, the bar carries no fill and no rule, so the light appears to come from
-   one place instead of being cut off by a band across the top of the screen;
-   the moment the hero's top edge passes it, the fill comes back and the logo
-   is over an ordinary page again. home/ambient.js owns data-hero-lit.
+/* See index.html for what this is for. 1px rather than 0 because an
+   IntersectionObserver does not reliably report a zero-area rect as
+   intersecting, and pulled back by the same 1px so it costs no layout in
+   body's flex column. */
+.page-top-probe {
+  display: block;
+  height: 1px;
+  margin-bottom: -1px;
+}
+
+/* Home's hero runs under this bar. At rest the bar carries no fill and no
+   rule, so the light appears to come from one place instead of being cut off
+   by a band across the top of the screen; the moment the page is scrolled at
+   all, the fill comes back and the logo is over an ordinary page again.
+   home/ambient.js owns data-hero-lit, and sets it only while Home has a hero
+   *and* the page is at the top.
 
    Scoped to Home on purpose. The same element is the tab strip at wider
    widths and on every other panel, and it has to stay opaque there. */
@@ -2104,16 +2119,20 @@ button.track-link {
 }
 
 /* One fill for every pinned tile, and the glyph tells them apart.
-   These four are destinations, not statuses — "Favorites", "Recently played"
-   and "New releases" are places you go, and colouring each one differently
-   put five hues in a single vertical stack, which is the rainbow-categories
+   These are destinations, not statuses — "Favorites", "Recently played" and
+   "New releases" are places you go, and colouring each one differently put
+   five hues in a single vertical stack, which is the rainbow-categories
    pattern this grammar rejects outright. Neutral also stops any tile from
    reading as the accent and competing with a real primary action.
 
-   Downloads is the deliberate exception below: what this device is holding
-   is genuine state rather than a category, it is the only tile that still
-   means anything with no connection, and it is already the same warm colour
-   as the offline banner it belongs with. */
+   Downloads was held out of this for a while, on the argument that what the
+   device is holding is state rather than a category. It sat in the same
+   stack as the other five all the same, and being the only coloured one
+   there is what a reader actually saw: an odd tile out, not a different
+   kind of thing. Whether this device has the file is answered by the panel
+   the tile opens, and by the offline banner, neither of which needs the
+   tile itself to carry a second hue. */
+.channel-card-icon.is-downloads,
 .channel-card-icon.is-favorites,
 .channel-card-icon.is-new-uploads,
 .channel-card-icon.is-recently-played,
@@ -3939,7 +3958,6 @@ audio {
   margin-top: 0;
   padding-top: 0;
   border-top: none;
-  margin-bottom: var(--space-4);
 }
 
 .search-tabs[hidden] {
@@ -3956,7 +3974,19 @@ audio {
    otherwise have to be hardcoded to the field's rendered height. The
    background is what keeps rows from showing through as they pass beneath;
    the negative top margin plus matching padding is what stops a row being
-   visible in the gap that .layout's own top padding leaves above it. */
+   visible in the gap that .layout's own top padding leaves above it.
+
+   The bottom padding is the same gap, on the other side, and it lives here
+   rather than on .search-tabs because the strip is only present while there
+   are search results to divide. With the gap on the strip, the default state
+   of this tab — the browse shelves, no search typed — had the first row
+   sitting flush against the bottom of the field, and scrolling ran it under
+   an edge with nothing between the two. One rule owns the gap in both
+   states.
+
+   Half of what the strip used to carry: the field already sits inside its
+   own wrapper's spacing, so taking the strip's whole value on top of that
+   read as a hole rather than as a gap. */
 .explore-search-head {
   position: sticky;
   top: 0;
@@ -3964,6 +3994,7 @@ audio {
   background: var(--bg-page);
   margin-top: calc(-1 * var(--space-3));
   padding-top: var(--space-3);
+  padding-bottom: var(--space-2);
 }
 
 .queue-empty {
@@ -4751,13 +4782,10 @@ body.has-mini-player .layout {
 }
 
 /* ---------------------------------------------------------------------------
-   What this device is holding (templates/_library_grid.html's Downloads tile,
-   Settings' "Songs on this device" row, and the panel the tile opens).
+   What this device is holding (Settings' "Songs on this device" row and the
+   panel the Downloads tile opens). The tile's own fill is up with the other
+   library tiles, which it now shares.
 --------------------------------------------------------------------------- */
-
-.channel-card-icon.is-downloads {
-  background: var(--on-device);
-}
 
 /* The Offline playback switch. A real <input type="checkbox"> under a drawn
    track, rather than a button pretending: it comes with the keyboard

@@ -233,7 +233,7 @@ def test_an_old_bare_id_snapshot_renders_nothing_rather_than_crashing(db_session
 
 
 def test_another_users_releases_stay_out(db_session):
-    other = User(email="releases-other@example.com", password_hash="x")
+    other = User(username="releases-other", password_hash="x")
     db_session.add(other)
     db_session.commit()
     db_session.refresh(other)

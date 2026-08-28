@@ -65,6 +65,19 @@
     <span class="spinner spinner-lg" role="status" aria-label="Refreshing"></span>
   </div>
 
+  {# A 1px probe at the very top of the page, and the only thing that answers
+     "is this scrolled all the way up". Home's header runs transparent over the
+     hero's wash while it is, and fills in the moment it isn't — see
+     home/ambient.js, which owns the attribute, and style.css's
+     [data-hero-lit] rules.
+
+     Here rather than inside the hero, because the hero starts *below* the
+     header: a probe at the hero's own top edge stays on screen for a header's
+     worth of scrolling before it leaves, and observing the whole hero (which
+     is what this replaced) held the bar transparent for the hero's entire
+     height — long enough for shelf rows to slide under an unfilled bar. #}
+  <span class="page-top-probe" aria-hidden="true"></span>
+
   <div class="app-header-sticky">
   <header class="topbar">
     <div class="topbar-inner">
@@ -222,10 +235,10 @@
              since it can cost a live YouTube round trip), so the shelves
              are already here by the time this tab is opened.
 
-             No refresh control of its own: these shelves are re-checked on
-             every visit to this tab, rebuilt once the interval Settings sets
-             for refreshes has elapsed, when the interest list is
-             edited, and when the app-wide Refresh button is pressed. #}
+             No refresh control of its own, and no expiry either: a batch
+             is rebuilt when the interest list is edited and when the
+             app-wide Refresh button is pressed, and otherwise served from
+             cache however old it is (see services/recommendations.py). #}
           <div id="recommendations-body"></div>
         </div>
 
@@ -234,15 +247,21 @@
 
     <section id="tab-settings" class="tab-panel" data-tab-panel="settings" hidden>
       <div class="channels-panel-inner">
-        {# Three groups, not one. Every row used to sit under a single
+        {# Groups, not one list. Every row used to sit under a single
            "Account" heading, which put a preference select and a button that
            clears your history next to each other with nothing to tell them
            apart, and left the last row orphaned outside the group by an
-           unbalanced </section>. Preferences are together, the two rows that
-           spend or erase something are together, and the destructive one is
-           last. #}
+           unbalanced </section>. What the account is comes first, everything
+           that spends or erases space is together below it, and the
+           destructive one is last.
+
+           There were three groups until the middle one, "Playback", lost the
+           refresh-interval row along with the setting. Its other row is
+           "Download quality", which decides how much of a phone a library
+           takes rather than how anything plays, so it moved down here rather
+           than keeping a heading of its own over a single control. #}
         <section class="settings-group">
-          <h2>Account · <span class="settings-group-who">{{ account_email }}</span></h2>
+          <h2>Account · <span class="settings-group-who">{{ account_name }}</span></h2>
 
           <div class="settings-row">
             <div class="settings-row-info">
@@ -254,7 +273,7 @@
         </section>
 
         <section class="settings-group">
-          <h2>Playback</h2>
+          <h2>Storage and data</h2>
 
           <div class="settings-row">
             <div class="settings-row-info">
@@ -266,28 +285,6 @@
               <option value="low" {{ 'selected' if audio_quality == 'low' }}>Data saver</option>
             </select>
           </div>
-
-          <div class="settings-row">
-            <div class="settings-row-info">
-              <span class="settings-row-label">Check for new releases</span>
-              {# A floor, not a clock. Nothing runs in the background waiting
-                 for this to elapse any more (see services/refresh.py) — the
-                 check happens when you open the app, and this is how long it
-                 waits before bothering to look again. The Refresh button
-                 ignores it entirely, which is what that button is for. #}
-              <span class="settings-row-desc">Followed artists are checked when you open the app, at most this often. Refresh checks straight away.</span>
-            </div>
-            <select id="refresh-interval-select" class="settings-select" aria-label="Check for new releases">
-              <option value="15" {{ 'selected' if refresh_interval_minutes == 15 }}>At most every 15 minutes</option>
-              <option value="30" {{ 'selected' if refresh_interval_minutes == 30 }}>At most every 30 minutes</option>
-              <option value="60" {{ 'selected' if refresh_interval_minutes == 60 }}>At most hourly</option>
-              <option value="120" {{ 'selected' if refresh_interval_minutes == 120 }}>At most every 2 hours</option>
-            </select>
-          </div>
-        </section>
-
-        <section class="settings-group">
-          <h2>Storage and data</h2>
 
           <div class="settings-row">
             <div class="settings-row-info">

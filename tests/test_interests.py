@@ -110,10 +110,9 @@ def test_omitting_interests_leaves_them_alone(client):
     client.put("/settings", json={"interests": ["jazz"]})
     # The audio-quality control PUTs only its own field — it must not wipe
     # the list the interests editor manages.
-    res = client.put("/settings", json={"audio_quality": "low"})
+    res = client.put("/settings", json={"audio_quality": "high"})
     assert res.json() == {
-        "audio_quality": "low",
-        "refresh_interval_minutes": 30,
+        "audio_quality": "high",
         "interests": ["jazz"],
     }
 

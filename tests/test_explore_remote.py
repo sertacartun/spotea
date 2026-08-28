@@ -582,7 +582,7 @@ def test_another_users_swap_is_not_visible(client, db_session):
     from app.auth import hash_password
     from app.models import User
 
-    other = User(email="other@example.com", password_hash=hash_password("x"))
+    other = User(username="other", password_hash=hash_password("x"))
     db_session.add(other)
     db_session.commit()
     db_session.add(SwappedVideo(user_id=other.id, video_id="bbbbbbbbbbb", content_id=row.id))
