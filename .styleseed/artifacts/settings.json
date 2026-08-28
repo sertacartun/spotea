@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "id": "settings",
+  "target": {
+    "kind": "component",
+    "locator": "app/templates/index.html"
+  },
+  "selection": {
+    "grammar": "consumer-service",
+    "adapter": null,
+    "domain": null,
+    "page": "settings",
+    "recipe": null,
+    "palette": null,
+    "profile": null,
+    "fallback": "consumer-service"
+  },
+  "decisions": {
+    "primaryDecision": "Settings holds account, refresh interval, interests and storage: infrequent, consequential controls.",
+    "primaryAction": "Change one setting and see it take effect.",
+    "signatureMove": "Grouped rows with destructive and storage-clearing actions visually separated from preferences."
+  },
+  "implementation": {
+    "sourceRoots": [
+      "app/templates",
+      "app/static/css",
+      "app/static/js"
+    ],
+    "tokenFiles": [
+      "app/static/css/style.css"
+    ]
+  },
+  "validation": {
+    "scoreFloor": 80,
+    "requiredRenders": [
+      {
+        "id": "mobile-loaded",
+        "state": "loaded",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        }
+      },
+      {
+        "id": "desktop-loaded",
+        "state": "loaded",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    ],
+    "temporal": {
+      "required": false,
+      "scenarios": []
+    },
+    "humanAcceptance": true
+  }
+}

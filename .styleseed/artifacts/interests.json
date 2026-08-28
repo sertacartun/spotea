@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "id": "interests",
+  "target": {
+    "kind": "component",
+    "locator": "app/templates/_interest_picker.html"
+  },
+  "selection": {
+    "grammar": "consumer-service",
+    "adapter": null,
+    "domain": null,
+    "page": "onboarding",
+    "recipe": null,
+    "palette": null,
+    "profile": null,
+    "fallback": "consumer-service"
+  },
+  "decisions": {
+    "primaryDecision": "A brand-new library asks what the user listens to instead of showing an empty Explore.",
+    "primaryAction": "Pick interests and continue.",
+    "signatureMove": "Selection count reads as progress, so the user knows when enough is enough."
+  },
+  "implementation": {
+    "sourceRoots": [
+      "app/templates",
+      "app/static/css",
+      "app/static/js"
+    ],
+    "tokenFiles": [
+      "app/static/css/style.css"
+    ]
+  },
+  "validation": {
+    "scoreFloor": 80,
+    "requiredRenders": [
+      {
+        "id": "mobile-loaded",
+        "state": "loaded",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        }
+      },
+      {
+        "id": "mobile-empty",
+        "state": "empty",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        }
+      },
+      {
+        "id": "desktop-loaded",
+        "state": "loaded",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    ],
+    "temporal": {
+      "required": false,
+      "scenarios": []
+    },
+    "humanAcceptance": true
+  }
+}

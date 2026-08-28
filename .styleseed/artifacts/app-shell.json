@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "id": "app-shell",
+  "target": {
+    "kind": "component",
+    "locator": "app/templates/index.html"
+  },
+  "selection": {
+    "grammar": "consumer-service",
+    "adapter": null,
+    "domain": null,
+    "page": "none",
+    "recipe": null,
+    "palette": null,
+    "profile": null,
+    "fallback": "consumer-service"
+  },
+  "decisions": {
+    "primaryDecision": "Tab bar and mini player are the only always-present chrome; they must never cover the last row of content.",
+    "primaryAction": "Switch tabs, or expand the mini player.",
+    "signatureMove": "Mini player docks directly above the tab bar as one chrome block, respecting iOS safe-area insets."
+  },
+  "implementation": {
+    "sourceRoots": [
+      "app/templates",
+      "app/static/css",
+      "app/static/js"
+    ],
+    "tokenFiles": [
+      "app/static/css/style.css"
+    ]
+  },
+  "validation": {
+    "scoreFloor": 80,
+    "requiredRenders": [
+      {
+        "id": "mobile-loaded",
+        "state": "loaded",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        }
+      },
+      {
+        "id": "desktop-loaded",
+        "state": "loaded",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    ],
+    "temporal": {
+      "required": true,
+      "scenarios": []
+    },
+    "humanAcceptance": true
+  }
+}

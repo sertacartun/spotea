@@ -234,6 +234,13 @@
 
     <section id="tab-settings" class="tab-panel" data-tab-panel="settings" hidden>
       <div class="channels-panel-inner">
+        {# Three groups, not one. Every row used to sit under a single
+           "Account" heading, which put a preference select and a button that
+           clears your history next to each other with nothing to tell them
+           apart, and left the last row orphaned outside the group by an
+           unbalanced </section>. Preferences are together, the two rows that
+           spend or erase something are together, and the destructive one is
+           last. #}
         <section class="settings-group">
           <h2>Account · <span class="settings-group-who">{{ account_email }}</span></h2>
 
@@ -244,14 +251,43 @@
             </div>
             <button type="button" id="open-interests" class="btn-quiet">Manage interests</button>
           </div>
+        </section>
+
+        <section class="settings-group">
+          <h2>Playback</h2>
 
           <div class="settings-row">
             <div class="settings-row-info">
-              <span class="settings-row-label">Recently played</span>
-              <span class="settings-row-desc">Clears your "Recently played" shelf on Home. Doesn't remove any downloads.</span>
+              <span class="settings-row-label">Download quality</span>
+              <span class="settings-row-desc">Applies to new downloads only — files you already have keep their current quality.</span>
             </div>
-            <button type="button" id="clear-recently-played" class="btn-quiet">Clear</button>
+            <select id="audio-quality-select" class="settings-select" aria-label="Download quality">
+              <option value="high" {{ 'selected' if audio_quality == 'high' }}>High quality</option>
+              <option value="low" {{ 'selected' if audio_quality == 'low' }}>Data saver</option>
+            </select>
           </div>
+
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <span class="settings-row-label">Check for new releases</span>
+              {# A floor, not a clock. Nothing runs in the background waiting
+                 for this to elapse any more (see services/refresh.py) — the
+                 check happens when you open the app, and this is how long it
+                 waits before bothering to look again. The Refresh button
+                 ignores it entirely, which is what that button is for. #}
+              <span class="settings-row-desc">Followed artists are checked when you open the app, at most this often. Refresh checks straight away.</span>
+            </div>
+            <select id="refresh-interval-select" class="settings-select" aria-label="Check for new releases">
+              <option value="15" {{ 'selected' if refresh_interval_minutes == 15 }}>At most every 15 minutes</option>
+              <option value="30" {{ 'selected' if refresh_interval_minutes == 30 }}>At most every 30 minutes</option>
+              <option value="60" {{ 'selected' if refresh_interval_minutes == 60 }}>At most hourly</option>
+              <option value="120" {{ 'selected' if refresh_interval_minutes == 120 }}>At most every 2 hours</option>
+            </select>
+          </div>
+        </section>
+
+        <section class="settings-group">
+          <h2>Storage and data</h2>
 
           <div class="settings-row">
             <div class="settings-row-info">
@@ -294,33 +330,10 @@
 
           <div class="settings-row">
             <div class="settings-row-info">
-              <span class="settings-row-label">Download quality</span>
-              <span class="settings-row-desc">Applies to new downloads only — files you already have keep their current quality.</span>
+              <span class="settings-row-label">Recently played</span>
+              <span class="settings-row-desc">Clears your "Recently played" shelf on Home. Doesn't remove any downloads.</span>
             </div>
-            <select id="audio-quality-select" class="settings-select" aria-label="Download quality">
-              <option value="high" {{ 'selected' if audio_quality == 'high' }}>High quality</option>
-              <option value="low" {{ 'selected' if audio_quality == 'low' }}>Data saver</option>
-            </select>
-          </div>
-
-        </section>
-
-          <div class="settings-row">
-            <div class="settings-row-info">
-              <span class="settings-row-label">Check for new releases</span>
-              {# A floor, not a clock. Nothing runs in the background waiting
-                 for this to elapse any more (see services/refresh.py) — the
-                 check happens when you open the app, and this is how long it
-                 waits before bothering to look again. The Refresh button
-                 ignores it entirely, which is what that button is for. #}
-              <span class="settings-row-desc">Followed artists are checked when you open the app, at most this often. Refresh checks straight away.</span>
-            </div>
-            <select id="refresh-interval-select" class="settings-select" aria-label="Check for new releases">
-              <option value="15" {{ 'selected' if refresh_interval_minutes == 15 }}>At most every 15 minutes</option>
-              <option value="30" {{ 'selected' if refresh_interval_minutes == 30 }}>At most every 30 minutes</option>
-              <option value="60" {{ 'selected' if refresh_interval_minutes == 60 }}>At most hourly</option>
-              <option value="120" {{ 'selected' if refresh_interval_minutes == 120 }}>At most every 2 hours</option>
-            </select>
+            <button type="button" id="clear-recently-played" class="btn-danger">Clear</button>
           </div>
         </section>
       </div>
@@ -408,7 +421,7 @@
         <button type="button" id="playlist-picker-close" class="modal-close" aria-label="Close">×</button>
       </div>
 
-      <p class="muted playlist-picker-track" id="playlist-picker-track"></p>
+      <p class="playlist-picker-track" id="playlist-picker-track"></p>
       <ul class="playlist-picker-list" id="playlist-picker-list"></ul>
       <button type="button" class="btn-quiet playlist-picker-new" id="playlist-picker-new">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-plus" /></svg>

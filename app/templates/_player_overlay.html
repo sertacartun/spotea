@@ -6,6 +6,12 @@
      is actually opened (see home/overlay.js's openPlayer), which fills it
      in client-side. -->
 <div id="player-overlay" class="player-overlay" hidden>
+  <!-- The backdrop already had a fixed glow at the top of the screen; this
+       makes it come from the record instead. Same field, same clamp and same
+       two-layer cross-fade as Home's and the detail panel's, so the three
+       cover-led surfaces are lit one way rather than three. The static
+       gradient underneath stays as the answer for no artwork and no JS. -->
+  <div class="ambient-field player-overlay-ambient" aria-hidden="true"></div>
   <div class="player-card" id="player-root" data-content-id="" data-status="" data-stream="">
     <!-- Everything except the panel, grouped so the two can sit side by side
          on a wide screen. `display: contents` below that breakpoint (see
@@ -20,7 +26,7 @@
       </button>
 
       <div class="player-art">
-        <img id="player-art-img" alt="" hidden />
+        <img id="player-art-img" data-ambient-source alt="" hidden />
       </div>
 
       <!-- The artist line is a button, not a label: it is the one place in

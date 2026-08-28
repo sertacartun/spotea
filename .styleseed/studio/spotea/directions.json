@@ -1,0 +1,70 @@
+{
+  "directions": [
+    {
+      "id": "steady-shelf",
+      "lane": "native",
+      "name": "Steady Shelf",
+      "promise": "The Spotea you already know, but Home finally leads with one thing to play instead of five equal rows.",
+      "grammar": "consumer-service",
+      "recipe": "native-mobile",
+      "palette": "nocturne-violet",
+      "composition": "Information pyramid the dashboard rules ask for: a single continue-listening hero at the top carrying cover, title and resume position, then deliberately varied shelves beneath it - new releases as a wide two-up row, artists as a compact circular chip row, for-you as the standard cover row. No two consecutive sections share a height or a card shape.",
+      "navigationChrome": "Unchanged in structure: bottom tab bar with the mini player docked above it as one opaque chrome block, content canvas scrolling underneath with padding computed from the combined block height plus the iOS safe-area inset.",
+      "typeAndMaterial": "System sans at comfortable density, tonal separation instead of borders, near-black canvas with violet primary reserved for the single play action, square covers at soft radius against circular artist avatars so the two kinds never blur.",
+      "assetDirection": "No generated media at all. Real cover art is the entire imagery language; the only new graphic is the resume-position edge drawn on the hero cover.",
+      "motionDirection": "Spring restrained, one duration family. The whole motion budget goes to one move: the mini player growing into the full overlay. Shelves do not animate in.",
+      "signatureMove": "The continue hero draws the exact resume position as a filled edge along the bottom of the cover art itself, so where you stopped is visible before any text is read.",
+      "tradeoffs": [
+        "Least visually distinctive of the three - a stranger would not call it a redesign",
+        "Keeps the horizontal-scroller pattern, which hides content below the fold on desktop",
+        "Lowest chance of disturbing the iOS playback behaviour that took days to stabilise"
+      ],
+      "cost": "low",
+      "risk": "low"
+    },
+    {
+      "id": "cover-as-canvas",
+      "lane": "signature",
+      "name": "Cover as Canvas",
+      "promise": "The record you are playing colours the room: Home takes its ambient tone from the current cover while every control stays exactly where it was.",
+      "grammar": "consumer-service",
+      "recipe": "native-mobile",
+      "palette": "nocturne-violet",
+      "composition": "Full-bleed cover-led hero occupying the top third, its artwork blurred and extended into an ambient field behind the chrome; the shelves sit below on the flat near-black canvas so the tinted zone never competes with the list content. One focal point: the play control over the hero.",
+      "navigationChrome": "The tab bar and mini player become translucent while the tinted hero is in view and turn fully opaque the moment it scrolls past, so chrome contrast is never left to chance over arbitrary artwork.",
+      "typeAndMaterial": "Same type and density as the native lane; the difference is material. Surfaces gain a per-track tint sampled from the cover, clamped in OKLCH so foreground text and the violet primary never drop below their measured contrast floor. Violet primary stays constant across every track so the primary action remains identifiable.",
+      "assetDirection": "Still no generated imagery. The ambient field is derived at runtime from the real cover already loaded, so it costs no extra request and cannot depict anything the product does not own.",
+      "motionDirection": "Continuity-led. The ambient tint cross-fades over roughly 400ms on track change, and expanding the mini player scales its artwork into the overlay hero rather than cutting to a new screen. Reduced motion drops both to an instant swap with no tint animation.",
+      "signatureMove": "A per-track ambient tint that is contrast-clamped rather than decorative: the colour changes with the music, the legibility does not.",
+      "tradeoffs": [
+        "The clamping has to be real maths, not a fixed opacity overlay, or dark covers will wash the chrome out",
+        "Adds a per-track colour extraction step that must not delay first paint",
+        "Desktop gets a large tinted band that earns less than it does on a phone"
+      ],
+      "cost": "medium",
+      "risk": "medium"
+    },
+    {
+      "id": "tonight",
+      "lane": "experimental",
+      "name": "Tonight",
+      "promise": "Home stops being a store front and becomes one sentence about your listening, with the few things worth doing about it.",
+      "grammar": "consumer-service",
+      "recipe": "calm-consumer",
+      "palette": "deep-lime-studio",
+      "composition": "Text-led briefing, not a feed. A short plain-language heading naming the moment and the real state, then one dominant decision block, then a compact vertical list of alternatives, and at most one horizontal shelf at the bottom. Most scrollers are removed rather than restyled.",
+      "navigationChrome": "Chrome recedes further than in the other lanes: the tab bar loses its labels once a track is playing and merges with the mini player into a single bottom control block, giving the briefing the full canvas.",
+      "typeAndMaterial": "Typography carries the design. A real display step for the briefing sentence over a much quieter body, grouped rows instead of cards, lime reserved strictly for the one decision and blue for progress, on the near-black studio canvas.",
+      "assetDirection": "Generated ambient texture is allowed here and only here, as a labelled backdrop behind the briefing block. It never carries text, state or an interaction target, and cover art remains the only imagery that means anything.",
+      "motionDirection": "Snap and restrained: decisions commit immediately, the briefing sentence does not animate in, and the only continuity spend is again the mini-to-full player transition.",
+      "signatureMove": "The briefing sentence is itself the navigation - the counts inside it (new releases, songs on this device) are the tap targets, so reading the state and acting on it are the same gesture.",
+      "tradeoffs": [
+        "Biggest departure: the shelf muscle memory built up over the whole project goes away",
+        "Requires real copy generation from live state, so an empty or offline library needs a genuinely good sentence too",
+        "Highest implementation cost and the only lane that changes the brand recipe as well as the palette"
+      ],
+      "cost": "high",
+      "risk": "high"
+    }
+  ]
+}

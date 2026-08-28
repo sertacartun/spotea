@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "id": "detail",
+  "target": {
+    "kind": "component",
+    "locator": "app/templates/_detail_panel.html"
+  },
+  "selection": {
+    "grammar": "consumer-service",
+    "adapter": null,
+    "domain": null,
+    "page": "detail",
+    "recipe": null,
+    "palette": null,
+    "profile": null,
+    "fallback": "consumer-service"
+  },
+  "decisions": {
+    "primaryDecision": "One detail surface serves artist, album, single and playlist rather than parallel pages.",
+    "primaryAction": "Play the collection, or follow the artist.",
+    "signatureMove": "A cover-led hero whose dominant action stays fixed while the track list scrolls under it."
+  },
+  "implementation": {
+    "sourceRoots": [
+      "app/templates",
+      "app/static/css",
+      "app/static/js"
+    ],
+    "tokenFiles": [
+      "app/static/css/style.css"
+    ]
+  },
+  "validation": {
+    "scoreFloor": 80,
+    "requiredRenders": [
+      {
+        "id": "mobile-loaded",
+        "state": "loaded",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        }
+      },
+      {
+        "id": "desktop-loaded",
+        "state": "loaded",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    ],
+    "temporal": {
+      "required": false,
+      "scenarios": []
+    },
+    "humanAcceptance": true
+  }
+}

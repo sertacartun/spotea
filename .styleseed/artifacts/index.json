@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "artifacts": [
+    {
+      "id": "home",
+      "config": "home.json"
+    },
+    {
+      "id": "library",
+      "config": "library.json"
+    },
+    {
+      "id": "explore",
+      "config": "explore.json"
+    },
+    {
+      "id": "detail",
+      "config": "detail.json"
+    },
+    {
+      "id": "settings",
+      "config": "settings.json"
+    },
+    {
+      "id": "player-overlay",
+      "config": "player-overlay.json"
+    },
+    {
+      "id": "app-shell",
+      "config": "app-shell.json"
+    },
+    {
+      "id": "downloads",
+      "config": "downloads.json"
+    },
+    {
+      "id": "interests",
+      "config": "interests.json"
+    },
+    {
+      "id": "playlist-picker",
+      "config": "playlist-picker.json"
+    },
+    {
+      "id": "refresh-progress",
+      "config": "refresh-progress.json"
+    },
+    {
+      "id": "auth",
+      "config": "auth.json"
+    }
+  ]
+}

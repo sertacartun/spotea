@@ -98,6 +98,13 @@
           <span class="channel-card-count">Make your own list</span>
         </span>
       </button>
+      {% if artists %}
+      {# Everything above is a place; everything below is someone you follow.
+         They are the same card shape on purpose — one grid, one rhythm — so
+         this heading is what keeps them from reading as one undifferentiated
+         list. #}
+      <h2 class="channel-grid-heading">Artists you follow</h2>
+      {% endif %}
       {% for artist in artists %}{# the only part of this grid that needs one #}
       {% set video_count = artist_track_counts.get(artist.id, 0) %}
       {% set release_count = artist_release_counts.get(artist.id, 0) %}

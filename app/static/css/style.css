@@ -13,65 +13,90 @@
   --black: #000;
   --white: #fff;
 
-  /* Surfaces (backgrounds), darkest to lightest */
-  --bg-page: #121212;
-  --bg-page-glow: #1f1f1f; /* radial-gradient center on the in-page player overlay's backdrop */
-  --bg-sunken: #181818; /* channel card */
-  --bg-base: #1a1a1a; /* content cards, chips, list rows */
-  --bg-raised: #1e1e1e; /* login card, search results, summary panels */
-  --bg-elevated: #232323; /* modals, hover states */
-  --bg-input: #2a2a2a; /* form inputs, avatar/thumbnail placeholders */
-  --bg-toast: #2f2f2f;
-  --bg-hover-strong: #3a3a3a;
+  /* Surfaces (backgrounds), darkest to lightest. Values come from the
+     StyleSeed nocturne-violet palette recipe with a key-color generation of
+     #A48AF1 (dark, deep, cool) — see .styleseed/palette.css. The names are
+     unchanged on purpose: every rule below already reads its color from one
+     of these, so re-pointing the values re-skins the whole app in one place
+     instead of editing 4,600 lines. */
+  --bg-page: #020407;
+  --bg-page-glow: #0f141b; /* radial-gradient center on the in-page player overlay's backdrop */
+  --bg-sunken: #06090c; /* channel card */
+  --bg-base: #0a0d0f; /* content cards, chips, list rows */
+  --bg-raised: #0e1216; /* login card, search results, summary panels */
+  --bg-elevated: #131a21; /* modals, hover states */
+  --bg-input: #182029; /* form inputs, avatar/thumbnail placeholders */
+  --bg-toast: #1c242e;
+  --bg-hover-strong: #232c37;
+
+  /* The ambient field. Set per track by home/ambient.js from the cover art
+     currently in the hero, and deliberately defaulted to the page color so
+     every surface still renders correctly with JS off, with no cover, or
+     before the first sample lands. Only the tint changes with the music —
+     no text or control color is derived from artwork.
+
+     Stored as bare `R G B` channels rather than a hex so the gradients can
+     fade a tint to `rgb(... / 0)`. Fading to the `transparent` keyword
+     instead interpolates through transparent *black*, which prints a dirty
+     band across the middle of the wash on exactly the light covers this
+     treatment is meant to handle. */
+  --ambient-tint: 15 20 27;
+  --ambient-tint-soft: 9 13 18;
 
   /* Borders */
-  --border-subtle: #222;
-  --border-default: #333;
-  --border-strong: #666; /* ghost/icon button hover */
+  --border-subtle: #1a2129;
+  --border-default: #303942;
+  --border-strong: #4a5560; /* ghost/icon button hover */
+  /* Interactive boundaries only. --border-default is a hairline between
+     regions, where a low ratio is correct and a louder one would make every
+     divider shout; but the same value on a button or input outline measured
+     1.75:1 against the page, so controls whose only edge is a border were
+     not visibly controls at all. This one measures 4.42:1 on --bg-page,
+     4.20:1 on --bg-base and 3.78:1 on --bg-elevated, clearing the 3:1 a UI
+     component boundary needs on every surface it appears over. */
+  --border-control: #697684;
 
-  /* Text — roughly high to low emphasis. text-muted/text-subtle/text-faint
-     used to be near-duplicate grays that had drifted in separately over
-     time rather than forming a deliberate scale; they're merged into one
-     (#8e8e8e — 5.72:1 on --bg-page, 4.80:1 on --bg-elevated, clearing WCAG
-     AA's 4.5:1 for normal text with margin on both) since the old
-     --text-subtle (#777, 4.18:1) failed AA at the small sizes it was used
-     at. --text-faint-alt is a separate, brighter gray (#a7a7a7) not part of
-     this drift, so it's left alone. */
-  --text-primary: #f5f5f5;
-  --text-secondary: #b3b3b3;
-  --text-hover: #ccc; /* tab label hover, between secondary and bright */
-  --text-muted: #8e8e8e;
-  --text-faint-alt: #a7a7a7;
-  --text-disabled: #444;
+  /* Text — roughly high to low emphasis. Measured against --bg-page and, for
+     the ones that appear on panels, against --bg-elevated; the lowest of the
+     set (--text-muted on --bg-hover-strong) is 5.69:1, so every step clears
+     WCAG AA's 4.5:1 for normal text on every surface above. */
+  --text-primary: #eff2f6; /* 18.28:1 on --bg-page */
+  --text-secondary: #c2c7cd; /* 12.07:1 */
+  --text-hover: #dde1e6; /* tab label hover, between secondary and bright */
+  --text-muted: #a0a5aa; /* 8.27:1 */
+  --text-faint-alt: #b4b9bf;
+  --text-disabled: #4a5058;
 
-  /* Accent (red). --accent-hover lifts rather than deepens, matching how
-     the orange it replaced behaved — a hover that darkens reads as the
-     control switching off on a #121212 page. It stops at a lightness that
-     still reads red; going lighter turns pink. */
-  --accent: #ff4343;
-  --accent-hover: #ff6161;
-  --accent-tint: rgba(255, 67, 67, 0.08);
+  /* Accent. Violet is the palette's primary role: it marks the one action a
+     screen is asking for, and nothing else. --accent-hover lifts rather than
+     deepens, matching how the color it replaced behaved — a hover that
+     darkens reads as the control switching off on a near-black page. */
+  --accent: #a48af1; /* 7.32:1 on --bg-page */
+  --accent-hover: #c1b0ff;
+  --accent-tint: rgba(164, 138, 241, 0.1);
 
   /* Danger / destructive actions */
-  --danger: #f15e6c;
-  --danger-hover: #ff7482;
+  --danger: #ff968a;
+  --danger-hover: #ffb3aa;
 
-  /* Pinned "Favorites" tile */
-  --favorite: #e0245e;
+  /* The library tiles used to carry five different fills, one per kind. That
+     read as rainbow categories — destinations coloured as if they were
+     statuses — so the four navigational ones now share a neutral fill and are
+     told apart by their glyph, and only the two colours below survived,
+     because both of them mean something.
 
-  /* Pinned "New Uploads" / "Recently Played" tiles */
-  --new-upload: #3b82f6;
-  --recently-played: #8b5cf6;
-  /* The hand-made lists' tile badge — see _library_grid.html. Green so it
-     reads as a fourth kind rather than a variation on one of the three. */
-  --user-playlist: #16a34a;
-  /* The "Downloads" tile: what this device itself is holding. Amber because
-     it is the one tile that still means something with no connection, and
-     the offline banner it belongs with is the same warm end of the palette. */
-  --on-device: #d97706;
+     --on-device: what this device itself is holding. It is the one tile that
+     still means anything with no connection, and it is the same warm colour
+     as the offline banner it belongs with. White-on-fill measures 5.08:1,
+     where the amber it replaced managed 3.19:1.
+     The "new list" tile keeps a colour too, but it takes --accent rather than
+     one of its own: it is the only *action* on this screen, as against five
+     destinations, and the accent is what an action is drawn in here. That
+     also gives Library the one identifiable primary action it was missing. */
+  --on-device: #9a6212;
 
   /* Seek/volume slider's unfilled track */
-  --track-empty: #4d4d4d;
+  --track-empty: #303942;
 
   /* Type scale. The colors above were tokenized long before this block
      existed, and the gap showed: an audit of this file found 20 distinct
@@ -112,7 +137,8 @@
 
 /* Keyboard focus. Every focusable element used to fall through to the UA
    default, which Chromium resolves to `outline: auto 1px rgb(16, 16, 16)` —
-   a near-black ring on a #121212 page, about 1.02:1 against it, i.e. no
+   a near-black ring on a near-black page, about 1.05:1 against the
+   current --bg-page, i.e. no
    visible focus anywhere in the app. The accent is used rather than white
    because the mini player's play button is itself white and swallowed a
    white ring. */
@@ -280,7 +306,7 @@ select {
 .login-card input {
   padding: 0.6rem 0.75rem;
   border-radius: 6px;
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-control);
   background: var(--bg-input);
   color: var(--text-primary);
   font-size: 1rem;
@@ -313,20 +339,26 @@ select {
   margin: 0 0 1rem;
 }
 
+/* Secondary navigation, not a second action. This line used to be drawn in
+   the accent, which put two elements of the same colour on a card whose whole
+   job is one decision — the filled button and a full sentence of link text
+   competing for it. The sentence is now ordinary secondary text and only the
+   word you can act on is underlined. */
 .login-alt-action {
-  text-align: center;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
   margin: 1rem 0 0;
+  text-align: center;
+  font-size: var(--text-md);
+  color: var(--text-secondary);
 }
 
 .login-alt-action a {
-  color: var(--accent);
-  text-decoration: none;
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .login-alt-action a:hover {
-  text-decoration: underline;
+  color: var(--text-primary);
 }
 
 /* App shell */
@@ -570,6 +602,29 @@ select {
   top: 0;
   z-index: 20;
   background: var(--bg-page);
+}
+
+/* Home's hero runs under this bar. While the top of the wash is still behind
+   it, the bar carries no fill and no rule, so the light appears to come from
+   one place instead of being cut off by a band across the top of the screen;
+   the moment the hero's top edge passes it, the fill comes back and the logo
+   is over an ordinary page again. home/ambient.js owns data-hero-lit.
+
+   Scoped to Home on purpose. The same element is the tab strip at wider
+   widths and on every other panel, and it has to stay opaque there. */
+html[data-active-tab="home"][data-hero-lit] .app-header-sticky {
+  background: transparent;
+}
+
+html[data-active-tab="home"][data-hero-lit] .app-header-sticky .topbar {
+  border-bottom-color: transparent;
+}
+
+/* Short enough that the bar is never caught looking half-applied, long
+   enough that the fill does not appear as a snap while the page is already
+   moving under it. Only the fill is eased; nothing about the bar moves. */
+.app-header-sticky {
+  transition: background 200ms ease;
 }
 
 .tabs {
@@ -889,7 +944,7 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   flex-shrink: 0;
   white-space: nowrap;
   background: var(--bg-input);
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-control);
   border-radius: 6px;
   /* .btn-quiet's own resting color (--text-secondary) is meant for a
      borderless, blend-into-the-background label — wrong once this variant
@@ -916,7 +971,7 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   flex-shrink: 0;
   background: var(--bg-input);
   color: var(--text-primary);
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-control);
   border-radius: 6px;
   padding: 0.45rem 0.7rem;
   font-size: 0.85rem;
@@ -971,7 +1026,7 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
 .library-search-input {
   padding: 0.5rem 0.6rem;
   border-radius: 6px;
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-control);
   background: var(--bg-input);
   color: var(--text-primary);
   /* 16px, not smaller — iOS Safari auto-zooms the page on focus for any
@@ -1182,11 +1237,6 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
      heading on the page now that "For you" is gone, and it read glued to
      the search box at that gap. */
   margin-top: 1.75rem;
-}
-
-#recommendations-body .shelf-title {
-  font-size: 0.95rem;
-  color: var(--text-secondary);
 }
 
 /* A recommended song/playlist card carries no content id, so there's no save
@@ -1478,6 +1528,216 @@ button.track-link {
   border-radius: var(--radius-pill);
 }
 
+/* ---------- Home hero -------------------------------------------------- */
+/* Cover as Canvas. One focal point at the top of Home, lit by the artwork of
+   the track you were last on. Markup in _home_shelves.html, colour in
+   home/ambient.js.
+
+   The rest of Home is shelves, and shelves are deliberately flat and quiet:
+   the wash stops here so the tinted zone never competes with the lists. */
+
+.home-hero {
+  position: relative;
+  /* Cancels .layout's 1rem padding so the wash reaches both screen edges. A
+     wash that stops short reads as a card, and every other block on this
+     page is already a card. */
+  margin: -1rem -1rem var(--space-4);
+  padding: var(--space-5) 1rem var(--space-5);
+}
+
+/* Two stacked layers rather than one. A custom property holding the tint
+   cannot be transitioned without registering it via @property, and a
+   `background` transition does not interpolate gradients at all — so the
+   cross-fade on track change is done the way it actually works: the incoming
+   tint is written to whichever layer is currently invisible, then the two
+   swap opacity. ambient.js owns the data-live attribute. */
+/* Deliberately larger than the hero it belongs to, and with no clipping: the
+   light has to start above the sticky header (which goes transparent for
+   exactly this) and finish its falloff below the hero, or the wash ends on a
+   straight horizontal edge and reads as a panel rather than as light.
+
+   z-index 0 and not -1. body carries an opaque background, and a negative
+   z-index paints in the root stacking context *before* the in-flow block
+   backgrounds above it — so the whole wash rendered underneath body and was
+   invisible on screen while being perfectly correct in the DOM. The hero's
+   own content is lifted to 1 instead.
+
+   No `isolation` on .home-hero for a related reason: an isolated stacking
+   context would trap this layer inside the hero box and it could never reach
+   up behind the header. */
+.home-hero-ambient {
+  position: absolute;
+  top: -132px;
+  bottom: -64px;
+  /* Viewport-wide, not column-wide. .layout caps its children at 1100px, and
+     a wash that stops at that cap draws two hard vertical edges down a wide
+     screen — which is the panel look this whole treatment exists to avoid.
+     html already hides horizontal overflow, so 100vw including the scrollbar
+     gutter costs nothing. */
+  left: 50%;
+  width: 100vw;
+  transform: translateX(-50%);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.home-hero-cover,
+.home-hero-row {
+  position: relative;
+  z-index: 1;
+}
+
+.ambient-field::before,
+.ambient-field::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transition: opacity 420ms ease;
+}
+
+.ambient-field::before {
+  background:
+    radial-gradient(118% 90% at 16% 6%, rgb(var(--tint-a, var(--ambient-tint)) / 0.95) 0%, rgb(var(--tint-a, var(--ambient-tint)) / 0) 68%),
+    radial-gradient(92% 72% at 94% 0%, rgb(var(--tint-a-soft, var(--ambient-tint-soft)) / 0.85) 0%, rgb(var(--tint-a-soft, var(--ambient-tint-soft)) / 0) 74%);
+}
+
+.ambient-field::after {
+  background:
+    radial-gradient(118% 90% at 16% 6%, rgb(var(--tint-b, var(--ambient-tint)) / 0.95) 0%, rgb(var(--tint-b, var(--ambient-tint)) / 0) 68%),
+    radial-gradient(92% 72% at 94% 0%, rgb(var(--tint-b-soft, var(--ambient-tint-soft)) / 0.85) 0%, rgb(var(--tint-b-soft, var(--ambient-tint-soft)) / 0) 74%);
+}
+
+.ambient-field[data-live="a"]::after,
+.ambient-field[data-live="b"]::before {
+  opacity: 0;
+}
+
+.home-hero-cover {
+  width: min(58vw, 232px);
+  aspect-ratio: 1;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: var(--space-4);
+  background: var(--bg-input);
+  /* The one shadow on this page. Tone is the separator everywhere else, but
+     tone cannot separate the cover from a wash the cover itself produced. */
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+}
+
+.home-hero-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.home-hero-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.home-hero-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.home-hero-kicker {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  /* --text-secondary rather than --text-muted: this line sits on the brightest
+     part of the wash, where muted drops to about 4.2:1 and misses AA. */
+  color: var(--text-secondary);
+}
+
+.home-hero-title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  line-height: 1.25;
+  /* Two lines then ellipsis. The shelf cards clip at one line and break
+     mid-word, which reads as a bug at this size. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.home-hero-artist {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Same geometry and colour pairing as the player's main play button, so the
+   two read as one control rather than two similar circles. */
+.home-hero-play {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-circle);
+  background: var(--accent);
+  color: var(--black);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+
+.home-hero-play:hover {
+  background: var(--accent-hover);
+}
+
+.home-hero-play svg {
+  width: 26px;
+  height: 26px;
+}
+
+/* Above the phone breakpoint the cover sits beside the text instead of over
+   it — the wash has width to fill up here, and a 132px block stranded above
+   a short title leaves a hole in the middle of the page. */
+@media (min-width: 700px) {
+  .home-hero {
+    display: flex;
+    align-items: center;
+    gap: var(--space-5);
+    padding: var(--space-6) 1rem;
+  }
+
+  .home-hero-cover {
+    width: 200px;
+    margin-bottom: 0;
+  }
+
+  .home-hero-row {
+    flex: 1;
+    min-width: 0;
+    /* Capped so the play button stays beside the title it plays. Letting the
+       row run the full column width parked it against the right edge, half a
+       screen away from the thing it acts on, and the hero lost its focal
+       point to the gap. */
+    max-width: 620px;
+  }
+
+  .home-hero-title {
+    font-size: var(--text-3xl);
+  }
+}
+
+/* Reduced motion keeps the tint — it is information about what is playing,
+   not decoration — and drops only the cross-fade between two of them. */
+@media (prefers-reduced-motion: reduce) {
+  .ambient-field::before,
+  .ambient-field::after {
+    transition: none;
+  }
+}
+
 .shelf {
   margin-bottom: 1.75rem;
 }
@@ -1490,9 +1750,14 @@ button.track-link {
   margin: 0 0 0.75rem;
 }
 
+/* One treatment for every shelf heading, on the type scale. Explore's shelves
+   used to be demoted to 0.95rem/--text-secondary by a #recommendations-body
+   override while Home's stayed 1.1rem/--text-primary, so the same class and
+   the same role rendered two different ways depending on which tab you were
+   on. The 1.1rem was off the scale as well. */
 .shelf-title {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: var(--text-xl);
 }
 
 .shelf-see-more {
@@ -1551,6 +1816,25 @@ button.track-link {
   pointer-events: none;
 }
 
+/* Deliberate variation between shelves. Rendered at one width, Home read as
+   four copies of the same block and Explore as five — the repeated-identical-
+   section pattern the page rules call out by name, and the thing that made
+   both screens feel like a list of lists rather than a page.
+
+   The first content shelf on a panel is the one worth the extra room, so it
+   takes it and everything below stays standard. The peek that tells you the
+   row scrolls is preserved: at 224px one card and most of a second still fit
+   inside the 358px a phone leaves. */
+.shelf--lead .shelf-row > .card {
+  flex-basis: 224px;
+}
+
+@media (min-width: 480px) {
+  .shelf--lead .shelf-row > .card {
+    flex-basis: 280px;
+  }
+}
+
 @media (min-width: 480px) {
   .shelf-row {
     gap: 1rem;
@@ -1578,7 +1862,7 @@ button.track-link {
   align-items: center;
   gap: 0.55rem;
   background: var(--bg-base);
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-control);
   color: var(--text-primary);
   border-radius: 6px;
   padding: 0.5rem 1rem;
@@ -1735,6 +2019,21 @@ button.track-link {
   gap: 0.6rem;
 }
 
+/* Splits the grid into its two real kinds: the fixed places at the top, then
+   the artists you chose to follow. Without it Library is one undifferentiated
+   column where a destination and an artist are the same object, and the
+   screen has no hierarchy at all. Spans every column so the grid does not try
+   to seat it beside a card. */
+.channel-grid-heading {
+  grid-column: 1 / -1;
+  margin: var(--space-4) 0 var(--space-1);
+  font-size: var(--text-xl);
+}
+
+.channel-grid-heading:first-child {
+  margin-top: 0;
+}
+
 @media (min-width: 420px) {
   .channel-grid {
     /* auto-fit, not auto-fill: with fewer cards than fit the row (the
@@ -1804,20 +2103,22 @@ button.track-link {
   color: var(--white);
 }
 
-.channel-card-icon.is-favorites {
-  background: var(--favorite);
-}
+/* One fill for every pinned tile, and the glyph tells them apart.
+   These four are destinations, not statuses — "Favorites", "Recently played"
+   and "New releases" are places you go, and colouring each one differently
+   put five hues in a single vertical stack, which is the rainbow-categories
+   pattern this grammar rejects outright. Neutral also stops any tile from
+   reading as the accent and competing with a real primary action.
 
-.channel-card-icon.is-new-uploads {
-  background: var(--new-upload);
-}
-
-.channel-card-icon.is-recently-played {
-  background: var(--recently-played);
-}
-
+   Downloads is the deliberate exception below: what this device is holding
+   is genuine state rather than a category, it is the only tile that still
+   means anything with no connection, and it is already the same warm colour
+   as the offline banner it belongs with. */
+.channel-card-icon.is-favorites,
+.channel-card-icon.is-new-uploads,
+.channel-card-icon.is-recently-played,
 .channel-card-icon.is-user-playlist {
-  background: var(--user-playlist);
+  background: var(--bg-hover-strong);
 }
 
 /* A <button> in a grid of <a>s: it needs the anchors' box back, since a
@@ -1834,11 +2135,11 @@ button.track-link {
 .channel-card.is-new-playlist .channel-card-icon.is-user-playlist {
   /* Outlined rather than filled: this one makes a list, it isn't one. */
   background: transparent;
-  border: 1px dashed var(--user-playlist);
+  border: 1px dashed var(--accent);
 }
 
 .channel-card.is-new-playlist .channel-card-icon svg {
-  color: var(--user-playlist);
+  color: var(--accent);
 }
 
 /* Removing a track from a hand-made list. Sits beside the duration, outside
@@ -1865,9 +2166,13 @@ button.track-link {
   color: var(--danger);
 }
 
+/* The track being added is the subject of this sheet, not an aside — it came
+   in with the shared `muted` class and read as disabled text above a live
+   list. Secondary, on the type scale. */
 .playlist-picker-track {
   margin: 0 0 0.75rem;
-  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-size: var(--text-md);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1908,7 +2213,7 @@ button.track-link {
    so the state has to be readable at a glance — the press is a toggle, not a
    second add. */
 .playlist-picker-row.is-in {
-  border-color: var(--user-playlist);
+  border-color: var(--accent);
 }
 
 .playlist-picker-name {
@@ -1927,10 +2232,18 @@ button.track-link {
   font-size: 0.85rem;
 }
 
+/* The accent, because Library's "New playlist" tile is the accent and this is
+   the same action reached another way. Left grey, the one create action in the
+   sheet was quieter than the list it sits under. */
 .playlist-picker-new {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+  color: var(--accent);
+}
+
+.playlist-picker-new:hover {
+  color: var(--accent-hover);
 }
 
 .playlist-picker-new svg {
@@ -1944,7 +2257,7 @@ button.track-link {
   padding: 0.6rem 0.7rem;
   margin: 0.75rem 0 0;
   background: var(--bg-base);
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-control);
   border-radius: 6px;
   color: inherit;
   font: inherit;
@@ -2024,6 +2337,7 @@ button.track-link {
 }
 
 .channel-hero {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 1.25rem;
@@ -2036,25 +2350,53 @@ button.track-link {
      stopping early. */
 }
 
-.channel-hero-unfollow {
+/* .btn-quiet.channel-hero-unfollow, not .channel-hero-unfollow: this button
+   carries both classes, .btn-quiet sets `border: none`, and it is declared
+   further down the file at equal specificity — so the border and the
+   red-on-hover written here had never rendered at all. Two classes settle it
+   regardless of source order. */
+.btn-quiet.channel-hero-unfollow {
   align-self: flex-start;
-  margin-top: 0.15rem;
-  /* .btn-quiet's own 1rem horizontal padding would otherwise indent the
-     "Unfollow" label past the title/count's flush-left text above it —
-     pull the button back by that padding so the label lines up with them. */
-  margin-left: -1rem;
+  /* No negative margin. It used to be pulled left by .btn-quiet's own 1rem of
+     padding so the *label* would sit flush with the title above it — which
+     was right while the button had no visible box, and wrong the moment the
+     border below started rendering: the box then hung a full rem into the
+     artwork beside it. A bordered control aligns on its edge, and its edge is
+     already the column's edge. */
+  margin-top: var(--space-2);
   flex-shrink: 0;
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-control);
 }
 
-.channel-hero-unfollow:hover {
+.btn-quiet.channel-hero-unfollow:hover {
   color: var(--danger);
   border-color: var(--danger);
 }
 
+/* Positioned and z-lifted for the same reason Home's hero content is: the
+   ambient field behind it sits in normal flow, so the content has to be
+   above it rather than the field below body's background. */
+.channel-hero > *:not(.detail-hero-ambient) {
+  position: relative;
+  z-index: 1;
+}
+
+/* Viewport-wide and reaching up behind the header, exactly like Home's — the
+   two heroes are the same idea, so they must not be lit two different ways. */
+.detail-hero-ambient {
+  position: absolute;
+  top: -152px;
+  bottom: -48px;
+  left: 50%;
+  width: 100vw;
+  transform: translateX(-50%);
+  z-index: 0;
+  pointer-events: none;
+}
+
 .channel-hero-avatar {
-  width: 96px;
-  height: 96px;
+  width: 120px;
+  height: 120px;
   border-radius: 50%;
   object-fit: cover;
   background: var(--bg-input);
@@ -2549,6 +2891,15 @@ button.track-link {
   margin: 0;
   font-size: var(--text-xs);
   color: var(--text-muted);
+  /* One line, for the same reason .card-channel is one line: a long credit
+     ("Cafe Jazz Music Relaxing Instrumental") wrapped here, and because cards
+     stretch to the tallest one in the row, that one release padded out every
+     other card in the shelf and broke the baseline the titles sit on. The
+     badge is inline, so nowrap ellipsises the credit after it rather than
+     clipping the badge. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .spinner {
@@ -2799,7 +3150,7 @@ button.track-link {
    are a set to choose from, and one you have to scroll to see all of is one
    you will not read to the end of. */
 .genre-chip {
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-control);
   background: var(--bg-base);
   color: var(--text-secondary);
   border-radius: var(--radius-pill);
@@ -2855,7 +3206,7 @@ button.track-link {
    already on it. */
 .btn-danger {
   background: transparent;
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-control);
   color: var(--text-secondary);
   border-radius: var(--radius-sm);
   padding: var(--space-2) var(--space-4);
@@ -3781,6 +4132,21 @@ audio {
   background: radial-gradient(circle at 50% 0%, var(--bg-page-glow) 0%, var(--bg-page) 60%);
 }
 
+/* Covers the whole backdrop rather than reaching past it: this overlay is
+   already fixed to the viewport, so there is nothing above or below it to
+   spill into. */
+.player-overlay-ambient {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.player-card {
+  position: relative;
+  z-index: 1;
+}
+
 .player-overlay[hidden] {
   display: none;
 }
@@ -4430,7 +4796,7 @@ body.has-mini-player .layout {
   height: 28px;
   border-radius: 999px;
   background: var(--bg-input);
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--border-control);
   display: inline-flex;
   align-items: center;
   padding: 2px;
