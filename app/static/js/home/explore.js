@@ -321,6 +321,16 @@ async function loadRecommendations({ force = false, placeholder = false } = {}) 
   if (!body) return;
   if (inFlight && !force) return inFlight;
 
+  // Recommendations need a live YouTube round trip; offline, that call can
+  // only fail, so skip it rather than surface a "could not load" toast for
+  // something that was never going to work without a connection.
+  if (document.body.classList.contains("is-offline")) {
+    if (placeholder) {
+      body.innerHTML = `<p class="muted">Recommendations need a connection — you're offline.</p>`;
+    }
+    return;
+  }
+
   if (placeholder) {
     body.innerHTML = `<p class="search-loading"><span class="spinner"></span>Finding things you might like…</p>`;
   }

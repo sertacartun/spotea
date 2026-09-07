@@ -59,7 +59,6 @@ const PRECACHE_URLS = [
   "/",
   "/static/css/style.css",
   "/static/manifest.json",
-  "/static/img/logo.svg",
   "/static/img/apple-touch-icon.png",
   "/static/img/icons/icon-192.png",
   "/static/img/icons/icon-512.png",

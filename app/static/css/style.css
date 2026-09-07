@@ -396,18 +396,12 @@ select {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.3rem;
 }
 
 .login-card h1.brand {
   display: flex;
   justify-content: center;
-}
-
-.brand-logo {
-  height: 1.5em;
-  width: 1.5em;
-  display: block;
 }
 
 .topbar-actions {
@@ -3813,6 +3807,16 @@ audio {
 @media (min-width: 900px) {
   .player-card {
     max-width: 980px;
+    /* Bounded to what .player-overlay actually has left (its content box,
+       inset: 0 against the viewport, so this is a definite height) rather
+       than left to hug its own content. Without this a track whose title
+       wraps to two lines, or just a modest-height browser window, made the
+       card taller than the viewport — the overlay's overflow-y: auto below
+       then let you scroll to the transport instead of the volume/seek
+       controls always being on screen. Bounding it here instead makes
+       .player-art give up height first (flex: 0 1 auto; min-height: 0,
+       above), the same trade a short phone already makes. */
+    max-height: 100%;
     flex-direction: row;
     align-items: stretch;
     gap: var(--space-7);
@@ -3827,6 +3831,12 @@ audio {
        people already know rather than a stretched version of it. */
     flex: 0 0 380px;
     min-width: 0;
+    /* Stretched to .player-card's now-bounded height (align-items: stretch
+       above) rather than sized to its own content — min-height: 0 is what
+       lets that height be *less* than the content's natural size, so
+       .player-art's own shrink actually has room to happen instead of
+       overflowing the column. */
+    min-height: 0;
   }
 
   /* Open, and not animating: flex-grow is the drawer's mechanism and there
@@ -3865,7 +3875,16 @@ audio {
    * a percentage max-height against an auto-height parent computes to none.
    * The panel then grew to its full 40-track length and dragged the card
    * with it. */
-  .queue-panel-inner {
+  /* Same selector as the mobile rule above (.queue-panel.is-open
+     .queue-panel-inner), not just .queue-panel-inner: is-open is always set
+     at this breakpoint (see home/overlay.js's setQueueOpen), so that rule's
+     three-class specificity was winning here regardless of source order and
+     leaving this overflow-y: auto — which made lyrics.js's active-line
+     scrollTo() a no-op on desktop, since with the tabpanel below sized to
+     fill this box exactly (inset: 0) there was nothing here to scroll in the
+     first place. Tied specificity is what lets being later in the file
+     actually win. */
+  .queue-panel.is-open .queue-panel-inner {
     visibility: visible;
     position: relative;
     overflow: hidden;

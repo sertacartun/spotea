@@ -396,6 +396,22 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
       // a permanently invalid record would re-trigger this same failure on
       // every page load.
       clearResumeState();
+      // This is a local lookup miss (404) or an offline device with nothing
+      // saved — never a YouTube request, so it's the same shape as the
+      // is_unavailable case below and gets that cap rather than the tighter
+      // one reserved for actual download failures. Without this, a track that
+      // fails here (as opposed to failing inside prepareAudio further down)
+      // just left playback dead — the exact "doesn't auto-advance" gap that
+      // this mirrors the fix for.
+      const upcoming = peekNextId();
+      if (upcoming != null) {
+        consecutiveUnavailableSkips += 1;
+        if (consecutiveUnavailableSkips < MAX_CONSECUTIVE_UNAVAILABLE_SKIPS) {
+          playFromQueue(nextId());
+        } else {
+          showToast("Too many unavailable tracks in a row — stopping here");
+        }
+      }
       return;
     }
     // Not when the offline fallback above already built it: res.data is null
