@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.images import is_music_video, track_cover
+from app.images import is_music_video, track_artwork, track_cover
 
 if TYPE_CHECKING:  # import cycle otherwise — models has no reason to know about schemas
     from app.models import Content
@@ -61,6 +61,14 @@ class ContentOut(BaseModel):
     video_id: str
     title: str
     thumbnail_url: str | None
+    # The same cover again, at the sizes the OS's Now Playing surface wants
+    # (see images.track_artwork). Separate from thumbnail_url because they
+    # answer different questions: that one is what to draw in the page, at
+    # one size, and this one is what to publish to MediaSession, where
+    # declaring several sizes is the whole point. It is also the only cover
+    # the player can publish for a track playing off the device, whose
+    # on-screen artwork is a blob: URL the OS cannot fetch.
+    artwork: list[dict[str, str]] = []
     duration_seconds: int | None
     published_at: datetime | None
     status: str
@@ -100,6 +108,7 @@ class ContentOut(BaseModel):
             video_id=content.video_id,
             title=content.title,
             thumbnail_url=track_cover(content),
+            artwork=track_artwork(content),
             duration_seconds=content.duration_seconds,
             published_at=content.published_at,
             status=content.status,
@@ -308,13 +317,11 @@ class RefreshResult(BaseModel):
 
 class SettingsOut(BaseModel):
     audio_quality: str
-    refresh_interval_minutes: int
     interests: list[str]
 
 
 class SettingsUpdate(BaseModel):
     audio_quality: str | None = None
-    refresh_interval_minutes: int | None = None
     # Always the complete list, never a single tag to add or remove: the
     # Settings editor holds the whole list client-side anyway, and a
     # whole-list PUT means add, remove and reorder are one code path instead

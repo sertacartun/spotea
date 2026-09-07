@@ -191,41 +191,55 @@ export function applyAmbientTint() {
 // The sticky header sits directly over the top of the wash. Left opaque it
 // draws a hard band across it; left transparent forever it would put the logo
 // over whatever a shelf happens to scroll underneath. So it is transparent
-// exactly while the hero's own top edge is still under it, and opaque the
-// moment it is not.
+// while Home is resting at the very top of the page, and opaque as soon as
+// it is scrolled at all.
 //
-// An IntersectionObserver rather than a scroll handler: this is a threshold
-// question, and a scroll listener would answer it on every frame to say "no"
-// almost every time.
-let heroObserver = null;
+// This used to observe the hero itself, offset by the header's height. That
+// answered a different question than it looked like it did: the hero stayed
+// intersecting until its *bottom* edge cleared the header, so the bar went on
+// carrying no fill for the hero's whole height — a couple of hundred pixels
+// during which shelf rows scrolled under an unfilled bar and the logo sat on
+// top of them. The threshold that matters is "has this moved at all", so what
+// is observed now is a 1px probe at the very top of the document (see
+// index.html) rather than the hero.
+//
+// Still an IntersectionObserver rather than a scroll handler: this is a
+// threshold question, and a scroll listener would answer it on every frame to
+// say "no" almost every time.
+//
+// Measured: the fill lands at two pixels of scroll, not one. At exactly one,
+// the probe's bottom edge is flush with the top of the viewport, and an
+// observer still calls an edge-touching rect intersecting. Two pixels is
+// nobody's scroll gesture, so this is the threshold either way.
+let pageTopObserver = null;
 
-function watchHeroEdge() {
-  heroObserver?.disconnect();
-  const hero = document.querySelector(".home-hero");
-  if (!hero) {
+function watchPageTop() {
+  pageTopObserver?.disconnect();
+  // No hero means nothing behind the bar worth showing through it, so the
+  // header stays filled whatever the scroll position is.
+  const probe = document.querySelector(".home-hero") && document.querySelector(".page-top-probe");
+  if (!probe) {
     delete document.documentElement.dataset.heroLit;
     return;
   }
-  heroObserver = new IntersectionObserver(
+  pageTopObserver = new IntersectionObserver(
     ([entry]) => {
       if (entry.isIntersecting) document.documentElement.dataset.heroLit = "";
       else delete document.documentElement.dataset.heroLit;
     },
-    // Only the strip of hero that would be behind the header counts, so the
-    // handover happens as the wash leaves the header rather than as the whole
-    // hero leaves the screen.
-    { rootMargin: "-72px 0px 0px 0px", threshold: 0 },
+    { threshold: 0 },
   );
-  heroObserver.observe(hero);
+  pageTopObserver.observe(probe);
 }
 
 export function setupAmbientTint() {
   applyAmbientTint();
-  watchHeroEdge();
+  watchPageTop();
   onFragmentsSwapped(() => {
     applyAmbientTint();
-    // The hero element itself is replaced by the swap, so the old observation
-    // is pointing at a node that is no longer in the document.
-    watchHeroEdge();
+    // The probe outlives the swap, but whether there is a hero at all does
+    // not — a profile that just played its first track gains one, and the
+    // header has to start showing through.
+    watchPageTop();
   });
 }

@@ -282,12 +282,4 @@ export function setupSettings() {
     });
   });
 
-  const refreshIntervalSelect = document.getElementById("refresh-interval-select");
-  refreshIntervalSelect?.addEventListener("change", () => {
-    api("/settings", {
-      method: "PUT",
-      body: { refresh_interval_minutes: Number(refreshIntervalSelect.value) },
-      errorMessage: "Could not update refresh interval",
-    });
-  });
 }

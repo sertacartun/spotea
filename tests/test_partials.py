@@ -30,7 +30,7 @@ def _other_user_feed(db_session) -> Artist:
     app/database.py), so a artist pointing at a profile that doesn't exist is
     rejected rather than silently accepted.
     """
-    other_user = User(email="other3@example.com", password_hash="x")
+    other_user = User(username="other3", password_hash="x")
     db_session.add(other_user)
     db_session.commit()
     db_session.refresh(other_user)
@@ -388,7 +388,7 @@ def test_queue_fragment_ignores_ids_that_arent_the_users(client, db_session):
     mine = db_session.query(Content).first()
     theirs = Content(
         artist_id=_other_user_feed(db_session).id,
-        user_id=db_session.query(User).filter(User.email == "other3@example.com").first().id,
+        user_id=db_session.query(User).filter(User.username == "other3").first().id,
         video_id="notyours001",
         title="Not Yours",
     )

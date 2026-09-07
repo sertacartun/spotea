@@ -70,19 +70,25 @@ def _assert_single_worker() -> None:
         )
 
 
-# Columns removed along with the features that wrote them, each with the
-# index that referenced it. Dropped at startup rather than left in place,
-# because every one of these is NOT NULL with no default: with the writer
-# gone, an old database rejects every INSERT into `content` — no track added
-# from Explore, no release picked up by a sync.
-_REMOVED_CONTENT_COLUMNS = (
+# Columns removed along with the features that wrote them, as
+# (table, column, index that referenced it or None). Dropped at startup
+# rather than left in place, because every one of these is NOT NULL with no
+# default: with the writer gone, an old database rejects every INSERT into
+# that table — no track added from Explore, no release picked up by a sync,
+# no account registered.
+_REMOVED_COLUMNS = (
     # Save-for-later, removed in #23.
-    ("is_saved", "ix_content_user_saved"),
+    ("content", "is_saved", "ix_content_user_saved"),
     # "New releases" was a shelf of Content rows flagged this way — releases
     # that appeared after the follow, expiring after fourteen days. Both
     # surfaces of that name read Artist.release_snapshot now, which has
     # neither limit.
-    ("is_new_upload", "ix_content_user_newupload"),
+    ("content", "is_new_upload", "ix_content_user_newupload"),
+    # How long to wait before checking followed artists again. There is no
+    # interval any more: a library is checked once, when its owner first
+    # opens the app, and after that only when Refresh is pressed (see
+    # services/refresh.py).
+    ("users", "refresh_interval_minutes", None),
 )
 
 
@@ -92,12 +98,11 @@ def _drop_removed_columns() -> None:
     ARCHITECTURE.md says there is no migration framework and a schema change
     means a fresh database. That stays true, and this is not one: it drops a
     fixed list of columns whose features are gone and does nothing else. It
-    cannot add a column, rename one, or backfill anything.
+    cannot add a column or backfill anything.
 
     It exists because these particular changes cannot be left to the user —
-    see _REMOVED_CONTENT_COLUMNS. An app that silently can't add music is
-    worse than one that spends a few milliseconds at startup checking a
-    PRAGMA.
+    see _REMOVED_COLUMNS. An app that silently can't add music is worse than
+    one that spends a few milliseconds at startup checking a PRAGMA.
 
     Not a script, because a script has nowhere to run in this deployment: the
     image carries no sqlite3 CLI and no scripts/ directory, and on the host
@@ -107,30 +112,32 @@ def _drop_removed_columns() -> None:
     A no-op on every start after the first, and on any database `create_all`
     just built.
     """
+    dropped: list[str] = []
     with engine.begin() as conn:
-        present = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(content)")}
-        obsolete = [(c, i) for c, i in _REMOVED_CONTENT_COLUMNS if c in present]
-        if not obsolete:
-            return
-
-        for column, index in obsolete:
+        for table, column, index in _REMOVED_COLUMNS:
+            present = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+            if column not in present:
+                continue
             # DROP COLUMN refuses while an index still references the column,
             # so the index goes first. All of it inside engine.begin()'s
             # transaction: the app expects either shape, never a half-applied
             # one.
             try:
-                conn.exec_driver_sql(f"DROP INDEX IF EXISTS {index}")
-                conn.exec_driver_sql(f"ALTER TABLE content DROP COLUMN {column}")
+                if index is not None:
+                    conn.exec_driver_sql(f"DROP INDEX IF EXISTS {index}")
+                conn.exec_driver_sql(f"ALTER TABLE {table} DROP COLUMN {column}")
             except Exception as exc:  # pragma: no cover - depends on the SQLite build
                 raise RuntimeError(
-                    f"Could not drop the obsolete content.{column} column, which "
-                    "this version of Spotea needs gone before it can add a track "
-                    "(DROP COLUMN needs SQLite 3.35 or newer). Back up "
+                    f"Could not drop the obsolete {table}.{column} column, which "
+                    "this version of Spotea needs gone before it can write to "
+                    f"{table} (DROP COLUMN needs SQLite 3.35 or newer). Back up "
                     "./data/spotea.db, then either upgrade SQLite or start from a "
                     "fresh database."
                 ) from exc
+            dropped.append(f"{table}.{column}")
 
-    logger.info("Dropped obsolete content columns: %s", ", ".join(c for c, _ in obsolete))
+    if dropped:
+        logger.info("Dropped obsolete columns: %s", ", ".join(dropped))
 
 
 # Columns added to `content` since the first release, each with the DDL type
@@ -179,12 +186,77 @@ def _add_missing_columns() -> None:
     logger.info("Added missing content columns: %s", ", ".join(c for c, _ in missing))
 
 
+def _rename_email_to_username() -> None:
+    """The one rename this app has ever needed, and the reason the two
+    functions above say they cannot do one.
+
+    Logging in was by email address. Nothing was ever sent to it, so the
+    field was already a username wearing an @; it is now a username outright
+    (see models.User). Dropping the column and asking for a new name would
+    have locked every existing account out of its own library, so the column
+    is renamed in place — which SQLite does without rewriting the table, and
+    which carries the unique index across with it.
+
+    The values are then shortened to the part before the @, because
+    "you@example.com" is a poor thing to have to type at a login prompt. That
+    happens per row and only where it is safe:
+
+      - never when two accounts would end up with the same name, since the
+        column is unique and the UPDATE would fail — those rows keep the
+        whole address, which still works as a username;
+      - never when the part before the @ is empty.
+
+    Nobody is locked out either way: whatever ends up in the column is what
+    the login form now asks for, and the password is untouched.
+
+    A no-op on every start after the first, and on any database `create_all`
+    just built (which creates `username` directly and no `email` at all).
+    """
+    with engine.begin() as conn:
+        present = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(users)")}
+        if "email" not in present or "username" in present:
+            return
+
+        conn.exec_driver_sql("ALTER TABLE users RENAME COLUMN email TO username")
+
+        rows = list(conn.exec_driver_sql("SELECT id, username FROM users"))
+        # Decided across the whole table before a single row is written, so
+        # the outcome does not depend on which row is visited first: a local
+        # part two accounts would both want is a name neither of them gets.
+        wanted: dict[int, str] = {}
+        for user_id, value in rows:
+            local_part, _, _ = value.partition("@")
+            if local_part:
+                wanted[user_id] = local_part
+        contested = {
+            name
+            for name in wanted.values()
+            if list(wanted.values()).count(name) > 1
+        } | {value for _, value in rows}
+
+        shortened = 0
+        for user_id, local_part in wanted.items():
+            if local_part in contested:
+                continue
+            conn.exec_driver_sql(
+                "UPDATE users SET username = ? WHERE id = ?", (local_part, user_id)
+            )
+            shortened += 1
+
+    logger.info(
+        "Renamed users.email to users.username (%d of %d shortened to the local part)",
+        shortened,
+        len(rows),
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _assert_single_worker()
     Base.metadata.create_all(bind=engine)
     _drop_removed_columns()
     _add_missing_columns()
+    _rename_email_to_username()
 
     # Exactly once, here, before anything else in the process has had a
     # chance to start a download — see storage.sweep_startup_leftovers for

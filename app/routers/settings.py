@@ -10,11 +10,6 @@ router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(
 
 AUDIO_QUALITIES = ("high", "low")
 
-# Presets rather than a free-form number — keeps the control simple (matches
-# the audio-quality radios) and rules out a value aggressive enough to risk
-# YouTube rate-limiting the unauthenticated calls in artist_sync.
-FEED_REFRESH_INTERVALS = (15, 30, 60, 120)
-
 
 def _settings_out(user: User) -> SettingsOut:
     """Both endpoints answer with the same full settings shape — a PUT that
@@ -23,7 +18,6 @@ def _settings_out(user: User) -> SettingsOut:
     normalizes on the way in)."""
     return SettingsOut(
         audio_quality=user.audio_quality,
-        refresh_interval_minutes=user.refresh_interval_minutes,
         interests=parse_interests(user.interests),
     )
 
@@ -55,13 +49,6 @@ def update_settings(
         # changes (see services/recommendations.py). Leaving the row alone
         # means editing interests back to a previous set still hits its
         # cached batch instead of paying for a rebuild.
-
-    if payload.refresh_interval_minutes is not None:
-        if payload.refresh_interval_minutes not in FEED_REFRESH_INTERVALS:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid refresh interval")
-        # Picked up by the scheduler on its next tick — at most
-        # scheduler.TICK_SECONDS later — rather than needing an interrupt.
-        user.refresh_interval_minutes = payload.refresh_interval_minutes
 
     db.commit()
     return _settings_out(user)

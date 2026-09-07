@@ -34,6 +34,7 @@ import {
   releaseAudio,
   reportMediaSessionAction,
   reportPlayback,
+  setNowPlayingArtwork,
   showPreparing,
   whenVisible,
 } from "../player.js";
@@ -433,6 +434,13 @@ export async function openPlayer(contentId, { expanded = true, requireVisible = 
     artImg.removeAttribute("src");
     artImg.hidden = true;
   }
+  // What the OS gets, which is deliberately not what the element above got:
+  // the page needs one image at the size it draws, and Now Playing needs the
+  // same picture at several declared sizes it can choose between (see
+  // player.js's setNowPlayingArtwork and images.track_artwork). It is also
+  // the only cover the OS can use for a track playing off the device — the
+  // element is showing a blob: URL in that case, which the OS cannot fetch.
+  setNowPlayingArtwork(data.artwork);
   // Purely the backdrop colour behind this card — it reads the image that was
   // just set and writes two custom properties. Nothing here touches the audio
   // element, the queue, or anything else on the playback path.

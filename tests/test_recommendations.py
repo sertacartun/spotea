@@ -409,36 +409,42 @@ def test_reordering_the_interests_does_not_invalidate_the_cache(client, db_sessi
     assert fake_search == []
 
 
-def test_a_batch_older_than_the_refresh_interval_is_rebuilt(client, db_session, fake_search):
-    # The TTL is whatever Settings' artist-refresh interval is set to, rather
-    # than a cadence of its own — see routers/recommendations.py.
-    client.put("/settings", json={"refresh_interval_minutes": 15})
+def test_a_batch_never_expires_on_age_alone(client, db_session, fake_search):
+    """A cached batch used to go stale on whatever Settings' artist-refresh
+    interval was. That interval is gone, and nothing replaced it with a
+    number of its own: what makes Explore go and look again is the interest
+    list changing or Refresh being pressed, and this proves age is not a
+    third way in — a year-old batch is still served from cache without a
+    single live search."""
     _set_interests(db_session, "jazz")
     client.get("/recommendations")
     fake_search.clear()
 
     cache = db_session.get(RecommendationCache, USER_ID)
-    cache.generated_at = utcnow() - timedelta(minutes=16)
-    db_session.commit()
-
-    client.get("/recommendations")
-    assert fake_search != []
-
-
-def test_a_batch_inside_the_refresh_interval_is_not_rebuilt(client, db_session, fake_search):
-    client.put("/settings", json={"refresh_interval_minutes": 120})
-    _set_interests(db_session, "jazz")
-    client.get("/recommendations")
-    fake_search.clear()
-
-    cache = db_session.get(RecommendationCache, USER_ID)
-    # Well past the 15-minute floor, comfortably inside the 2 hours actually
-    # configured — a fixed TTL would have rebuilt here.
-    cache.generated_at = utcnow() - timedelta(minutes=30)
+    cache.generated_at = utcnow() - timedelta(days=365)
     db_session.commit()
 
     client.get("/recommendations")
     assert fake_search == []
+
+
+def test_an_old_batch_is_still_rebuilt_when_the_interests_change(client, db_session, fake_search):
+    """The other half: dropping the expiry must not have made the cache
+    unshakeable. The signature check is what invalidates it now, and it has
+    to keep working on a row old enough that the old TTL would have caught
+    it first."""
+    _set_interests(db_session, "jazz")
+    client.get("/recommendations")
+    fake_search.clear()
+
+    cache = db_session.get(RecommendationCache, USER_ID)
+    cache.generated_at = utcnow() - timedelta(days=365)
+    db_session.commit()
+
+    client.put("/settings", json={"interests": ["funk"]})
+    client.get("/recommendations")
+
+    assert fake_search != []
 
 
 def test_refresh_rebuilds_even_when_the_cache_is_fresh(client, db_session, fake_search):

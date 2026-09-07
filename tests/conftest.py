@@ -72,7 +72,7 @@ def db_session() -> Session:
 
 
 DEFAULT_USER_ID = 1
-DEFAULT_USER_EMAIL = "test@example.com"
+DEFAULT_USERNAME = "test-user"
 DEFAULT_USER_PASSWORD = "test-password"
 
 
@@ -91,7 +91,7 @@ def _init_schema():
             db.add(
                 User(
                     id=DEFAULT_USER_ID,
-                    email=DEFAULT_USER_EMAIL,
+                    username=DEFAULT_USERNAME,
                     password_hash=hash_password(DEFAULT_USER_PASSWORD),
                 )
             )
@@ -110,8 +110,8 @@ def _clean_tables(_init_schema):
 
     The preserved row's own mutable columns are reset explicitly, not just
     its child rows deleted: several tests PUT a non-default interests /
-    audio_quality / refresh interval through Settings, and without this
-    reset that value would silently carry into whatever test runs next —
+    audio_quality through Settings, and without this reset that value would
+    silently carry into whatever test runs next —
     the same leak the per-table deletes exist to prevent everywhere else.
     Caught by a test that left interests set, which broke
     test_no_interests_means_an_empty_batch_and_no_searches
@@ -126,8 +126,7 @@ def _clean_tables(_init_schema):
                     .where(table.c.id == DEFAULT_USER_ID)
                     .values(
                         interests=None,
-                        audio_quality="high",
-                        refresh_interval_minutes=30,
+                        audio_quality="low",
                         refreshed_at=None,
                     )
                 )
@@ -160,6 +159,6 @@ def client() -> TestClient:
     tests never need to think about auth. See test_auth.py for the
     unauthenticated case."""
     with TestClient(app) as c:
-        res = c.post("/login", data={"email": DEFAULT_USER_EMAIL, "password": DEFAULT_USER_PASSWORD})
+        res = c.post("/login", data={"username": DEFAULT_USERNAME, "password": DEFAULT_USER_PASSWORD})
         assert res.status_code == 200
         yield c

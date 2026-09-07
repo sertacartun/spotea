@@ -472,9 +472,9 @@ export function setupDetailPanel() {
 
     if (event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0) return;
 
-    // "All 150 songs". A real link so it survives with JS disabled and
-    // reads as one, but handled here for the same reason pagination is:
-    // a hash change alone wouldn't swap the panel.
+    // The artist profile's "See more". A real link so it survives with JS
+    // disabled and reads as one, but handled here for the same reason
+    // pagination is: a hash change alone wouldn't swap the panel.
     const seeAll = event.target.closest(".artist-see-all");
     if (seeAll && current) {
       event.preventDefault();

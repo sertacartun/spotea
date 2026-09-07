@@ -13,7 +13,15 @@ from app.templating import templates
 
 router = APIRouter()
 
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Lowercased before this is applied, so there is no A-Z here. Must start
+# with a letter or a digit, and may then carry dots, dashes and underscores —
+# the punctuation people actually put in a handle, and nothing that would
+# make a username hard to say out loud or hard to type on a phone keyboard.
+# Whitespace is excluded by construction, which is what lets the stored value
+# be compared with a plain ==.
+USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+MIN_USERNAME_LENGTH = 3
+MAX_USERNAME_LENGTH = 30
 MIN_PASSWORD_LENGTH = 8
 # bcrypt silently truncates/ignores anything past 72 bytes — two passwords
 # sharing that prefix would otherwise verify as equal.
@@ -45,12 +53,15 @@ def _client_key(request: Request) -> str:
 def login_page(request: Request):
     if request.session.get(SESSION_KEY):
         return RedirectResponse(url="/", status_code=303)
-    return templates.TemplateResponse(request, "login.html", {"error": None, "email": ""})
+    return templates.TemplateResponse(request, "login.html", {"error": None, "username": ""})
 
 
 @router.post("/login", response_class=HTMLResponse)
 def login_submit(
-    request: Request, email: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
 ):
     key = _client_key(request)
     if (_failed_login_attempts.get(key) or 0) >= MAX_FAILED_LOGIN_ATTEMPTS:
@@ -59,23 +70,26 @@ def login_submit(
         return templates.TemplateResponse(
             request,
             "login.html",
-            {"error": "Too many attempts. Try again in a minute.", "email": email},
+            {"error": "Too many attempts. Try again in a minute.", "username": username},
             status_code=429,
         )
 
-    normalized_email = email.strip().lower()
-    user = db.query(User).filter(User.email == normalized_email).first()
+    normalized_username = username.strip().lower()
+    user = db.query(User).filter(User.username == normalized_username).first()
     # Always a real bcrypt check, win or lose — DUMMY_PASSWORD_HASH stands in
-    # for a real user's hash so a nonexistent email costs the same as a wrong
+    # for a real user's hash so an unknown username costs the same as a wrong
     # password. See its docstring for the timing gap this closes.
     password_hash = user.password_hash if user is not None else DUMMY_PASSWORD_HASH
     password_ok = verify_password(password, password_hash)
-    # Same generic message either way — doesn't reveal whether the email
+    # Same generic message either way — doesn't reveal whether the username
     # itself is registered.
     if user is None or not password_ok:
         _failed_login_attempts.set(key, (_failed_login_attempts.get(key) or 0) + 1)
         return templates.TemplateResponse(
-            request, "login.html", {"error": "Invalid email or password", "email": email}, status_code=401
+            request,
+            "login.html",
+            {"error": "Invalid username or password", "username": username},
+            status_code=401,
         )
 
     _failed_login_attempts.discard(key)
@@ -90,46 +104,56 @@ def login_submit(
 def register_page(request: Request):
     if request.session.get(SESSION_KEY):
         return RedirectResponse(url="/", status_code=303)
-    return templates.TemplateResponse(request, "register.html", {"error": None, "email": ""})
+    return templates.TemplateResponse(request, "register.html", {"error": None, "username": ""})
 
 
-def _validate_registration(email: str, password: str, confirm_password: str, db: Session) -> str | None:
-    if not EMAIL_RE.match(email):
-        return "Enter a valid email address"
+def _validate_registration(
+    username: str, password: str, confirm_password: str, db: Session
+) -> str | None:
+    if not (MIN_USERNAME_LENGTH <= len(username) <= MAX_USERNAME_LENGTH) or not USERNAME_RE.match(
+        username
+    ):
+        return (
+            f"Username must be {MIN_USERNAME_LENGTH}-{MAX_USERNAME_LENGTH} characters, "
+            "using letters, numbers, dots, dashes or underscores"
+        )
     if not (MIN_PASSWORD_LENGTH <= len(password.encode("utf-8")) <= MAX_PASSWORD_LENGTH):
         return f"Password must be {MIN_PASSWORD_LENGTH}-{MAX_PASSWORD_LENGTH} characters"
     if password != confirm_password:
         return "Passwords do not match"
-    if db.query(User).filter(User.email == email).first() is not None:
-        return "Email already registered"
+    if db.query(User).filter(User.username == username).first() is not None:
+        return "Username already taken"
     return None
 
 
 @router.post("/register", response_class=HTMLResponse)
 def register_submit(
     request: Request,
-    email: str = Form(...),
+    username: str = Form(...),
     password: str = Form(...),
     confirm_password: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    normalized_email = email.strip().lower()
-    error = _validate_registration(normalized_email, password, confirm_password, db)
+    normalized_username = username.strip().lower()
+    error = _validate_registration(normalized_username, password, confirm_password, db)
     if error:
         return templates.TemplateResponse(
-            request, "register.html", {"error": error, "email": email}, status_code=400
+            request, "register.html", {"error": error, "username": username}, status_code=400
         )
 
-    user = User(email=normalized_email, password_hash=hash_password(password))
+    user = User(username=normalized_username, password_hash=hash_password(password))
     db.add(user)
     try:
         db.commit()
     except IntegrityError:
-        # Two concurrent registrations for the same email both passing the
+        # Two concurrent registrations for the same username both passing the
         # pre-check above — the unique constraint is the real guarantee.
         db.rollback()
         return templates.TemplateResponse(
-            request, "register.html", {"error": "Email already registered", "email": email}, status_code=400
+            request,
+            "register.html",
+            {"error": "Username already taken", "username": username},
+            status_code=400,
         )
     db.refresh(user)
 

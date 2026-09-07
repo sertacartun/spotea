@@ -38,8 +38,13 @@
 {% if songs %}
 <div class="shelf-header">
   <h3 class="shelf-title">Popular songs</h3>
+  {# "See more ›", the same words and the same chevron every other shelf in
+     the app uses to open its full list — this one used to read "All 150
+     songs", which described the destination but did not look like a link
+     next to five shelves that all say something else. songs_total is still
+     what decides whether there is a full list worth offering. #}
   {% if songs_total %}
-  <a class="shelf-see-more artist-see-all" href="{{ songs_url }}">All {{ songs_total }} songs</a>
+  <a class="shelf-see-more artist-see-all" href="{{ songs_url }}">See more ›</a>
   {% endif %}
 </div>
 <div class="track-list">

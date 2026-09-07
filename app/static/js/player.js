@@ -691,24 +691,53 @@ let publishedWhileHeld = false;
 // not, so URLs without one just omit the field as before.
 const ARTWORK_TYPES = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
 
+// The cover for the track on screen, at every size the OS might want, as
+// ContentOut.artwork built it (see images.track_artwork). Held here rather
+// than read back off #player-art-img, which is what this used to do, for two
+// reasons that both showed up as no artwork on the Dynamic Island:
+//
+//   - That element carries one image at one size, and the size it carries is
+//     the one the page needs — 544px. iOS picks an artwork entry per surface
+//     and will not resize a large one down for a small one; given nothing
+//     under 128px it draws a grey translucent box on the compact player,
+//     which on a modern iPhone is the Dynamic Island.
+//   - For a track playing off the device it carries a blob: URL, which is
+//     right for an <img> and useless to the OS.
+//
+// Set by home/overlay.js when it fills the card in, and cleared with the
+// rest of the Now Playing state.
+let nowPlayingArtwork = [];
+
+/** Called with ContentOut.artwork whenever the player card changes track. */
+export function setNowPlayingArtwork(artwork) {
+  nowPlayingArtwork = Array.isArray(artwork) ? artwork : [];
+}
+
+// What to publish when there is no artwork set — an older payload, or a
+// surface that never called the setter. The element's own src, exactly as
+// this worked before, which is better than publishing nothing.
+function artworkFromElement() {
+  const src = document.getElementById("player-art-img")?.src || "";
+  if (!src) return [];
+  const extension = src.split("?")[0].split(".").pop()?.toLowerCase();
+  const type = ARTWORK_TYPES[extension];
+  return [type ? { src, type } : { src }];
+}
+
 export function applyNowPlayingMetadata({ held = false } = {}) {
   if (!("mediaSession" in navigator)) return;
   const title = document.querySelector(".player-title")?.textContent || "";
   const artist = document.querySelector(".player-channel")?.textContent || "";
-  const artworkSrc = document.getElementById("player-art-img")?.src || "";
+  const artwork = nowPlayingArtwork.length ? nowPlayingArtwork : artworkFromElement();
 
-  const key = [title, artist, artworkSrc].join("\u0000");
+  // The first entry identifies the set: every entry in one set is the same
+  // picture, so two sets differ exactly when their first URLs do.
+  const key = [title, artist, artwork[0]?.src || ""].join("\u0000");
   if (key === publishedNowPlaying && publishedWhileHeld) return;
   publishedNowPlaying = key;
   publishedWhileHeld = held;
 
-  const extension = artworkSrc.split("?")[0].split(".").pop()?.toLowerCase();
-  const type = ARTWORK_TYPES[extension];
-  navigator.mediaSession.metadata = new MediaMetadata({
-    title,
-    artist,
-    artwork: artworkSrc ? [type ? { src: artworkSrc, type } : { src: artworkSrc }] : [],
-  });
+  navigator.mediaSession.metadata = new MediaMetadata({ title, artist, artwork });
 }
 
 /**
@@ -727,6 +756,7 @@ export function clearNowPlayingMetadata() {
   publishedWhileHeld = false;
   navigator.mediaSession.metadata = null;
   navigator.mediaSession.playbackState = "none";
+  nowPlayingArtwork = [];
 }
 
 // Lock-screen/notification-shade transport controls and Bluetooth/headset

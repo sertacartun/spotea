@@ -47,7 +47,7 @@ import random
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -60,12 +60,15 @@ from app.youtube.music import search_playlists as search_music_playlists
 
 logger = logging.getLogger(__name__)
 
-# Floor on how old a batch can be before the next visit to Explore rebuilds
-# it. Not a constant of its own: callers pass the user's
-# configured artist refresh interval (see User.refresh_interval_minutes),
-# so "how often does this app go and look at YouTube again" stays one setting
-# rather than two. This is only the fallback for a caller that passes no ttl.
-DEFAULT_TTL = timedelta(minutes=30)
+# There is deliberately no age limit on a cached batch. It used to expire on
+# the interval Settings offered for artist refreshes, so that "how often does
+# this app go and look at YouTube again" stayed one setting rather than two —
+# and then that setting was removed, because a library only has to be checked
+# when someone opens the app for the first time or asks for it outright. The
+# same rule reaches here: a batch is rebuilt when there isn't one, when the
+# interests it was built from have changed, when PAYLOAD_VERSION moves, and
+# when the Refresh button forces it. Nothing else expires it, and nothing
+# goes near YouTube on a clock.
 
 # Interests sampled per run. Each one costs one search (playlists — see
 # _SEARCHERS), so this is the knob that decides a run's request count —
@@ -235,19 +238,19 @@ def build_batch(interests: list[str]) -> dict:
 
 
 def _cached_batch(
-    cache: RecommendationCache | None, signature: str, *, not_before: datetime
+    cache: RecommendationCache | None, signature: str, *, not_before: datetime | None
 ) -> tuple[dict, datetime] | None:
     """The cached batch if this caller can use it, else None.
 
     `not_before` is the oldest build this caller accepts, and it's the only
-    thing that separates a plain read from a refresh: an ordinary read will
-    take anything inside the TTL, while a refresh only accepts a batch built
-    after it started — which can only be one another request built while this
-    one waited for the lock.
+    thing that separates a plain read from a refresh: an ordinary read passes
+    None and will take a batch of any age, while a refresh only accepts one
+    built after it started — which can only be a batch another request built
+    while this one waited for the lock.
     """
     if cache is None or cache.interests_signature != signature:
         return None
-    if cache.generated_at < not_before:
+    if not_before is not None and cache.generated_at < not_before:
         return None
     try:
         return json.loads(cache.payload), cache.generated_at
@@ -390,11 +393,11 @@ def _drop_already_in_library(db: Session, user: User, batch: dict) -> dict:
 
 
 def get_recommendations(
-    db: Session, user: User, *, ttl: timedelta = DEFAULT_TTL, force: bool = False
+    db: Session, user: User, *, force: bool = False
 ) -> tuple[dict, datetime]:
     """The current batch plus when it was built, rebuilding only if
-    it's missing, older than `ttl`, built from different interests, or
-    `force`d — then filtered against the current library (see
+    it's missing, built from different interests, or `force`d — then
+    filtered against the current library (see
     _drop_already_in_library), always fresh regardless of whether the batch
     itself came from cache.
 
@@ -402,7 +405,7 @@ def get_recommendations(
     charts and mood shelves don't depend on any (see build_batch), so
     generated_at is never None.
     """
-    batch, generated_at = _get_or_build_batch(db, user, ttl=ttl, force=force)
+    batch, generated_at = _get_or_build_batch(db, user, force=force)
     return _drop_already_in_library(db, user, batch), generated_at
 
 
@@ -414,7 +417,7 @@ def _cache_signature(interests: list[str]) -> str:
 
 
 def _get_or_build_batch(
-    db: Session, user: User, *, ttl: timedelta, force: bool
+    db: Session, user: User, *, force: bool
 ) -> tuple[dict, datetime]:
     """The caching/locking half of get_recommendations, unfiltered — split
     out so the library filter above wraps every return path (three of them,
@@ -427,9 +430,7 @@ def _get_or_build_batch(
     started = utcnow()
     signature = _cache_signature(interests)
     if not force:
-        cached = _cached_batch(
-            user.recommendation_cache, signature, not_before=started - ttl
-        )
+        cached = _cached_batch(user.recommendation_cache, signature, not_before=None)
         if cached:
             return cached
 
@@ -441,9 +442,7 @@ def _get_or_build_batch(
         # request's own is pending at this point.
         db.rollback()
         cache = db.get(RecommendationCache, user.id)
-        cached = _cached_batch(
-            cache, signature, not_before=started if force else utcnow() - ttl
-        )
+        cached = _cached_batch(cache, signature, not_before=started if force else None)
         if cached:
             return cached
 
