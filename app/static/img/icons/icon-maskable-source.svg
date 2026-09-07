@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="70" y1="40" x2="440" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF3B3B"/>
+      <stop offset="0.55" stop-color="#F01A1A"/>
+      <stop offset="1" stop-color="#B50912"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="512" height="512">
+      <feDropShadow dx="0" dy="12" stdDeviation="12" flood-opacity=".28"/>
+    </filter>
+  </defs>
+
+  <!-- Full-bleed background: Android applies its own mask shape, so no baked-in corner rounding here -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <!-- Icon content scaled down and kept centered so it stays inside the maskable safe zone -->
+  <g transform="translate(256 256) scale(0.92) translate(-256 -256)">
+    <!-- Steam -->
+    <g stroke="white" stroke-width="18" stroke-linecap="round">
+      <path d="M190 101.5c-14 14-14 32 0 46s14 32 0 46"/>
+      <path d="M256 86.5c-14 14-14 32 0 46s14 32 0 46"/>
+      <path d="M322 101.5c-14 14-14 32 0 46s14 32 0 46"/>
+    </g>
+
+    <!-- Cup -->
+    <g filter="url(#shadow)">
+      <path d="M131 203.5h250v172c0 28-22 50-50 50h-150c-28 0-50-22-50-50V203.5Z" fill="white"/>
+    </g>
+
+    <!-- Play button cutout -->
+    <path d="M215.5 277c0-12 13-19 23-12l58 35c11 7 11 22 0 29l-58 35c-10 7-23 0-23-12v-75Z" fill="#E7191D"/>
+  </g>
+</svg>

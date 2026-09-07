@@ -54,7 +54,18 @@ function body() {
 }
 
 function scroller() {
-  return document.querySelector(".queue-panel-inner");
+  const inner = document.querySelector(".queue-panel-inner");
+  if (!inner) return null;
+  // The drawer (below 900px) scrolls .queue-panel-inner itself. The desktop
+  // layout turns it into a static reference box (overflow: hidden) and makes
+  // each tab panel its own absolutely positioned scroller instead — see
+  // style.css's ".queue-panel-inner > [role=\"tabpanel\"]" under the
+  // min-width: 900px block. Reading the computed style rather than
+  // duplicating that breakpoint here is what keeps this right if it ever
+  // moves; get it wrong and this scrolls a box with no scrollbar, which is
+  // silently a no-op — exactly why the active line stopped following along
+  // on desktop.
+  return getComputedStyle(inner).overflowY === "auto" ? inner : body();
 }
 
 function setMessage(text) {
