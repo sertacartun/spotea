@@ -130,6 +130,101 @@ function isApiPath(path) {
   return API_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
 
+// How long the network gets to answer before a cached copy is served instead.
+//
+// Falling back on rejection alone — which is all this did — quietly assumes a
+// server that is unreachable says so. The one this app actually runs on does
+// not: it is served over Tailscale, and `archbtw.tailfcfe2b.ts.net` resolves
+// *publicly* to 100.94.74.16, a CGNAT address. With the VPN switched off the
+// phone still has working internet and still resolves the name, so nothing
+// fails fast — it opens a connection to an address with no route and waits.
+// fetch() stays pending for as long as the OS takes to give up on the TCP
+// handshake, respondWith() stays pending with it, and the app never opens,
+// with a complete copy of itself sitting in the cache the whole time.
+// Measured against a socket that accepts and never answers: no shell at all
+// within 15s, where a true offline (fast-rejecting) launch had it instantly.
+//
+// 3s is far longer than this server takes to answer over a working tailnet
+// (well under 1s, LAN or DERP-relayed) and short enough that a launch with
+// the VPN off is a pause rather than a failure. Nothing is aborted when it
+// expires: the request is left running, so a slow-but-alive network still
+// refreshes the cache for next time.
+const NETWORK_TIMEOUT_MS = 3000;
+
+// How long one timeout is taken to mean "this server is not answering at
+// all", during which a cached copy is served with no request going out.
+//
+// Without this, a timeout sounds like it costs one pause per launch. It
+// doesn't: the request that timed out is deliberately left running (see
+// above), so it holds its socket for as long as the OS takes to give up, and
+// a browser opens only about six per origin — the shell's twenty-odd modules
+// then queue behind dead connections instead of timing out alongside each
+// other. Measured with the timeout alone: the shell appeared after 6s in one
+// run and 38s in another. Not issuing the doomed requests is what keeps the
+// pool free, so an unreachable server costs one timeout rather than twenty.
+//
+// Short, and cleared the moment anything answers, because this is the one
+// place the worker serves a cached copy without asking the network first —
+// which is exactly what the header above says not to do, and is only
+// defensible for as long as the evidence that nothing is listening is fresh.
+const UNREACHABLE_FOR_MS = 10000;
+
+let unreachableUntil = 0;
+
+/**
+ * Network first, cache when the network doesn't answer in time — the
+ * difference from a plain catch() being that "doesn't answer" covers hanging,
+ * not just failing (see NETWORK_TIMEOUT_MS).
+ *
+ * With nothing cached the timeout does nothing and the network is waited on
+ * regardless: a blank pause is worse than a slow load, but it's better than
+ * failing a request this worker could never have answered anyway.
+ */
+function networkFirst(request) {
+  const shortcut = Date.now() < unreachableUntil ? caches.match(request) : Promise.resolve(null);
+
+  return shortcut.then((shortcutted) => {
+    if (shortcutted) return shortcutted;
+
+    const network = fetch(request).then((response) => {
+      // Something answered, so whatever a previous timeout concluded about
+      // this server is out of date.
+      unreachableUntil = 0;
+      const copy = response.clone();
+      caches
+        .open(CACHE_NAME)
+        .then((cache) => cache.put(request, copy))
+        .catch(() => {});
+      return response;
+    });
+
+    return new Promise((resolve) => {
+      let answered = false;
+      const answer = (response) => {
+        if (answered || !response) return;
+        answered = true;
+        resolve(response);
+      };
+
+      network.then(answer).catch(() => {
+        // The network said no rather than saying nothing. Whatever the cache
+        // has is the last answer available — and if it has nothing, resolving
+        // undefined is what surfaces this as an ordinary network error, the
+        // same as it always did.
+        if (answered) return;
+        answered = true;
+        caches.match(request).then(resolve);
+      });
+
+      setTimeout(() => {
+        if (answered) return;
+        unreachableUntil = Date.now() + UNREACHABLE_FOR_MS;
+        caches.match(request).then(answer);
+      }, NETWORK_TIMEOUT_MS);
+    });
+  });
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) =>
@@ -185,13 +280,5 @@ self.addEventListener("fetch", (event) => {
 
   if (isApiPath(url.pathname)) return;
 
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        return response;
-      })
-      .catch(() => caches.match(event.request))
-  );
+  event.respondWith(networkFirst(event.request));
 });

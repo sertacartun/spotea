@@ -14,6 +14,7 @@ import {
   setupMobileMenu,
   setupPreparingArtists,
   setupRefreshButton,
+  setupSplash,
 } from "../home/library.js";
 import { setupLyricsPanel } from "../home/lyrics.js";
 import { resumeOverlayIfNeeded, setupPlayerOverlay } from "../home/overlay.js";
@@ -29,6 +30,10 @@ import { installVisibilityBreadcrumb, setupFavorite, setupPlayer } from "../play
 import { installBfcacheReload, registerServiceWorker } from "../resume.js";
 import { installHeaderOffset, installKeyboardInset } from "../viewport.js";
 
+// First: dismissing the boot cover has nothing to do with the rest of setup
+// below, and registering the `load` listener it waits on before anything
+// else here runs is what keeps it accurate.
+setupSplash();
 installBfcacheReload();
 registerServiceWorker();
 installKeyboardInset();

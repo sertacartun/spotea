@@ -64,6 +64,56 @@ export function setupPreparingArtists() {
   onFragmentsSwapped(schedulePreparingCheck);
 }
 
+// How long the boot splash stays up at minimum, so a load that resolves
+// almost instantly (a warm cache, a fast connection) doesn't read as a
+// flicker — and the ceiling that forces it off regardless, so one stalled
+// image (a dead thumbnail proxy, a slow avatar) can't trap the app behind it
+// for the rest of the session.
+const SPLASH_MIN_VISIBLE_MS = 400;
+const SPLASH_MAX_WAIT_MS = 4000;
+
+/**
+ * Dismisses the full-viewport boot cover in index.html — see there for why
+ * it exists.
+ *
+ * Waits for the window's `load` event, not DOMContentLoaded: that fires the
+ * instant this module starts running (module scripts execute after parsing,
+ * same as DOMContentLoaded), which is long before Home's shelf images have
+ * actually painted in. `load` is what says the stylesheet, the module graph
+ * and whatever images the initial viewport asked for are all really in.
+ */
+export function setupSplash() {
+  const splash = document.getElementById("app-splash");
+  if (!splash) return;
+
+  const shownAt = performance.now();
+  let dismissed = false;
+
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
+    // Fade starts once the splash has been up for at least the minimum, not
+    // the instant `load` fires — otherwise a fast load fades the splash out
+    // the moment it finished fading in.
+    const wait = Math.max(0, SPLASH_MIN_VISIBLE_MS - (performance.now() - shownAt));
+    setTimeout(() => {
+      splash.classList.add("app-splash-hide");
+      // [hidden] is what actually takes it out of the layout and tab order;
+      // the class only drives the fade. Bound after adding the class rather
+      // than relying on a fixed timeout so a slower device's transition
+      // (or one a browser extension has stretched) doesn't get cut off
+      // early — and if it never fires, app-splash-hide's own
+      // `pointer-events: none` already keeps an invisible leftover div out
+      // of everyone's way.
+      splash.addEventListener("transitionend", () => { splash.hidden = true; }, { once: true });
+    }, wait);
+  };
+
+  if (document.readyState === "complete") dismiss();
+  else window.addEventListener("load", dismiss, { once: true });
+  setTimeout(dismiss, SPLASH_MAX_WAIT_MS);
+}
+
 // Delegated from the panel rather than the chip row/see-more links
 // themselves: both live inside the Home fragment and are replaced wholesale
 // on every refresh, which would take a directly-bound listener with them.

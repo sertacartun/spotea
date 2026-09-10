@@ -152,12 +152,30 @@ export function noteConnection(reachable) {
 // just looking at, may be never.
 const PROBE_FIRST_DELAY = 3000;
 const PROBE_MAX_DELAY = 30000;
+// How long /health gets to answer before the probe calls the server
+// unreachable. Deliberately more generous than sw.js's own network timeout:
+// that one only decides whether a cached copy is served a few seconds
+// sooner, where this one raises the banner *and* sets body.is-offline, which
+// greys out Home, Explore, Settings and every library card that isn't a
+// download. Concluding that wrongly on a merely slow connection locks
+// someone out of most of the app, so the bar is a generous one — /health is
+// the cheapest route here and answers well under a second over a working
+// tailnet.
+const PROBE_TIMEOUT_MS = 5000;
 let probeTimer = null;
 let probeDelay = PROBE_FIRST_DELAY;
 
 /** GET /health, which is the cheapest thing here that proves a round trip.
  *  `cache: "no-store"` and sw.js's API_PREFIXES both have to exclude it —
- *  a probe answered out of a cache is a probe that always says "online". */
+ *  a probe answered out of a cache is a probe that always says "online".
+ *
+ *  Answers in both directions, not only "it's back". A server that is
+ *  unreachable without saying so left the app looking perfectly online: the
+ *  tailnet host resolves publicly to a CGNAT address, so with the VPN off
+ *  navigator.onLine is true (the phone really does have internet) and every
+ *  api() request hangs instead of failing, which means nothing ever set
+ *  requestsFailing. Measured before this: 60s of an app with no banner, no
+ *  is-offline, and every search spinning forever. */
 async function probeConnection() {
   // Cleared rather than just forgotten: this is also called directly (on
   // visibilitychange), and leaving a pending timeout behind would leave two
@@ -168,12 +186,26 @@ async function probeConnection() {
     scheduleProbe();
     return;
   }
+  // Aborted on expiry, the opposite of sw.js's timeout: nothing is worth
+  // keeping in a health check that has already taken too long to mean
+  // anything, and a probe that ran every 30s without ever letting go would
+  // leave a socket behind each time. AbortController rather than
+  // AbortSignal.timeout — the latter throwing on an engine that lacks it
+  // would land in the catch below and be read as "unreachable" forever.
+  const abort = new AbortController();
+  const giveUp = setTimeout(() => abort.abort(), PROBE_TIMEOUT_MS);
   try {
-    await fetch("/health", { cache: "no-store" });
+    await fetch("/health", { cache: "no-store", signal: abort.signal });
     noteConnection(true);
   } catch {
+    // Widened first: noteConnection raises the banner, which schedules the
+    // next probe itself, and that one should use the backed-off delay rather
+    // than the one that just expired.
     probeDelay = Math.min(probeDelay * 2, PROBE_MAX_DELAY);
+    noteConnection(false);
     scheduleProbe();
+  } finally {
+    clearTimeout(giveUp);
   }
 }
 
@@ -224,6 +256,12 @@ export function watchConnection() {
     if (!document.hidden && !banner.hidden) probeConnection();
   });
   syncConnectionBanner();
+  // One probe on the way in, whatever the banner currently says. Every other
+  // path here only runs once something has already concluded the app is
+  // offline — and that is exactly what never happens when the server is
+  // unreachable while the phone's own connection is fine, since neither
+  // signal the banner runs on can tell. This is the only thing that asks.
+  probeConnection();
 }
 
 export function debounce(fn, delay) {
