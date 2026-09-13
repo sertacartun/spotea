@@ -2945,6 +2945,82 @@ button.track-link {
   display: none;
 }
 
+/* Boot splash — see index.html for why it exists. Sits above every other
+   overlay (.toast-container's 1200 is the next highest) because it is meant
+   to hide all of them coming up for the first time, not compete with one.
+   Faded out rather than swapped straight to [hidden] so the reveal reads as
+   one deliberate moment instead of a cut; [hidden] is still what ends up
+   removing it, once home/library.js's setupSplash hears the transition
+   finish — an explicit rule here because a class of ours setting `display`
+   otherwise beats the attribute (see .btn-icon[hidden] above for the same
+   trap). */
+.app-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  background: var(--bg-page);
+  opacity: 1;
+  transition: opacity 0.35s ease;
+}
+
+.app-splash[hidden] {
+  display: none;
+}
+
+.app-splash-hide {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.app-splash-mark {
+  width: 25vw;
+  min-width: 84px;
+  max-width: 128px;
+  aspect-ratio: 1;
+  border-radius: 22%;
+  overflow: hidden;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  animation: app-splash-breathe 1.8s ease-in-out infinite;
+}
+
+.app-splash-mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.app-splash-name {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+}
+
+.app-splash-spinner {
+  opacity: 0.7;
+}
+
+@keyframes app-splash-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-splash-mark {
+    animation: none;
+  }
+}
+
 .spinner-lg {
   width: 48px;
   height: 48px;

@@ -99,18 +99,66 @@ def test_service_worker_ignores_cross_origin_requests() -> None:
     # phrases also appear in the prose around them, and an earlier version of
     # this test happily found them in a comment.
     check = "url.origin !== self.location.origin"
-    write = "cache.put(event.request"
+    write = "cache.put(request, copy)"
 
     assert check in source, (
         "sw.js no longer compares the request's origin, so it is intercepting "
         "remote artwork again"
     )
     assert write in source, "sw.js's caching call moved; this guard needs updating"
-    # The early return has to come before the caching path, or the check is
-    # decoration.
-    assert source.index(check) < source.index(write), (
-        "the origin check must short-circuit before the cache write"
+    # The early return has to come before the request reaches the caching
+    # path, or the check is decoration. Compared inside the fetch listener
+    # rather than across the whole file: the caching now lives in
+    # networkFirst(), which is declared above the listener, so a file-wide
+    # index comparison would fail on ordering that is perfectly correct.
+    handler = source[source.index('self.addEventListener("fetch"') :]
+    assert handler.index(check) < handler.index("networkFirst("), (
+        "the origin check must short-circuit before the request is handed to "
+        "the caching path"
     )
+
+
+def test_the_service_worker_falls_back_to_cache_when_the_network_hangs() -> None:
+    """Falling back on rejection alone assumes an unreachable server says so.
+
+    This one doesn't. The app is served over Tailscale, and its hostname
+    resolves *publicly* to a 100.x CGNAT address — so with the VPN off the
+    phone still has internet, still resolves the name, and then opens a
+    connection to an address with no route to it. Nothing rejects; fetch()
+    just hangs, and so did respondWith(), with a complete cached copy of the
+    app sitting there unused. Measured against a socket that accepts and never
+    answers: no app shell within 15s, where a genuinely offline launch (which
+    rejects immediately) served it at once.
+
+    So the fallback has to be driven by a clock and not only by a rejection.
+    """
+    source = (JS_DIR / "sw.js").read_text()
+
+    assert "NETWORK_TIMEOUT_MS" in source, (
+        "sw.js has no network timeout — a hanging server (VPN off, captive "
+        "portal, black-holed route) never reaches the cache fallback"
+    )
+    # Sliced by hand rather than via _function_body: a service worker is not a
+    # module, so nothing here is `export function`.
+    body = source[source.index("function networkFirst(") :]
+    body = body[: body.index("\n}\n")]
+    assert "setTimeout(" in body, "networkFirst no longer races the network against a clock"
+    assert "caches.match(request)" in body, "networkFirst never consults the cache"
+    # One timeout has to stand for the rest of the launch. A request left
+    # running holds its socket, and a browser only opens ~6 per origin, so
+    # without this the shell's modules queue behind dead connections and pay
+    # the timeout several times over — 6s in one measured run, 38s in another.
+    assert "unreachableUntil" in body, (
+        "networkFirst no longer short-circuits once the server has been seen "
+        "not answering — every module pays the timeout again, in series"
+    )
+    # The timeout must not abort the request: a slow-but-alive network should
+    # still land and refresh the cache for next time.
+    for aborting in ("AbortController", "signal"):
+        assert aborting not in body, (
+            f"networkFirst aborts the in-flight request ({aborting}) — a slow "
+            "network then never refreshes the cache"
+        )
 
 
 def test_service_worker_api_prefixes_have_no_trailing_slash() -> None:
@@ -1660,6 +1708,45 @@ def test_the_offline_banner_does_not_run_on_navigator_online_alone() -> None:
     assert "noteConnection(true)" in api_body, (
         "api() does not report a request that came back, so the banner never "
         "comes down again"
+    )
+
+
+def test_an_unreachable_server_raises_the_banner_even_with_a_working_connection() -> None:
+    """"Offline" is not the same question as "has this phone got internet".
+
+    The app is served over Tailscale, and its hostname resolves publicly to a
+    100.x CGNAT address — so with the VPN off the phone has a perfectly good
+    connection, resolves the name, and then opens a socket to an address with
+    no route to it. navigator.onLine is true, and api()'s requests hang rather
+    than failing, so `requestsFailing` never flips either. Measured before
+    this: 60s of an app with no banner, no is-offline, and every search
+    spinning forever, on a server that answered nothing at all.
+
+    Closing that needs both halves. The probe has to be able to conclude
+    "unreachable" from silence, which means a clock of its own — a bare await
+    on a hanging fetch concludes nothing, ever. And it has to run on the way
+    in, because every other thing that starts it only fires once something
+    else has already decided the app is offline.
+    """
+    source = CORE_JS.read_text()
+    # Sliced by hand: probeConnection is module-private, so it is not one of
+    # the `export function` forms _function_body knows how to find.
+    probe = source[source.index("async function probeConnection(") :]
+    probe = probe[: probe.index("\n}\n")]
+
+    assert "PROBE_TIMEOUT_MS" in probe, (
+        "probeConnection waits on /health with no clock — against a server "
+        "that hangs rather than refuses, it concludes nothing"
+    )
+    assert "noteConnection(false)" in probe, (
+        "probeConnection can only report a connection coming back, never one "
+        "that was never there"
+    )
+
+    watch = _function_body(source, "watchConnection")
+    assert "probeConnection()" in watch, (
+        "nothing probes at startup, so an unreachable-but-silent server is "
+        "only ever noticed if something else already raised the banner"
     )
 
 

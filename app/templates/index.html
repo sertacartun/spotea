@@ -61,6 +61,37 @@
 {% endblock %}
 
 {% block body %}
+  {# First thing painted, and the only thing painted until pages/index.js
+     hides it. <html>'s inline background style covers the gap before the
+     (render-blocking) stylesheet arrives; this covers the gap after that,
+     while shelf images are still loading in and JS is still wiring up tabs
+     and the player — without it that wiring-up happened visibly, as a pop of
+     avatars and a topbar that went from inert to clickable a beat later. See
+     home/library.js's setupSplash for how it's dismissed. #}
+  <div id="app-splash" class="app-splash">
+    <div class="app-splash-mark" aria-hidden="true">
+      <svg viewBox="0 0 512 512" fill="none">
+        <defs>
+          <linearGradient id="splash-bg" x1="70" y1="40" x2="440" y2="480" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#FF3B3B" />
+            <stop offset="0.55" stop-color="#F01A1A" />
+            <stop offset="1" stop-color="#B50912" />
+          </linearGradient>
+        </defs>
+        <rect width="512" height="512" rx="112" fill="url(#splash-bg)" />
+        <g stroke="white" stroke-width="18" stroke-linecap="round">
+          <path d="M190 101.5c-14 14-14 32 0 46s14 32 0 46" />
+          <path d="M256 86.5c-14 14-14 32 0 46s14 32 0 46" />
+          <path d="M322 101.5c-14 14-14 32 0 46s14 32 0 46" />
+        </g>
+        <path d="M131 203.5h250v172c0 28-22 50-50 50h-150c-28 0-50-22-50-50V203.5Z" fill="white" />
+        <path d="M215.5 277c0-12 13-19 23-12l58 35c11 7 11 22 0 29l-58 35c-10 7-23 0-23-12v-75Z" fill="#E7191D" />
+      </svg>
+    </div>
+    <span class="app-splash-name">Spotea</span>
+    <span class="spinner app-splash-spinner" role="status" aria-label="Loading"></span>
+  </div>
+
   <div id="refresh-overlay" class="overlay" hidden>
     <span class="spinner spinner-lg" role="status" aria-label="Refreshing"></span>
   </div>

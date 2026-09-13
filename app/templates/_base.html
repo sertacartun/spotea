@@ -29,6 +29,29 @@
   <link rel="icon" href="/static/img/favicon.ico" />
   <link rel="manifest" href="/static/manifest.json" />
   <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png" />
+  {# iOS shows a plain white screen for the ~300-800ms WKWebView takes to boot
+     a standalone launch, before any of our own HTML/CSS can run — this is
+     what was reading as a flash of white right before index.html's own
+     #app-splash appears. There is no manifest-driven equivalent of Android's
+     auto-generated splash here: iOS only fills this gap from a static image,
+     and only when it matches the launching device's *exact* physical pixel
+     size — a mismatched or missing one falls straight back to plain white.
+     So the one image below covers exactly the device it was measured for
+     (iPhone 15 Pro Max / 16 Plus, 1290x2796 @3x — see
+     scripts/gen_apple_splash_image.py) and nothing else; a device outside
+     that still gets the plain white boot, same as before this existed.
+
+     Flat --bg-page, no icon. An earlier version drew the coffee-cup icon and
+     wordmark here too, matched pixel-for-pixel against #app-splash's real
+     SVG — but iOS dims/scales this image while it zooms in from the
+     home-screen icon, and that animation makes a detailed icon read as
+     wrong-colored and misshapen for its duration, where a flat color dimmed
+     is still that same color. #}
+  <link
+    rel="apple-touch-startup-image"
+    href="/static/img/apple-splash-1290x2796.png"
+    media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
+  />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
