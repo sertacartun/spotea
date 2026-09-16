@@ -3,7 +3,7 @@
 import re
 from datetime import datetime, timedelta
 
-from app.models import Artist, Content, User
+from app.models import Artist, Content, OfflinePin, User
 from app.timeutil import utcnow
 
 USER_ID = 1
@@ -32,8 +32,10 @@ def _other_user_feed(db_session) -> Artist:
 FRAGMENTS = [
     ("/partials/home", ["home-shelves"]),
     ("/partials/library", ["library-grid"]),
-    ("/partials/downloads", ["downloads-body"]),
-    ("/partials/storage-summary", ["settings-storage-desc"]),
+    (
+        "/partials/storage-summary",
+        ["settings-downloads-desc", "settings-downloads-actions", "settings-cache-desc", "settings-cache-actions"],
+    ),
 ]
 
 
@@ -62,9 +64,14 @@ def _seed(db_session):
             Content(
                 artist_id=artist.id, user_id=USER_ID, video_id="partplay001", title="Played Recently",
                 published_at=datetime(2025, 12, 1), last_played_at=now,
+                status="ready", file_path="/nonexistent2.m4a", file_size_bytes=1024 * 1024,
             ),
         ]
     )
+    db_session.commit()
+    # The favorite is a download (a downloaded list pins it); the played track is cache.
+    favorite = db_session.query(Content).filter(Content.video_id == "partfav0001").one()
+    db_session.add(OfflinePin(user_id=USER_ID, list_key="favorites", content_id=favorite.id))
     db_session.commit()
     return artist
 
@@ -219,15 +226,15 @@ def test_a_followed_artists_card_prefers_monthly_listeners(client, db_session):
     assert "2 releases</span>" not in body
 
 
-def test_downloads_fragment_reports_stored_sizes(client, db_session):
-    """The modal list and the Settings summary are separate fragments but must agree."""
+def test_storage_fragment_splits_downloads_from_cache(client, db_session):
     _seed(db_session)
 
-    downloads_fragment = client.get("/partials/downloads").text
-    summary_fragment = client.get("/partials/storage-summary").text
+    fragment = client.get("/partials/storage-summary").text
 
-    assert "3.0 MB" in _fragment_body(downloads_fragment, "downloads-body")
-    assert _fragment_body(summary_fragment, "settings-storage-desc") == "3.0 MB across 1 item"
+    assert _fragment_body(fragment, "settings-downloads-desc") == "3.0 MB across 1 song"
+    assert 'href="/storage/export"' in _fragment_body(fragment, "settings-downloads-actions")
+    assert _fragment_body(fragment, "settings-cache-desc").startswith("1.0 MB across 1 song · ")
+    assert 'id="clear-cache"' in _fragment_body(fragment, "settings-cache-actions")
 
 
 def test_fragments_are_empty_but_valid_for_a_fresh_profile(client):
@@ -239,7 +246,10 @@ def test_fragments_are_empty_but_valid_for_a_fresh_profile(client):
 
     # The interests overlay lives in the page, not this fragment, so this renders the empty branch.
     assert "Nothing played yet" in client.get("/partials/home").text
-    assert "Nothing downloaded yet" in client.get("/partials/downloads").text
+    # Nothing to export or clear.
+    storage = client.get("/partials/storage-summary").text
+    assert "/storage/export" not in storage
+    assert "clear-cache" not in storage
 
 
 def test_fragments_require_login():

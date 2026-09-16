@@ -3,7 +3,7 @@ import contextlib
 import logging
 
 from app.database import SessionLocal
-from app.storage import sweep_orphans, sweep_stale_previews
+from app.storage import sweep_cache, sweep_orphans, sweep_stale_previews
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ def _sweep_disk() -> None:
     with SessionLocal() as db:
         sweep_orphans(db)
         sweep_stale_previews(db)
+        sweep_cache(db)
 
 
 async def run_scheduler() -> None:

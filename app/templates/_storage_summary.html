@@ -1,2 +1,2 @@
-{#- `usage` is a StorageUsage or UsageSummary; both expose total_bytes/count. -#}
-{{ usage.total_bytes | filesize }} across {{ usage.count }} item{{ '' if usage.count == 1 else 's' }}
+{#- `usage` is a UsageSummary: total_bytes/count. -#}
+{{ usage.total_bytes | filesize }} across {{ usage.count }} song{{ '' if usage.count == 1 else 's' }}

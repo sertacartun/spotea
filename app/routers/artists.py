@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.content_query import followed_artists
 from app.deps import get_current_user, get_db, require_login
-from app.models import Artist, Content, User
+from app.models import Artist, Content, OfflinePin, User
 from app.schemas import (
     ArtistAddResult,
     ArtistCreate,
@@ -78,6 +78,8 @@ def delete_feed(
             content.status == "ready"
             or content.last_played_at is not None
             or content.is_favorite
+            # Queued for a downloaded list, not yet ready.
+            or db.query(OfflinePin.id).filter(OfflinePin.content_id == content.id).first() is not None
         )
         if not keep:
             purge_content(db, content)

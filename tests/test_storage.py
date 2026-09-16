@@ -1,10 +1,12 @@
-"""collect_usage and the /storage endpoints; sizes come from Content.file_size_bytes."""
+"""The downloads/cache split, size backfill and the /storage endpoints; sizes come from Content.file_size_bytes."""
 
 import io
 import zipfile
+from datetime import timedelta
 
-from app.models import Artist, Content
-from app.storage import clear_all, collect_usage, usage_summary
+from app.models import Artist, Content, OfflinePin
+from app.storage import CACHE_RETENTION, backfill_file_sizes, clear_cache, storage_split, sweep_cache
+from app.timeutil import utcnow
 
 USER_ID = 1
 
@@ -37,25 +39,30 @@ def _ready_content(db_session, tmp_path, *, video_id, size_bytes, stored_size=No
     return content, audio
 
 
-def test_usage_reports_the_stored_size(db_session, tmp_path):
+def _pin(db_session, content, key="favorites"):
+    db_session.add(OfflinePin(user_id=USER_ID, list_key=key, content_id=content.id))
+    db_session.commit()
+
+
+def test_the_stored_size_wins_over_the_file_on_disk(db_session, tmp_path):
+    """The file isn't stat'ed on every render."""
     _ready_content(db_session, tmp_path, video_id="stored00001", size_bytes=10, stored_size=4096)
 
-    usage = collect_usage(db_session, USER_ID)
+    backfill_file_sizes(db_session, USER_ID)
 
-    assert usage.count == 1
-    # The stored value wins over what's on disk: the file isn't stat'ed on every call.
-    assert usage.total_bytes == 4096
+    assert storage_split(db_session, USER_ID).cache.total_bytes == 4096
 
 
-def test_unmeasured_rows_are_backfilled_from_disk_once(db_session, tmp_path):
-    """Rows downloaded before file_size_bytes existed are NULL until the first collect_usage."""
+def test_unmeasured_rows_are_backfilled_from_disk(db_session, tmp_path):
+    """Rows downloaded before file_size_bytes existed are NULL, and count as 0 until measured."""
     content, _audio = _ready_content(
         db_session, tmp_path, video_id="legacy00001", size_bytes=2048, stored_size=None
     )
+    assert storage_split(db_session, USER_ID).cache.total_bytes == 0
 
-    usage = collect_usage(db_session, USER_ID)
+    backfill_file_sizes(db_session, USER_ID)
 
-    assert usage.total_bytes == 2048
+    assert storage_split(db_session, USER_ID).cache.total_bytes == 2048
     db_session.refresh(content)
     assert content.file_size_bytes == 2048
 
@@ -66,36 +73,20 @@ def test_a_missing_file_backfills_as_zero_rather_than_failing(db_session, tmp_pa
     )
     audio.unlink()
 
-    usage = collect_usage(db_session, USER_ID)
+    backfill_file_sizes(db_session, USER_ID)
 
-    assert usage.total_bytes == 0
     db_session.refresh(content)
     assert content.file_size_bytes == 0
 
 
-def test_totals_add_up_across_rows(db_session, tmp_path):
-    _ready_content(db_session, tmp_path, video_id="multi000001", size_bytes=1, stored_size=1000)
-    _ready_content(db_session, tmp_path, video_id="multi000002", size_bytes=1, stored_size=2000)
-
-    usage = collect_usage(db_session, USER_ID)
-
-    assert usage.count == 2
-    assert usage.total_bytes == 3000
-
-
-def test_usage_summary_matches_collect_usage_for_an_empty_library(db_session):
-    """usage_summary must add up to what collect_usage's full list reports."""
-    summary = usage_summary(db_session, USER_ID)
-    full = collect_usage(db_session, USER_ID)
-
-    assert summary.count == full.count == 0
-    assert summary.total_bytes == full.total_bytes == 0
-
-
-def test_usage_summary_matches_collect_usage_across_several_rows(db_session, tmp_path):
-    _ready_content(db_session, tmp_path, video_id="sum0000001", size_bytes=1, stored_size=1000)
+def test_the_split_separates_downloads_from_cache(db_session, tmp_path):
+    downloaded, _ = _ready_content(db_session, tmp_path, video_id="sum0000001", size_bytes=1, stored_size=1000)
     _ready_content(db_session, tmp_path, video_id="sum0000002", size_bytes=1, stored_size=2000)
-    # A not-downloaded row must not be counted by either path.
+    _ready_content(db_session, tmp_path, video_id="sum0000003", size_bytes=1, stored_size=500)
+    # Pinned by two lists: still one download, counted once.
+    _pin(db_session, downloaded, "favorites")
+    _pin(db_session, downloaded, "playlist:1")
+    # A not-downloaded row is in neither.
     artist = db_session.query(Artist).filter(Artist.user_id == USER_ID).first()
     db_session.add(
         Content(
@@ -105,41 +96,60 @@ def test_usage_summary_matches_collect_usage_across_several_rows(db_session, tmp
     )
     db_session.commit()
 
-    summary = usage_summary(db_session, USER_ID)
-    full = collect_usage(db_session, USER_ID)
+    split = storage_split(db_session, USER_ID)
 
-    assert summary.count == full.count == 2
-    assert summary.total_bytes == full.total_bytes == 3000
-
-
-def test_usage_summary_reads_a_backfilled_size_after_collect_usage_has_run(db_session, tmp_path):
-    """usage_summary never writes, so a legacy NULL row counts only after collect_usage has backfilled it."""
-    _ready_content(db_session, tmp_path, video_id="legacysum01", size_bytes=4096, stored_size=None)
-
-    before_backfill = usage_summary(db_session, USER_ID)
-    assert before_backfill.total_bytes == 0
-
-    collect_usage(db_session, USER_ID)
-
-    after_backfill = usage_summary(db_session, USER_ID)
-    assert after_backfill.total_bytes == 4096
+    assert (split.downloads.count, split.downloads.total_bytes) == (1, 1000)
+    assert (split.cache.count, split.cache.total_bytes) == (2, 2500)
 
 
-def test_clear_all_resets_the_stored_size_too(db_session, tmp_path):
-    """A stale size would make the next collect_usage skip its backfill."""
-    content, audio = _ready_content(
-        db_session, tmp_path, video_id="cleared0001", size_bytes=64, stored_size=64
-    )
+def test_clear_cache_keeps_downloads_and_resets_the_stored_size(db_session, tmp_path):
+    """A stale size would make the next backfill skip the row."""
+    cached, cached_audio = _ready_content(db_session, tmp_path, video_id="cached00001", size_bytes=64, stored_size=64)
+    kept, kept_audio = _ready_content(db_session, tmp_path, video_id="kept0000001", size_bytes=64, stored_size=64)
+    _pin(db_session, kept)
 
-    cleared = clear_all(db_session, USER_ID)
+    assert clear_cache(db_session, USER_ID) == 1
 
-    assert cleared == 1
+    assert not cached_audio.exists()
+    assert kept_audio.exists()
+    db_session.refresh(cached)
+    db_session.refresh(kept)
+    assert (cached.status, cached.file_path, cached.file_size_bytes) == ("not_downloaded", None, None)
+    assert kept.status == "ready"
+
+
+def test_the_cache_sweep_waits_a_week_after_the_last_play(db_session, tmp_path):
+    old = utcnow() - CACHE_RETENTION - timedelta(hours=1)
+    recent = utcnow() - timedelta(days=1)
+    stale, stale_audio = _ready_content(db_session, tmp_path, video_id="stale000001", size_bytes=8)
+    replayed, replayed_audio = _ready_content(db_session, tmp_path, video_id="replayed001", size_bytes=8)
+    pinned, pinned_audio = _ready_content(db_session, tmp_path, video_id="pinned00001", size_bytes=8)
+    stale.downloaded_at = old
+    stale.last_played_at = old
+    # Downloaded long ago but played yesterday: still in use.
+    replayed.downloaded_at = old
+    replayed.last_played_at = recent
+    pinned.downloaded_at = old
+    pinned.last_played_at = old
+    db_session.commit()
+    _pin(db_session, pinned)
+
+    assert sweep_cache(db_session) == 1
+
+    assert not stale_audio.exists()
+    assert replayed_audio.exists()
+    # A download has no expiry.
+    assert pinned_audio.exists()
+
+
+def test_clear_cache_endpoint(client, db_session, tmp_path):
+    _content, audio = _ready_content(db_session, tmp_path, video_id="endpoint001", size_bytes=8)
+
+    res = client.delete("/storage/cache")
+
+    assert res.status_code == 200
+    assert res.json() == {"cleared": 1}
     assert not audio.exists()
-    db_session.refresh(content)
-    assert content.status == "not_downloaded"
-    assert content.file_path is None
-    assert content.file_size_bytes is None
-    assert collect_usage(db_session, USER_ID).total_bytes == 0
 
 
 def test_delete_endpoint_resets_the_stored_size_too(client, db_session, tmp_path):
@@ -162,6 +172,10 @@ def test_export_streams_from_disk_and_leaves_nothing_behind(client, db_session, 
 
     first, _ = _ready_content(db_session, tmp_path, video_id="export00001", size_bytes=32)
     second, _ = _ready_content(db_session, tmp_path, video_id="export00002", size_bytes=48)
+    _pin(db_session, first)
+    _pin(db_session, second)
+    # Cache isn't a download, so it isn't exported.
+    _ready_content(db_session, tmp_path, video_id="cacheonly01", size_bytes=16)
 
     res = client.get("/storage/export")
 
@@ -184,29 +198,15 @@ def test_export_with_nothing_downloaded_is_a_conflict(client, db_session):
     assert res.status_code == 409
 
 
-def test_items_endpoint_carries_what_a_device_copy_needs(client, db_session, tmp_path):
-    """A device copy must render with no server: title, artist, cover and duration."""
-    content, _audio = _ready_content(
-        db_session, tmp_path, video_id="items000001", size_bytes=7, stored_size=7
-    )
-    content.thumbnail_url = "/image-proxy?u=https%3A%2F%2Fexample.com%2Fc.jpg"
-    content.duration_seconds = 212
+def test_purging_a_pinned_track_takes_its_pins_with_it(db_session, tmp_path):
+    """offline_pins has a foreign key to content, so a pin left behind would fail the delete."""
+    from app.storage import purge_content
+
+    content, audio = _ready_content(db_session, tmp_path, video_id="purged00001", size_bytes=8)
+    _pin(db_session, content)
+
+    purge_content(db_session, content)
     db_session.commit()
 
-    res = client.get("/storage/items")
-
-    assert res.status_code == 200
-    (item,) = res.json()
-    assert item["id"] == content.id
-    assert item["title"] == "Track items000001"
-    assert item["channel_title"] == "Storage Channel"
-    assert item["size_bytes"] == 7
-    assert item["thumbnail_url"] == "/image-proxy?u=https%3A%2F%2Fexample.com%2Fc.jpg"
-    assert item["duration_seconds"] == 212
-
-
-def test_items_endpoint_is_empty_with_nothing_downloaded(client, db_session):
-    res = client.get("/storage/items")
-
-    assert res.status_code == 200
-    assert res.json() == []
+    assert db_session.query(OfflinePin).count() == 0
+    assert not audio.exists()

@@ -2,7 +2,7 @@ import { unfollowArtist } from "../content-actions.js";
 import { classifyHash, noteConnection, showToast } from "../core.js";
 import { refreshFragments, swapFragmentHtml } from "../fragments.js";
 import { applyAmbientTint } from "./ambient.js";
-import { deviceTrackIds, renderDownloadsPanel } from "./device.js";
+import { decorateDetailPanel, deviceTrackIds, renderDownloadsPanel } from "./device.js";
 import { OPEN_ARTIST, openPlayer } from "./overlay.js";
 import { PLAYLIST_CHANGED, PLAYLIST_DELETED } from "./playlists.js";
 import { QUEUE_CHANGED, isShuffled, loadQueue, queueSource, setQueue, toggleShuffle } from "./queue.js";
@@ -169,6 +169,7 @@ function afterPanelSwap() {
   syncShuffleButton();
   wireScrollers();
   applyAmbientTint();
+  decorateDetailPanel(currentSource());
 }
 
 function currentSource() {

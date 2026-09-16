@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from app.deps import get_current_user, get_db, require_login
 from app.models import User
 from app.page_context import (
-    downloads_context,
     home_context,
     library_context,
     playlist_detail_context,
@@ -66,18 +65,6 @@ def library_fragment(
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     return templates.TemplateResponse(request, "_fragment_library.html", library_context(db, user.id))
-
-
-@router.get("/downloads", response_class=HTMLResponse)
-def downloads_fragment(
-    request: Request,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> HTMLResponse:
-    # Not part of the default refreshFragments() sweep; fetched only when the modal is open.
-    return templates.TemplateResponse(
-        request, "_fragment_downloads.html", downloads_context(db, user.id)
-    )
 
 
 @router.get("/storage-summary", response_class=HTMLResponse)

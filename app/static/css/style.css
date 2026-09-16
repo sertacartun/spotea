@@ -666,9 +666,17 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   min-width: 0;
 }
 
+.settings-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
 /* Filled like .settings-select: a bare text button beside a description reads
    as paragraph text. No wrap: a label breaking mid-word looks broken. */
-.settings-row > .btn-quiet {
+.settings-row > .btn-quiet,
+.settings-row-actions > .btn-quiet {
   flex-shrink: 0;
   white-space: nowrap;
   background: var(--bg-control);
@@ -677,7 +685,8 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   color: var(--text-primary);
 }
 
-.settings-row > .btn-quiet:hover {
+.settings-row > .btn-quiet:hover,
+.settings-row-actions > .btn-quiet:hover {
   background-image: var(--hover-lift);
 }
 
@@ -716,7 +725,8 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   /* Otherwise these stretch to the column's width and the label floats centred. */
   .settings-row > .settings-select,
   .settings-row > .btn-quiet,
-  .settings-row > .btn-danger {
+  .settings-row > .btn-danger,
+  .settings-row > .settings-row-actions {
     align-self: flex-start;
   }
 }
@@ -997,118 +1007,6 @@ button.track-link {
   cursor: pointer;
 }
 
-.storage-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-  padding: 0.9rem 1rem;
-  background: var(--bg-surface);
-  border-radius: 8px;
-  margin-bottom: 1rem;
-  flex-shrink: 0;
-}
-
-.storage-summary-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.storage-summary-actions[hidden] {
-  display: none;
-}
-
-.storage-summary-actions .btn-quiet {
-  background: var(--bg-control);
-  border: 1px solid transparent;
-  color: var(--text-primary);
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--text-md);
-  line-height: normal;
-}
-
-.storage-summary-actions .btn-quiet:hover {
-  background-image: var(--hover-lift);
-}
-
-.storage-total {
-  font-size: 1.15rem;
-  font-weight: 700;
-  margin-right: 0.4rem;
-}
-
-.storage-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  overflow-y: auto;
-  /* A flex child's min-height defaults to its content; 0 lets it scroll inside
-     the modal's capped height. */
-  min-height: 0;
-}
-
-.storage-list[hidden] {
-  display: none;
-}
-
-.storage-list li {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.55rem 0.75rem;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.storage-list li:last-child {
-  border-bottom: none;
-}
-
-.storage-item-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.storage-item-title {
-  font-size: 0.85rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.storage-item-meta {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-}
-
-.storage-export,
-.storage-remove {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  /* min-width/height guarantee a 44px touch target regardless of the icon's box. */
-  min-width: 44px;
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.storage-export svg,
-.storage-remove svg {
-  width: 16px;
-  height: 16px;
-}
-
 .offline-banner {
   display: flex;
   align-items: center;
@@ -1130,14 +1028,6 @@ button.track-link {
 /* `display: flex` above beats the UA [hidden] rule. */
 .offline-banner[hidden] {
   display: none;
-}
-
-.storage-export:hover {
-  color: var(--accent);
-}
-
-.storage-remove:hover {
-  color: var(--danger);
 }
 
 .content-header {
@@ -1991,6 +1881,18 @@ button.track-link {
   margin-left: auto;
 }
 
+/* After the base rule, which would otherwise win. Play, Shuffle and Download side by
+   side squeeze the title column; the icon buttons give up width, never their 44px height. */
+@media (max-width: 480px) {
+  .detail-actions {
+    gap: 0.25rem;
+  }
+
+  .detail-actions .btn-quiet-icon {
+    min-width: 36px;
+  }
+}
+
 .btn-play-all {
   width: 56px;
   height: 56px;
@@ -2495,21 +2397,6 @@ button.track-link {
   padding-top: var(--space-4);
 }
 
-.modal-downloads {
-  max-width: 480px;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-}
-
-/* Flex, so .storage-list has a bounded height to scroll inside. */
-#downloads-body {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
 .modal-header {
   display: flex;
   align-items: center;
@@ -2932,6 +2819,36 @@ audio {
 .btn-transport.btn-repeat.is-on,
 .btn-quiet-icon.btn-shuffle.is-on {
   color: var(--accent);
+}
+
+.btn-quiet-icon.btn-keep.is-on {
+  color: var(--accent);
+}
+
+.btn-keep {
+  gap: 0.3rem;
+}
+
+.keep-progress {
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.keep-progress[hidden] {
+  display: none;
+}
+
+.track-on-device {
+  display: none;
+  width: 11px;
+  height: 11px;
+  margin-right: 0.3rem;
+  vertical-align: -1px;
+  color: var(--accent);
+}
+
+.track-row.is-on-device .track-on-device {
+  display: inline-block;
 }
 
 .btn-repeat svg[hidden] {
@@ -3755,81 +3672,6 @@ body.has-mini-player .layout {
   /* is-typing has no measurement yet; pad the page until one lands. */
   body.is-typing .layout {
     padding-bottom: calc(var(--keyboard-inset) + 1rem);
-  }
-}
-
-/* A real checkbox under a drawn track, keeping native keyboard/focus/state. */
-.switch {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  cursor: pointer;
-  min-height: 44px;
-  padding-left: 0;
-}
-
-.switch-input {
-  position: absolute;
-  opacity: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  cursor: pointer;
-}
-
-.switch-track {
-  /* Drawn, never hit: taps must reach the input underneath. */
-  pointer-events: none;
-  width: 46px;
-  height: 28px;
-  border-radius: 999px;
-  background: var(--bg-control);
-  border: 1px solid transparent;
-  display: inline-flex;
-  align-items: center;
-  padding: 2px;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-
-.switch-thumb {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--text-secondary);
-  transition: transform 0.15s ease, background 0.15s ease;
-}
-
-.switch-input:checked + .switch-track {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.switch-input:checked + .switch-track .switch-thumb {
-  transform: translateX(18px);
-  background: var(--white);
-}
-
-.switch-input:focus-visible + .switch-track {
-  outline: 2px solid var(--text-primary);
-  outline-offset: 2px;
-}
-
-.switch-input:disabled + .switch-track {
-  opacity: 0.4;
-  cursor: default;
-}
-
-/* The 44px tap target overhangs the 28px track; take the overhang back out of
-   layout so the row spaces like its button and select siblings. */
-.settings-row > .switch {
-  margin-block: -8px;
-}
-
-@media (max-width: 480px) {
-  /* Otherwise it stretches to the column's width and drifts to the middle. */
-  .settings-row > .switch {
-    align-self: flex-start;
   }
 }
 

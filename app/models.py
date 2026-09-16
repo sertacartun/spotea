@@ -118,7 +118,7 @@ class Content(Base):
     published_at: Mapped[datetime | None] = mapped_column(default=None)
     status: Mapped[str] = mapped_column(String(20), default="not_downloaded")
     file_path: Mapped[str | None] = mapped_column(String(500), default=None)
-    # Stored so storage.collect_usage needn't stat every file on each Home render.
+    # Stored so Settings' storage totals needn't stat every file on each render.
     file_size_bytes: Mapped[int | None] = mapped_column(default=None)
     error_message: Mapped[str | None] = mapped_column(String(1000), default=None)
     # A flag, not a fifth status: SQLite can't alter the CHECK constraint on existing databases.
@@ -210,3 +210,20 @@ class PlaylistItem(Base):
     added_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     playlist: Mapped["Playlist"] = relationship(back_populates="items")
+
+
+class OfflinePin(Base):
+    """A track a downloaded list holds. Its file is a download, kept for good; an unpinned
+    file is cache, removed a week after its last play. `list_key` is the device's key for the
+    list ("favorites", "playlist:12", "list:yt-release:MPREb_…")."""
+
+    __tablename__ = "offline_pins"
+    __table_args__ = (
+        UniqueConstraint("user_id", "list_key", "content_id", name="uq_offline_pin"),
+        Index("ix_offline_pins_content", "content_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    list_key: Mapped[str] = mapped_column(String(200))
+    content_id: Mapped[int] = mapped_column(ForeignKey("content.id"))

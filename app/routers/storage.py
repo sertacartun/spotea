@@ -14,27 +14,19 @@ from app.config import settings
 from app.deps import get_current_user, get_db, require_login
 from app.formatting import format_size, safe_filename
 from app.models import Content, User
-from app.schemas import StoredItemOut
-from app.storage import EXPORT_TEMP_SUFFIX, clear_all, collect_usage
+from app.storage import EXPORT_TEMP_SUFFIX, clear_cache, is_pinned
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/storage", tags=["storage"], dependencies=[Depends(require_login)])
 
 
-@router.get("/items")
-def storage_items(
-    user: User = Depends(get_current_user), db: Session = Depends(get_db)
-) -> list[StoredItemOut]:
-    return [StoredItemOut(**vars(item)) for item in collect_usage(db, user.id).items]
-
-
-@router.delete("")
-def clear_storage(
+@router.delete("/cache")
+def clear_cache_endpoint(
     user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> dict[str, int]:
-    cleared = clear_all(db, user.id)
-    return {"cleared": cleared}
+    """Downloads stay; played songs download again on their next play."""
+    return {"cleared": clear_cache(db, user.id)}
 
 
 def _archive_name(title: str, suffix: str, used: set[str]) -> str:
@@ -52,12 +44,14 @@ def _archive_name(title: str, suffix: str, used: set[str]) -> str:
 def export_all(
     user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> FileResponse:
-    """Every downloaded track as one zip, built on disk rather than in memory.
+    """Every download (not cache) as one zip, built on disk rather than in memory.
 
     The temp file lives beside the audio, not in /tmp, which is often a small tmpfs.
     """
     rows = (
-        db.query(Content).filter(Content.user_id == user.id, Content.status == "ready").all()
+        db.query(Content)
+        .filter(Content.user_id == user.id, Content.status == "ready", is_pinned())
+        .all()
     )
     exportable = [(row, Path(row.file_path)) for row in rows if row.file_path]
     exportable = [(row, path) for row, path in exportable if path.is_file()]

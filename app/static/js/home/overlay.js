@@ -4,11 +4,9 @@ import { applyAmbientTint } from "./ambient.js";
 import { api, formatDuration, showToast } from "../core.js";
 import { refreshFragments, refreshQueuePanel } from "../fragments.js";
 import {
-  offlinePlaybackOn,
   openCoverUrl,
   openTrackUrl,
   readTrackMeta,
-  storeTrack,
 } from "../offline.js";
 import {
   activeAudio,
@@ -398,8 +396,6 @@ async function cacheUpcomingAudio(id) {
     // /stream doesn't record a play, which is what makes fetching early safe.
     controller = new AbortController();
     upcomingAbort = controller;
-    // Read before the transfer: upcomingTrack may have moved on by the time the bytes land.
-    const meta = upcomingTrack?.id === id ? upcomingTrack.data : null;
     const res = await fetch(`/content/${id}/stream`, { signal: controller.signal });
     if (!res.ok) return;
     const declared = Number(res.headers.get("content-length"));
@@ -407,17 +403,6 @@ async function cacheUpcomingAudio(id) {
     const blob = await res.blob();
     if (blob.size > PREFETCH_MAX_BYTES) return;
     objectUrl = URL.createObjectURL(blob);
-
-    // Store here so the offline sync (triggered by this play's refresh) doesn't fetch the same file
-    // again. Not awaited: a full device must not cost the listener this track.
-    if (meta && offlinePlaybackOn()) {
-      storeTrack(id, blob, {
-        title: meta.title || "",
-        artist: meta.channel_title || "",
-        coverUrl: meta.thumbnail_url || null,
-        duration: meta.duration_seconds ?? null,
-      }).catch(() => {});
-    }
   } catch (err) {
     return;
   } finally {

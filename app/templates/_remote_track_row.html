@@ -22,7 +22,11 @@
     <span class="track-info">
       <span class="track-title" title="{{ item.title }}">{{ item.title }}</span>
       {% if item.channel_title %}
-      <span class="track-artist">{{ item.channel_title }}</span>
+      <span class="track-artist">
+        {#- Shown by home/device.js (.is-on-device) when a kept list put this song on the device. -#}
+        <svg class="track-on-device" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-label="On this device" role="img"><use href="#i-download" /></svg>
+        {{- item.channel_title -}}
+      </span>
       {% endif %}
     </span>
   </button>

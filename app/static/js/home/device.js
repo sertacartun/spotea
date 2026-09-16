@@ -1,4 +1,4 @@
-// What this device holds (IndexedDB via ../offline.js) and the offline lock.
+// What this device holds (IndexedDB via ../offline.js): kept lists, their sync, and the offline lock.
 
 import {
   CONNECTION_CHANGED,
@@ -11,18 +11,19 @@ import {
 } from "../core.js";
 import { onFragmentsSwapped } from "../fragments.js";
 import {
-  clearAll as clearDeviceCopies,
   deleteTrack,
-  deviceUsage,
   isSupported as deviceStorageSupported,
+  keepList,
+  keptLists,
   listSaved,
-  offlinePlaybackOn,
   openCoverUrl,
-  rememberOfflinePlayback,
+  reconcileList,
   requestPersistence,
   saveTrack,
+  savedTrackIds,
 } from "../offline.js";
 import { activeAudio, onPlayerEvent } from "../player.js";
+import { materializeRemoteRows } from "./remote.js";
 import { activate } from "./tabs.js";
 
 // Rows the open Downloads panel was drawn from; a row click queues the rest.
@@ -40,39 +41,13 @@ function releasePanelCovers() {
   panelCoverUrls = [];
 }
 
-function syncSwitch() {
-  const toggle = document.getElementById("offline-playback-toggle");
-  if (toggle) toggle.checked = offlinePlaybackOn();
-}
-
 // Also run on every fragment swap: the swapped-in Library tile carries the
 // server's placeholder text.
-export async function syncDeviceSummary() {
-  const line = document.getElementById("device-summary-text");
+async function syncDeviceSummary() {
   const tileCount = document.getElementById("downloads-card-count");
-  const toggle = document.getElementById("offline-playback-toggle");
-
-  // No IndexedDB (private mode): a switch that silently fails is worse than none.
-  if (!deviceStorageSupported()) {
-    if (toggle) toggle.disabled = true;
-    if (line) line.textContent = "This browser can't keep songs on the device.";
-    return;
-  }
-
-  const { count, bytes, quota } = await deviceUsage();
-
-  if (tileCount) {
-    tileCount.textContent = count ? `${count} song${count === 1 ? "" : "s"}` : "Nothing saved yet";
-  }
-  if (!line) return;
-  line.dataset.count = String(count);
-  if (!count) {
-    line.textContent = "Keep every download on this phone, so it plays with no connection.";
-    return;
-  }
-  // "about": the quota is advisory, origin-wide, and unpredictable on iOS.
-  const ceiling = quota ? ` of about ${formatSize(quota)}` : "";
-  line.textContent = `${count} song${count === 1 ? "" : "s"} on this device · ${formatSize(bytes)}${ceiling}`;
+  if (!tileCount || !deviceStorageSupported()) return;
+  const count = (await savedTrackIds()).length;
+  tileCount.textContent = count ? `${count} song${count === 1 ? "" : "s"}` : "Nothing saved yet";
 }
 
 let saveAbort = null;
@@ -87,124 +62,284 @@ function playbackNeedsTheConnection() {
   return audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA;
 }
 
-// One sync at a time: concurrent passes would fetch a track twice and orphan
-// the loser's bytes.
-let syncing = false;
-
-function reportProgress(text) {
-  const line = document.getElementById("device-summary-text");
-  if (line) line.textContent = text;
+// Favorites and hand-made playlists are named to the server, so their current tracks are asked
+// for on every sync. Anything else (an album, a YouTube playlist) is kept as the ids it had.
+function keyFor(source) {
+  if (!source) return null;
+  if (source.kind === "favorites") return "favorites";
+  if (source.kind === "user-playlist") return `playlist:${source.id}`;
+  return `list:${source.kind}:${source.id}`;
 }
 
-/**
- * Saves everything downloaded that isn't on the device yet, sequentially. Gives
- * way to playback: the missing track is often the one currently buffering.
- */
-async function syncDevice({ announce = false } = {}) {
-  if (syncing || !deviceStorageSupported()) return;
-  syncing = true;
+function listRequest(key, retry) {
+  const query = retry ? "?retry=true" : "";
+  if (key === "favorites") return api(`/offline/favorites${query}`, { method: "POST" });
+  if (key.startsWith("playlist:")) {
+    return api(`/offline/playlists/${key.slice("playlist:".length)}${query}`, { method: "POST" });
+  }
+  return api(`/offline/tracks${query}`, { method: "POST", body: { key, ids: kept.get(key)?.ids || [] } });
+}
+
+// Unkept lists whose server pins couldn't be dropped yet (no connection). Until they are,
+// the server keeps their songs as downloads instead of cache.
+const UNPIN_PENDING_KEY = "spotea-unpin-pending";
+
+function pendingUnpins() {
   try {
-    const { ok, data } = await api("/storage/items", {
-      errorMessage: announce ? "Could not read your downloads" : undefined,
-    });
-    if (!ok) return;
+    return JSON.parse(localStorage.getItem(UNPIN_PENDING_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
 
-    const items = data || [];
-    const { ids } = await deviceUsage();
-    const already = new Set(ids.map(Number));
-    const pending = items.filter((item) => !already.has(Number(item.id)));
-    if (!pending.length) {
-      if (announce) showToast("Everything is already on this device");
-      return;
+function rememberPendingUnpins(keys) {
+  try {
+    if (keys.length) localStorage.setItem(UNPIN_PENDING_KEY, JSON.stringify(keys));
+    else localStorage.removeItem(UNPIN_PENDING_KEY);
+  } catch {
+    /* Lost with the session: the songs just stay downloads on the server. */
+  }
+}
+
+async function unpin(key) {
+  const { ok } = await api(`/offline/lists?key=${encodeURIComponent(key)}`, { method: "DELETE" });
+  return ok;
+}
+
+async function flushPendingUnpins() {
+  const left = [];
+  for (const key of pendingUnpins()) {
+    // Kept again since: its next sync pins it afresh.
+    if (kept.has(key)) continue;
+    if (!(await unpin(key))) left.push(key);
+  }
+  rememberPendingUnpins(left);
+}
+
+// Kept lists (key -> { title, ids, videoIds }), mirrored from IndexedDB so painting and the
+// save loop needn't read it.
+const kept = new Map();
+
+// The open panel's source, set by detail.js; the download button's key is derived from it.
+let panelSource = null;
+
+// key -> { done, total, failed } from the last pass, for the list's download button.
+const progress = new Map();
+
+/**
+ * One list: the server queues what it lacks, the device is matched to the list, then
+ * server-ready tracks are saved one at a time. Gives way to playback: the missing
+ * track is often the one currently buffering.
+ */
+async function syncList(key, { retry = false } = {}) {
+  const res = await listRequest(key, retry);
+  if (!res.ok) {
+    // Deleted on the server: nothing left to keep. No response at all is just offline.
+    if (res.status === 404) {
+      await reconcileList(key, null);
+      kept.delete(key);
+      progress.delete(key);
     }
+    return { waiting: false, deferred: false };
+  }
 
-    // Requested only once the user commits to keeping something; an unprompted
-    // request before there's anything to protect is likelier to be refused.
-    await requestPersistence();
+  const tracks = res.data?.tracks || [];
+  const present = new Set(await reconcileList(key, tracks.map((track) => track.id)));
+  const failed = tracks.filter((track) => track.is_unavailable || track.status === "error").length;
+  const report = () => {
+    progress.set(key, { done: present.size, total: tracks.length, failed });
+    paintKeepButton();
+  };
+  report();
 
-    let saved = 0;
-    let failure = null;
-    let deferred = false;
-    for (const item of pending) {
-      // Checked per track: a run is minutes long and playback may start mid-run.
-      if (playbackNeedsTheConnection()) {
+  let deferred = false;
+  let failure = null;
+  for (const track of tracks) {
+    if (present.has(track.id) || track.status !== "ready") continue;
+    // Checked per track: a run is minutes long; the list may be unkept or playback may start mid-run.
+    if (!kept.has(key)) break;
+    if (playbackNeedsTheConnection()) {
+      deferred = true;
+      break;
+    }
+    const controller = new AbortController();
+    saveAbort = controller;
+    try {
+      await saveTrack(
+        track.id,
+        {
+          title: track.title,
+          artist: track.channel_title || "",
+          coverUrl: track.thumbnail_url || null,
+          duration: track.duration_seconds ?? null,
+        },
+        { signal: controller.signal, list: key }
+      );
+      present.add(track.id);
+      report();
+    } catch (err) {
+      // Aborted by the player's `waiting` handler: deferred, not a failure.
+      if (err?.name === "AbortError") {
         deferred = true;
         break;
       }
-      reportProgress(`Saving ${saved + 1} of ${pending.length}…`);
-      const controller = new AbortController();
-      saveAbort = controller;
-      try {
-        await saveTrack(
-          item.id,
-          {
-            title: item.title,
-            artist: item.channel_title || "",
-            coverUrl: item.thumbnail_url || null,
-            duration: item.duration_seconds ?? null,
-          },
-          { signal: controller.signal }
-        );
-        saved += 1;
-      } catch (err) {
-        // Aborted by the player's `waiting` handler: deferred, not a failure.
-        if (err?.name === "AbortError") {
-          deferred = true;
-          break;
-        }
-        // A full device fails every remaining save the same way, so stop here.
-        failure = err?.message || "Could not save one of these songs";
-        break;
-      } finally {
-        saveAbort = null;
-      }
+      // A full device fails every remaining save the same way, so stop here.
+      failure = err?.message || "Could not save one of these songs";
+      break;
+    } finally {
+      saveAbort = null;
     }
+  }
+  if (failure) showToast(failure);
 
-    if (failure) showToast(`Saved ${saved} of ${pending.length}. ${failure}`);
-    else if (deferred) {
-      if (announce) showToast(`Saving ${pending.length} songs in the background`);
-      scheduleTopUp(TOP_UP_RETRY_DELAY);
-    } else if (announce) {
-      showToast(`Saved ${saved} song${saved === 1 ? "" : "s"} to this device`);
+  const waiting = tracks.some(
+    (track) => !present.has(track.id) && (track.queued || track.status === "downloading")
+  );
+  return { waiting, deferred };
+}
+
+// One pass at a time: concurrent passes would fetch a track twice and orphan the loser's bytes.
+let syncing = false;
+let syncAgain = false;
+
+// Lists just switched on: their earlier failures are worth one more try.
+const retryKeys = new Set();
+
+async function syncKeptLists() {
+  if (!deviceStorageSupported() || document.body.classList.contains("is-offline")) return;
+  if (syncing) {
+    syncAgain = true;
+    return;
+  }
+  syncing = true;
+  let waiting = false;
+  let deferred = false;
+  try {
+    await flushPendingUnpins();
+    for (const key of [...kept.keys()]) {
+      const outcome = await syncList(key, { retry: retryKeys.delete(key) });
+      waiting ||= outcome.waiting;
+      deferred ||= outcome.deferred;
     }
   } finally {
     syncing = false;
     await syncDeviceSummary();
+    markDeviceRows();
+  }
+
+  if (syncAgain) {
+    syncAgain = false;
+    syncKeptLists();
+  } else if (deferred) {
+    scheduleSync(SYNC_RETRY_DELAY);
+  } else if (waiting) {
+    scheduleSync(SYNC_POLL_DELAY);
   }
 }
 
-async function enableOfflinePlayback(toggle) {
+async function toggleKeep(button) {
+  const key = button.dataset.keepList;
+  if (!key) return;
   if (!deviceStorageSupported()) {
     showToast("This browser can't keep songs on the device");
-    toggle.checked = false;
     return;
   }
-  rememberOfflinePlayback(true);
-  await syncDevice({ announce: true });
-}
 
-async function disableOfflinePlayback(toggle) {
-  const { count, bytes } = await deviceUsage();
-  if (count) {
-    const confirmed = await confirmDialog(
-      `Turn off offline playback and remove the ${count} song${count === 1 ? "" : "s"} ` +
-        `kept on this device (${formatSize(bytes)})? ` +
-        "The downloads on the server stay, so these play again whenever you have a connection.",
-      "Turn off"
-    );
-    if (!confirmed) {
-      toggle.checked = true;
-      return;
+  if (!kept.has(key)) {
+    const title = button.dataset.keepTitle || "";
+    const list = { title, ids: null, videoIds: null };
+    if (key.startsWith("list:")) {
+      if (button.disabled) return;
+      button.disabled = true;
+      const made = await materializeRemoteRows(undefined, "Could not download this list");
+      button.disabled = false;
+      if (!made) return;
+      list.ids = made.data.content_ids;
+      list.videoIds = made.items.map((item) => item.video_id);
     }
     try {
-      await clearDeviceCopies();
+      await keepList(key, title, list);
     } catch {
-      showToast("Could not clear this device's copies");
+      showToast("Could not keep this list on the device");
+      return;
     }
+    kept.set(key, list);
+    // Asked only once the user commits to keeping something; an unprompted request is likelier refused.
+    requestPersistence();
+    retryKeys.add(key);
+    paintKeepButton();
+    syncKeptLists();
+    return;
   }
-  rememberOfflinePlayback(false);
+
+  // Read off the device, not `progress`: before the first sync after a load, that is still empty.
+  const done = (await listSaved()).filter((track) => track.lists?.includes(key)).length;
+  if (done) {
+    const confirmed = await confirmDialog(
+      `Remove this list's ${done} song${done === 1 ? "" : "s"} from this device? ` +
+        "Songs another downloaded list holds stay, and everything still plays with a connection.",
+      "Remove"
+    );
+    if (!confirmed) return;
+  }
+  kept.delete(key);
+  progress.delete(key);
+  try {
+    await reconcileList(key, null);
+  } catch {
+    showToast("Could not clear this list from the device");
+  }
+  if (!(await unpin(key))) rememberPendingUnpins([...new Set([...pendingUnpins(), key])]);
+  decorateDetailPanel();
   await syncDeviceSummary();
-  if (isDownloadsPanelOpen()) await renderDownloadsPanel();
+}
+
+/** The open list's download button: off, "12/40" while saving, or on. */
+function paintKeepButton() {
+  const button = document.getElementById("detail-keep-btn");
+  const key = button?.dataset.keepList;
+  if (!key) return;
+  const on = kept.has(key);
+  const state = progress.get(key);
+
+  button.classList.toggle("is-on", on);
+  button.setAttribute("aria-pressed", String(on));
+  button.title = on ? "Remove download" : "Download";
+  button.setAttribute("aria-label", on ? "Remove download" : "Download to this device");
+
+  // Unavailable and failed tracks never arrive, so they don't hold the count open.
+  const reachable = state ? state.total - state.failed : 0;
+  const saving = on && state && state.done < reachable;
+  const label = button.querySelector(".keep-progress");
+  if (label) {
+    label.hidden = !saving;
+    label.textContent = saving ? `${state.done}/${reachable}` : "";
+  }
+}
+
+async function markDeviceRows() {
+  const rows = document.querySelectorAll("#detail-panel .track-row");
+  if (!rows.length || !deviceStorageSupported()) return;
+  const onDevice = new Set((await savedTrackIds()).map(Number));
+
+  // Remote rows carry no content id; a kept list remembers which id each video became.
+  const list = kept.get(keyFor(panelSource));
+  const idForVideo = new Map((list?.videoIds || []).map((videoId, i) => [videoId, list.ids[i]]));
+
+  for (const row of rows) {
+    const id = row.dataset.contentId ?? idForVideo.get(row.dataset.videoId);
+    row.classList.toggle("is-on-device", id != null && onDevice.has(Number(id)));
+  }
+}
+
+/** detail.js calls this after every panel swap, with the panel's { kind, id }. */
+export function decorateDetailPanel(source = panelSource) {
+  panelSource = source;
+  const button = document.getElementById("detail-keep-btn");
+  const key = keyFor(source);
+  if (button && key) button.dataset.keepList = key;
+  paintKeepButton();
+  markDeviceRows();
 }
 
 async function forgetOne(button) {
@@ -227,8 +362,8 @@ function isDownloadsPanelOpen() {
 
 function rowHtml(track, index) {
   const duration = track.duration ? formatDuration(track.duration) : "";
-  // No × with offline playback on: the next top-up would just put it back.
-  const forget = offlinePlaybackOn()
+  // Only copies no list holds (saved before lists existed): a kept list's next sync would put the rest back.
+  const forget = track.lists?.length
     ? ""
     : `<button type="button" class="track-forget" data-content-id="${track.id}" aria-label="Remove from this device">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-close" /></svg>
@@ -279,7 +414,7 @@ export async function renderDownloadsPanel() {
     ? `<div class="track-list">${panelTracks.map((track, i) => rowHtml(track, i + 1)).join("")}</div>`
     : `<div class="empty-state">
          <p class="empty-state-title">Nothing saved to this device</p>
-         <p class="empty-state-help">Settings → Songs on this device → Save all puts your downloads here, and they play with no connection at all.</p>
+         <p class="empty-state-help">Tap the download button on a playlist or on Favorites, and its songs land here to play with no connection at all.</p>
        </div>`;
 
   panel.innerHTML = `
@@ -338,46 +473,54 @@ export function setupOfflineMode() {
   if (document.body.classList.contains("is-offline")) lockToOfflineSurface();
 }
 
-export function setupDeviceStorage() {
-  const toggle = document.getElementById("offline-playback-toggle");
-  toggle?.addEventListener("change", () => {
-    if (toggle.checked) enableOfflinePlayback(toggle);
-    else disableOfflinePlayback(toggle);
-  });
-
+export async function setupDeviceStorage() {
   // Stalled mid-track: the in-flight save is the likeliest cause and can wait.
   onPlayerEvent("waiting", () => saveAbort?.abort());
 
   // Delegated: #detail-panel's children are replaced on every open.
   document.getElementById("detail-panel")?.addEventListener("click", (event) => {
     const forget = event.target.closest(".track-forget");
-    if (forget) forgetOne(forget);
+    if (forget) {
+      forgetOne(forget);
+      return;
+    }
+    const keep = event.target.closest("#detail-keep-btn");
+    if (keep) toggleKeep(keep);
   });
 
   onFragmentsSwapped(() => {
     syncDeviceSummary();
-    // Debounced via scheduleTopUp: refreshFragments fires on every play and
-    // favourite, and each pass asks the server for the full download list.
-    if (offlinePlaybackOn()) scheduleTopUp();
+    // Debounced: refreshFragments fires on every play, favourite and playlist edit, and each pass
+    // asks the server about every kept list. It's also how a song added to a kept list comes down.
+    if (kept.size) scheduleSync();
   });
 
-  syncSwitch();
   syncDeviceSummary();
-  if (offlinePlaybackOn()) scheduleTopUp();
+  for (const list of await keptLists()) {
+    kept.set(list.key, { title: list.title, ids: list.ids ?? null, videoIds: list.videoIds ?? null });
+  }
+  decorateDetailPanel();
+  if (kept.size) scheduleSync(SYNC_BOOT_DELAY);
 }
 
 // Collapses a burst of refreshes into one pass.
-const TOP_UP_DELAY = 8000;
+const SYNC_DELAY = 8000;
+
+// Out of the way of the page's own first requests.
+const SYNC_BOOT_DELAY = 3000;
+
+// The server is still downloading some of a list; its queue lands a song every second or two.
+const SYNC_POLL_DELAY = 3000;
 
 // Longer: the run stopped because the player is struggling for the connection.
-const TOP_UP_RETRY_DELAY = 30000;
+const SYNC_RETRY_DELAY = 30000;
 
-let topUpTimer = null;
+let syncTimer = null;
 
-function scheduleTopUp(delay = TOP_UP_DELAY) {
-  if (topUpTimer !== null) return;
-  topUpTimer = setTimeout(() => {
-    topUpTimer = null;
-    syncDevice();
+function scheduleSync(delay = SYNC_DELAY) {
+  if (syncTimer !== null) return;
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    syncKeptLists();
   }, delay);
 }

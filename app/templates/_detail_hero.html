@@ -68,6 +68,10 @@
     <button type="button" id="detail-shuffle" class="btn-quiet-icon btn-shuffle" aria-pressed="false" aria-label="Shuffle" title="Shuffle">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-shuffle" /></svg>
     </button>
+    {# Recently played is a history, not a list to keep. home/device.js keys and paints this per device. #}
+    {% if kind != "recently-played" %}
+    {% include "_keep_button.html" %}
+    {% endif %}
   </div>
   {% endif %}
 </div>

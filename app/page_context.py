@@ -20,7 +20,7 @@ from app.interests import ONBOARDING_MIN_INTERESTS, interest_chips, parse_intere
 from app.models import Artist, Content, Playlist, PlaylistItem, User
 from app.services.artist_sync import cache_thumbnail, snapshot_releases
 from app.services.initial_sync import syncing_artist_ids
-from app.storage import collect_usage, usage_summary
+from app.storage import backfill_file_sizes, storage_split
 from app.timeutil import utcnow
 
 HOME_SHELF_LIMIT = 12
@@ -159,12 +159,12 @@ def library_context(db: Session, user_id: int) -> dict:
     }
 
 
-def downloads_context(db: Session, user_id: int) -> dict:
-    return {"usage": collect_usage(db, user_id)}
-
-
-def storage_summary_context(db: Session, user_id: int) -> dict:
-    return {"usage": usage_summary(db, user_id)}
+def storage_summary_context(db: Session, user_id: int, *, backfill: bool = False) -> dict:
+    """`backfill` measures rows with no stored size first (a write): the full page does, fragments don't."""
+    if backfill:
+        backfill_file_sizes(db, user_id)
+    split = storage_split(db, user_id)
+    return {"downloads": split.downloads, "cache": split.cache}
 
 
 class PinnedPlaylist(NamedTuple):
