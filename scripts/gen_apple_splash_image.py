@@ -34,7 +34,7 @@ DEVICES = [
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = REPO_ROOT / "app" / "static" / "img"
 
-BG = (2, 4, 7)  # --bg-page
+BG = (3, 3, 3)  # --bg-page
 
 
 def generate(device_width, device_height, scale):

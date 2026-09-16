@@ -186,13 +186,59 @@ function paintField(field) {
  */
 export function applyAmbientTint() {
   document.querySelectorAll(".ambient-field").forEach(paintField);
+  measureWashReach();
+}
+
+// A hero's wash has to start at the very top of the screen, behind the
+// transparent header, and end just below the hero. CSS can only anchor both
+// edges to one box, and that box is the hero, so the distance up to the top of
+// the page used to be written into style.css as a guess (-132px on Home,
+// -152px on an artist page). A guess is wrong the moment anything above the
+// hero changes height: on an iPhone the header gains the Dynamic Island's
+// safe-area inset, and an artist page has a back link Home doesn't, which
+// left the top ~40px of the screen unlit there.
+//
+// So it is measured instead — the hero's distance from the top of the
+// document, written to --wash-reach on the field, which style.css subtracts
+// from. The player overlay's field fills its own box and is not a hero wash.
+const HERO_WASH = ".home-hero-ambient, .detail-hero-ambient";
+
+function measureWashReach() {
+  document.querySelectorAll(HERO_WASH).forEach((field) => {
+    const hero = field.offsetParent;
+    // A hidden panel has no layout; keep the last value rather than write 0,
+    // and measure again when the panel's own resize says it is showing.
+    if (!hero) return;
+    // rect.top + scrollY rather than offsetTop: offsetTop is relative to the
+    // hero's own offsetParent, not the document. The sum also holds during
+    // iOS overscroll, where the two move in opposite directions.
+    const reach = hero.getBoundingClientRect().top + window.scrollY;
+    field.style.setProperty("--wash-reach", `${Math.round(reach)}px`);
+  });
+}
+
+// What can move a hero down the page: something above its panel changing
+// size (body), or something above it inside the panel — a back link, a
+// banner, or the panel itself going from hidden to shown (each .tab-panel).
+// Those five sections are never replaced, so observing them holds on to no
+// markup that a fragment swap throws away.
+function watchWashReach() {
+  const observer = new ResizeObserver(measureWashReach);
+  observer.observe(document.body);
+  document.querySelectorAll(".tab-panel").forEach((panel) => observer.observe(panel));
 }
 
 // The sticky header sits directly over the top of the wash. Left opaque it
 // draws a hard band across it; left transparent forever it would put the logo
 // over whatever a shelf happens to scroll underneath. So it is transparent
-// while Home is resting at the very top of the page, and opaque as soon as
-// it is scrolled at all.
+// while a page with a hero — Home, or an open artist/playlist — is resting at
+// the very top, and opaque as soon as it is scrolled at all.
+//
+// This only answers "is the page at the top". Whether the panel on screen has
+// a hero is style.css's question, asked with :has() against the active panel.
+// It used to be asked here as "does .home-hero exist", which is true while an
+// artist page is open over a lit Home, and false on an artist page opened from
+// a Home with no hero yet — the wrong panel either way.
 //
 // This used to observe the hero itself, offset by the header's height. That
 // answered a different question than it looked like it did: the hero stayed
@@ -215,9 +261,7 @@ let pageTopObserver = null;
 
 function watchPageTop() {
   pageTopObserver?.disconnect();
-  // No hero means nothing behind the bar worth showing through it, so the
-  // header stays filled whatever the scroll position is.
-  const probe = document.querySelector(".home-hero") && document.querySelector(".page-top-probe");
+  const probe = document.querySelector(".page-top-probe");
   if (!probe) {
     delete document.documentElement.dataset.heroLit;
     return;
@@ -235,11 +279,8 @@ function watchPageTop() {
 export function setupAmbientTint() {
   applyAmbientTint();
   watchPageTop();
+  watchWashReach();
   onFragmentsSwapped(() => {
     applyAmbientTint();
-    // The probe outlives the swap, but whether there is a hero at all does
-    // not — a profile that just played its first track gains one, and the
-    // header has to start showing through.
-    watchPageTop();
   });
 }

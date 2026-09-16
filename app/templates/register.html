@@ -13,10 +13,15 @@
       <label for="username">Username</label>
       {# minlength/maxlength mirror routers/auth's MIN/MAX_USERNAME_LENGTH so
          the browser catches the obvious case before a round trip; the server
-         checks the same bounds and the character set regardless. #}
+         checks the same bounds and the character set regardless.
+
+         No autofocus: focus draws the accent edge, so an autofocused field
+         opened the page with a red box in it before anything was touched,
+         a second red next to the submit button. iOS ignores autofocus in an
+         installed app anyway. #}
       <input type="text" id="username" name="username" value="{{ username }}"
              autocomplete="username" autocapitalize="none" autocorrect="off"
-             spellcheck="false" minlength="3" maxlength="30" autofocus required />
+             spellcheck="false" minlength="3" maxlength="30" required />
       <label for="password">Password</label>
       <input type="password" id="password" name="password" autocomplete="new-password" required minlength="8" maxlength="72" />
       <label for="confirm_password">Confirm password</label>
