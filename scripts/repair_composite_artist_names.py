@@ -1,26 +1,12 @@
 #!/usr/bin/env python3
-"""One-off repair for artist rows named after a track's whole credit line.
-
-Until the release that added `content.artist_credit`, a track's credit was
-the only artist name there was: `_artist_names` joined everyone YouTube Music
-credited ("Drake, Kanye West, Lil Wayne, Eminem") and that string became the
-name of the Artist row the track attached to. An Artist row is shared by every
-track on that channel, so whichever track created it named it for good — one
-Drake diss track credited to four people left all 29 of his tracks displaying
-the other three, none of whom are on them.
-
-New rows are correct without this: the credit now lives on the track and the
-artist row is named for whoever the channel belongs to. This fixes what the
-old code already wrote.
+"""One-off repair for artist rows named after a track's whole credit line
+("Drake, Kanye West, ...") instead of the channel's artist.
 
     ./scripts/repair_composite_artist_names.py                 # dry run
     ./scripts/repair_composite_artist_names.py --apply
     ./scripts/repair_composite_artist_names.py --apply path/to/spotea.db
 
-Under Docker the database belongs to the container's root, so the host user
-can read it and not write it — the run fails with "attempt to write a readonly
-database". The image carries no scripts/ directory either (see the Dockerfile),
-so copy this in and run it there:
+Under Docker the database is root-owned and the image has no scripts/, so run it inside:
 
     docker compose cp scripts/repair_composite_artist_names.py app:/tmp/repair.py
     docker compose exec app python /tmp/repair.py /app/data/spotea.db
@@ -28,12 +14,8 @@ so copy this in and run it there:
 
 Back up first — ./scripts/backup.sh does it WAL-safely.
 
-What it deliberately does NOT do: put the old joined string onto the tracks as
-their `artist_credit`. It belonged to exactly one track on that channel and
-there is no record of which, so anything else would be guessing — and guessing
-here re-creates the bug in a form nobody can spot. Existing tracks fall back to
-the artist's name; a track re-added from Explore, or swapped to its song
-version, picks up its real credit on the way through.
+The old joined string is not copied to tracks' artist_credit: there is no record of
+which track it belonged to.
 """
 
 import argparse
@@ -41,13 +23,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-# Names that contain ", " and are nonetheless one artist. The split below is a
-# heuristic — the artist list the joined string was built from is long gone —
-# so this is the reviewed exception list, not a clever rule. Both of these are
-# real: splitting them produces "Earth" and "Tyler".
-#
-# Extend it if the dry run shows something else of this shape. The run prints
-# every rename it intends to make for exactly that reason.
+# Reviewed exceptions to the ", " split heuristic; extend if the dry run shows more.
 ONE_ARTIST_DESPITE_THE_COMMA = frozenset(
     {
         "Earth, Wind & Fire",
@@ -72,9 +48,7 @@ def planned_renames(conn: sqlite3.Connection) -> list[tuple[int, str, str, int]]
     for artist_id, name, followed, tracks in rows:
         if name in ONE_ARTIST_DESPITE_THE_COMMA:
             continue
-        # A followed artist's name was resolved from their own page (see
-        # services/artist_follow.py's _resolve_artist), not from a track's
-        # credit, so a comma in it is theirs.
+        # Followed artists' names come from their own page, so a comma there is genuine.
         if followed:
             continue
         primary = name.split(", ")[0].strip()

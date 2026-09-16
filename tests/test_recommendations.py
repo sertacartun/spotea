@@ -1,11 +1,4 @@
-"""Explore's interest-based recommendations.
-
-Every YouTube search is monkeypatched out — what's under test is the part
-that decides *whether* to search at all (the cache), which interests get
-searched, and how the results are merged. Actually calling yt-dlp here would
-make the suite slow, flaky and, on a residential IP, a genuine rate-limiting
-liability.
-"""
+"""Explore's interest-based recommendations; every YouTube search is monkeypatched out."""
 
 import json
 from datetime import timedelta
@@ -22,8 +15,7 @@ USER_ID = 1
 
 @pytest.fixture(autouse=True)
 def _reset_interests(db_session):
-    """The default profile isn't deleted between tests (see conftest), so its
-    interests have to be cleared by hand or they leak into the next one."""
+    """The default profile persists between tests, so its interests are cleared by hand."""
     yield
     profile = db_session.get(User, USER_ID)
     profile.interests = None
@@ -51,19 +43,12 @@ def _playlist(playlist_id):
 
 @pytest.fixture(autouse=True)
 def _no_browse_shelves(monkeypatch):
-    """Charts and the mood category list are built on every run, interests
-    or not — so unlike the searches they can't be neutralised by leaving the
-    interest list empty. Stubbed out for every test in this file for exactly
-    the reason the module docstring gives; the two that are *about* them
-    install their own (see fake_browse)."""
+    """Charts and mood categories are fetched regardless of interests, so they're stubbed for every test."""
     monkeypatch.setattr(rec, "_BROWSE_BUILDERS", ())
 
 
 @pytest.fixture
 def fake_browse(monkeypatch):
-    """Puts a known chart pair and mood category list back, for the tests
-    that check what happens to them."""
-
     def install(*, charts=(), chart_artists=(), moods=()):
         monkeypatch.setattr(
             rec,
@@ -82,10 +67,6 @@ def fake_browse(monkeypatch):
 
 @pytest.fixture
 def fake_search(monkeypatch):
-    """Replaces the interest search (playlists — see _SEARCHERS) with a
-    deterministic, query-derived result, and records every query that was
-    run so tests can assert on the request budget rather than only on the
-    output."""
     calls = []
 
     def make(kind, factory):
@@ -110,9 +91,6 @@ def _set_interests(db_session, *interests):
 
 
 def test_no_interests_means_no_interest_searches(client, db_session, fake_search):
-    """The interest shelves stay empty and cost nothing. What a profile with
-    no interests *does* get is the charts and the mood category list, which
-    don't come from the interest list — see the two tests below."""
     body = client.get("/recommendations").json()
 
     assert body["interests"] == []
@@ -122,7 +100,6 @@ def test_no_interests_means_no_interest_searches(client, db_session, fake_search
 
 
 def test_a_profile_with_no_interests_still_gets_the_charts(client, db_session, fake_browse):
-    """The case Explore used to answer with nothing but a nag."""
     fake_browse(
         charts=["top-40"],
         chart_artists=["UCchart"],
@@ -138,9 +115,6 @@ def test_a_profile_with_no_interests_still_gets_the_charts(client, db_session, f
 
 
 def test_mood_categories_lists_every_one_not_just_a_sample(monkeypatch):
-    """Unlike the old rotating single mood shelf, the user picks which
-    category to open — so this has to be the whole list YouTube Music
-    reported, not a sample of it."""
     from app.youtube.music import MoodCategory
 
     categories = [MoodCategory(title=f"Mood {i}", params=f"p{i}", section="Moods & moments") for i in range(14)]
@@ -153,7 +127,6 @@ def test_mood_categories_lists_every_one_not_just_a_sample(monkeypatch):
 
 
 def test_a_charting_artist_already_followed_is_dropped(client, db_session, fake_browse):
-    """It's a list of artists to follow, and one already followed isn't."""
     fake_browse(chart_artists=["UCfollowed", "UCnew"])
     db_session.add(
         Artist(
@@ -171,9 +144,7 @@ def test_a_charting_artist_already_followed_is_dropped(client, db_session, fake_
 
 
 def _related_dict(channel_id, title):
-    """A related-artist entry as it's actually stored — see
-    ChannelSearchResult, whose every field RecommendationsOut requires
-    (nullable, but not omittable) when serializing similar_artists."""
+    """A related-artist entry with every field RecommendationsOut requires."""
     return {
         "channel_id": channel_id,
         "title": title,
@@ -197,8 +168,6 @@ def _followed_with_related(db_session, channel_id, *related):
 
 
 def test_similar_artists_is_empty_with_nothing_followed(client, db_session, fake_browse):
-    """No seeded default, unlike every other shelf — see
-    services.recommendations._similar_to_followed."""
     fake_browse()
 
     body = client.get("/recommendations").json()
@@ -237,8 +206,6 @@ def test_similar_artists_excludes_one_already_followed(client, db_session, fake_
 
 
 def test_similar_artists_ignores_a_malformed_stored_list(client, db_session, fake_browse):
-    """A render failure over one bad row would be worse than skipping it —
-    see _similar_to_followed's try/except."""
     fake_browse()
     artist = Artist(user_id=USER_ID, channel_id="UCbad", name="Bad", followed=True)
     artist.related_artists = "not json"
@@ -251,8 +218,7 @@ def test_similar_artists_ignores_a_malformed_stored_list(client, db_session, fak
 
 
 def _track_dict(video_id, title):
-    """A top-track entry as it's actually stored — see VideoSearchResult,
-    whose every field RecommendationsOut requires when serializing videos."""
+    """A top-track entry with every field RecommendationsOut requires."""
     return {
         "video_id": video_id,
         "title": title,
@@ -277,8 +243,6 @@ def _followed_with_tracks(db_session, channel_id, *tracks):
 
 
 def test_songs_is_empty_with_nothing_followed(client, db_session, fake_browse):
-    """No seeded default, unlike the old interest-based Songs shelf — see
-    services.recommendations._songs_from_followed."""
     fake_browse()
 
     body = client.get("/recommendations").json()
@@ -297,9 +261,6 @@ def test_songs_merges_across_followed_artists(client, db_session, fake_browse):
 
 
 def test_a_video_already_in_the_library_is_dropped_from_the_batch(client, db_session, fake_browse):
-    """A followed artist's own preview song is not "new" once it's actually
-    in the library — same rule owned_video_ids already applies to
-    interest-based results, now applied to _songs_from_followed too."""
     fake_browse()
     artist = _followed_with_tracks(
         db_session,
@@ -318,11 +279,7 @@ def test_a_video_already_in_the_library_is_dropped_from_the_batch(client, db_ses
 
 
 def test_an_unfollowed_placeholder_artist_does_not_hide_a_chart_artist(client, db_session, fake_browse):
-    """followed=False is an Explore placeholder (see routers/explore.py), not
-    a real subscription — it must not suppress the recommendation the way an
-    actually-followed artist does. Was interest-based-channels-shelf
-    coverage before that shelf was removed; the same filter still guards
-    chart_artists and similar_artists."""
+    """followed=False is an Explore placeholder, not a real subscription."""
     fake_browse(chart_artists=["UCchart"])
     db_session.add(
         Artist(user_id=USER_ID, channel_id="UCchart", name="Just A Preview", followed=False)
@@ -337,14 +294,9 @@ def test_an_unfollowed_placeholder_artist_does_not_hide_a_chart_artist(client, d
 def test_the_library_filter_is_reapplied_on_every_read_even_from_cache(
     client, db_session, fake_search, fake_browse
 ):
-    """The filter can't be baked into the cached payload — build_batch's
-    result is cached and reused across requests, but the library it's
-    filtered against keeps changing (someone follows a recommended artist
-    right after seeing it). Re-checking on every read is what makes that
-    artist disappear on the very next load instead of waiting for the
-    batch to expire and rebuild."""
+    """The library filter is not baked into the cached payload."""
     fake_browse(chart_artists=["UCchart"])
-    client.get("/recommendations")  # builds and caches the batch
+    client.get("/recommendations")
     fake_search.clear()
 
     db_session.add(
@@ -410,12 +362,7 @@ def test_reordering_the_interests_does_not_invalidate_the_cache(client, db_sessi
 
 
 def test_a_batch_never_expires_on_age_alone(client, db_session, fake_search):
-    """A cached batch used to go stale on whatever Settings' artist-refresh
-    interval was. That interval is gone, and nothing replaced it with a
-    number of its own: what makes Explore go and look again is the interest
-    list changing or Refresh being pressed, and this proves age is not a
-    third way in — a year-old batch is still served from cache without a
-    single live search."""
+    """Age alone never invalidates a batch; only an interest change or Refresh does."""
     _set_interests(db_session, "jazz")
     client.get("/recommendations")
     fake_search.clear()
@@ -429,10 +376,6 @@ def test_a_batch_never_expires_on_age_alone(client, db_session, fake_search):
 
 
 def test_an_old_batch_is_still_rebuilt_when_the_interests_change(client, db_session, fake_search):
-    """The other half: dropping the expiry must not have made the cache
-    unshakeable. The signature check is what invalidates it now, and it has
-    to keep working on a row old enough that the old TTL would have caught
-    it first."""
     _set_interests(db_session, "jazz")
     client.get("/recommendations")
     fake_search.clear()
@@ -472,11 +415,9 @@ def test_only_a_sample_of_a_long_interest_list_is_searched(client, db_session, f
 
     assert len(body["interests_used"]) == rec.INTERESTS_PER_RUN
     assert set(body["interests_used"]) <= {f"tag{i}" for i in range(10)}
-    # One search per sampled interest, and not one more — this is the
-    # whole point of sampling.
+    # One search per sampled interest, no more.
     assert len(fake_search) == rec.INTERESTS_PER_RUN
-    # The full list is still reported, so Explore can say what it's working
-    # from even though only a few of them were used.
+    # The full list is still reported so Explore can say what it's working from.
     assert len(body["interests"]) == 10
 
 
@@ -485,8 +426,7 @@ def test_results_from_several_interests_are_interleaved(client, db_session, fake
 
     playlists = [p["playlist_id"] for p in client.get("/recommendations").json()["playlists"]]
 
-    # Round-robin, so the front of the shelf represents both interests rather
-    # than exhausting the first.
+    # Round-robin, so the front of the shelf represents both interests.
     assert playlists[:4] == ["a-0", "b-0", "a-1", "b-1"]
 
 
@@ -514,9 +454,7 @@ def test_each_shelf_is_capped(client, db_session, monkeypatch):
 
 
 def test_a_failing_search_does_not_sink_the_batch(client, db_session, monkeypatch):
-    # search_* already flatten yt-dlp failures to an empty list (see
-    # youtube/search.py) — this asserts the batch treats that as "this shelf
-    # is empty", not as an error.
+    # search_* flatten yt-dlp failures to an empty list; that must mean an empty shelf, not an error.
     monkeypatch.setattr(rec, "_SEARCHERS", {"playlists": lambda query: []})
     _set_interests(db_session, "jazz")
 
@@ -549,16 +487,7 @@ def test_recommendation_routes_require_login():
         assert anonymous.post("/recommendations/refresh", follow_redirects=False).status_code == 303
 
 
-# --- One artist must not own a shelf ---------------------------------------
-
-
 def test_similar_artists_interleaves_instead_of_draining_one_artist(client, db_session, fake_browse):
-    """The reported symptom was a shelf dominated by whoever was followed
-    most recently. The cause was walking each artist's list to exhaustion
-    and returning as soon as the shelf was full, so with a dozen slots and
-    lists this long the first artist filled it alone and the rest were never
-    read at all.
-    """
     fake_browse()
     _followed_with_related(
         db_session, "UCfirst", *[_related_dict(f"UCfirst{i}", f"First {i}") for i in range(20)]
@@ -577,7 +506,6 @@ def test_similar_artists_interleaves_instead_of_draining_one_artist(client, db_s
 
 
 def test_the_songs_shelf_interleaves_too(client, db_session, fake_browse):
-    """Same machinery, same complaint — see _merge_from_followed."""
     fake_browse()
     _followed_with_tracks(
         db_session, "UCfirst", *[_track_dict(f"firstvid{i:03d}", f"First {i}") for i in range(20)]
@@ -594,8 +522,6 @@ def test_the_songs_shelf_interleaves_too(client, db_session, fake_browse):
 
 
 def test_a_single_followed_artist_still_fills_the_shelf(client, db_session, fake_browse):
-    """Interleaving across one list is just that list — nothing about the
-    fix may cost a library with one artist its shelf."""
     fake_browse()
     _followed_with_related(
         db_session, "UConly", *[_related_dict(f"UConly{i}", f"Only {i}") for i in range(20)]

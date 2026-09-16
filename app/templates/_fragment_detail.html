@@ -1,14 +1,4 @@
-{# Wrapper that every GET /partials/detail/… route returns. Unlike
-   home/library/downloads, this doesn't also back a full-page SSR render —
-   the detail panel is client-fetched only (see home/detail.js) — but it
-   keeps the same <template data-target="…"> convention so the swap code in
-   fragments.js didn't need a special case.
-
-   Four bodies, one panel: an artist is a profile (shelves), a mood is a
-   shelf of playlists, Library's "New releases" is a grid of albums and
-   singles, and everything else is a track list. Picking here rather than in
-   the routes keeps the swap, the history handling and the back button
-   identical for all of them. #}
+{# Returned by every GET /partials/detail/… route; keeps the <template data-target> convention fragments.js swaps. #}
 <template data-target="detail-panel">
 {% if kind == "yt-artist" %}
 {% include "_artist_panel.html" %}

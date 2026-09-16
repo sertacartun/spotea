@@ -1,6 +1,3 @@
-// Entry point for index.html — Home, Library, Explore, Settings, and the
-// channel/playlist detail panel and player overlay drilled into from them.
-
 import { watchConnection } from "../core.js";
 import { setupAmbientTint } from "../home/ambient.js";
 import { setupDeviceStorage, setupOfflineMode } from "../home/device.js";
@@ -30,9 +27,7 @@ import { installVisibilityBreadcrumb, setupFavorite, setupPlayer } from "../play
 import { installBfcacheReload, registerServiceWorker } from "../resume.js";
 import { installHeaderOffset, installKeyboardInset } from "../viewport.js";
 
-// First: dismissing the boot cover has nothing to do with the rest of setup
-// below, and registering the `load` listener it waits on before anything
-// else here runs is what keeps it accurate.
+// First, so its `load` listener is registered before anything else runs.
 setupSplash();
 installBfcacheReload();
 registerServiceWorker();
@@ -44,30 +39,20 @@ setupPlayer();
 setupFavorite();
 installVisibilityBreadcrumb();
 setupPlayerOverlay();
-// After setupPlayer: onPlayerEvent binds to the audio element that exists
-// now, and setupPlayer is what puts it there.
-// Before watchConnection, which raises the banner (and so announces the
-// state) as its very first act — a listener registered after it would miss
-// the one announcement that matters, the app opening with no connection.
+// After setupPlayer, which creates the audio element onPlayerEvent binds to; before
+// watchConnection, whose first act announces the offline state.
 setupOfflineMode();
-// Before anything that might fail: offline, the banner is the context for
-// every failure that follows it.
+// Early: offline, the banner is the context for every failure that follows.
 watchConnection();
 setupLyricsPanel();
 setupDetailPanel();
-// After setupDetailPanel: both listen on #detail-panel, and this one's
-// handler should not run for a click the panel has already acted on.
+// After setupDetailPanel: both listen on #detail-panel, and this one must run second.
 setupPlaylists();
 resumeOverlayIfNeeded();
-// resumeOverlayIfNeeded only reopens a track left playing in a previous
-// session; a #channel/42 or #player/123 hash in the URL right now is a
-// separate, higher-priority thing to resolve on boot.
+// After resume: a route hash in the URL takes priority over the previous session's track.
 handleInitialRoute();
 setupExploreSearch();
-// After the shelves exist and after setupTabs, which is what decides Home is
-// the visible panel: the tint is sampled from an <img> that has to be laid
-// out, and the header observer measures against a hero that has to be on
-// screen to intersect anything.
+// After setupTabs: the tint samples a laid-out <img> and the header observer needs the visible panel.
 setupAmbientTint();
 setupRecommendations();
 setupDownloadsOverlay();
@@ -80,8 +65,5 @@ setupLibraryArtistGrid();
 setupLibrarySearch();
 setupPreparingArtists();
 setupHorizontalScrollers();
-// The one Refresh control covers Explore's recommendations too — passed in
-// rather than imported inside library.js, which explore.js already imports
-// from (see setupRefreshButton).
 setupRefreshButton(refreshRecommendations);
 setupMobileMenu(refreshRecommendations);

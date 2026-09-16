@@ -1,10 +1,4 @@
-"""collect_usage and the /storage endpoints.
-
-Sizes moved from "stat the file on every call" to "read Content.file_size_bytes,
-recorded once at download time" — these pin down both halves of that: the
-stored value is what's reported, and a row from before the column existed
-still gets measured (once) rather than reporting 0 forever.
-"""
+"""collect_usage and the /storage endpoints; sizes come from Content.file_size_bytes."""
 
 import io
 import zipfile
@@ -49,14 +43,12 @@ def test_usage_reports_the_stored_size(db_session, tmp_path):
     usage = collect_usage(db_session, USER_ID)
 
     assert usage.count == 1
-    # The stored value wins over what's actually on disk — proof this no
-    # longer stats the file on every call.
+    # The stored value wins over what's on disk: the file isn't stat'ed on every call.
     assert usage.total_bytes == 4096
 
 
 def test_unmeasured_rows_are_backfilled_from_disk_once(db_session, tmp_path):
-    """Rows downloaded before file_size_bytes existed have NULL; the first
-    collect_usage measures them and writes the result back."""
+    """Rows downloaded before file_size_bytes existed are NULL until the first collect_usage."""
     content, _audio = _ready_content(
         db_session, tmp_path, video_id="legacy00001", size_bytes=2048, stored_size=None
     )
@@ -92,11 +84,7 @@ def test_totals_add_up_across_rows(db_session, tmp_path):
 
 
 def test_usage_summary_matches_collect_usage_for_an_empty_library(db_session):
-    """The whole point of usage_summary: the Settings line it artists has to
-    read exactly what collect_usage's full item-by-item list would add up
-    to, without paying for the per-row work (a StoredItem plus a
-    joinedload(artist)) to get there — this is that agreement, checked across
-    a few shapes rather than assumed from the SQL alone."""
+    """usage_summary must add up to what collect_usage's full list reports."""
     summary = usage_summary(db_session, USER_ID)
     full = collect_usage(db_session, USER_ID)
 
@@ -125,24 +113,20 @@ def test_usage_summary_matches_collect_usage_across_several_rows(db_session, tmp
 
 
 def test_usage_summary_reads_a_backfilled_size_after_collect_usage_has_run(db_session, tmp_path):
-    """usage_summary never writes, so a legacy NULL file_size_bytes row (see
-    the module docstring) only counts correctly once something else — the
-    very first Home page load, in practice — has already run collect_usage
-    once to backfill it. Pins that ordering rather than assuming it."""
+    """usage_summary never writes, so a legacy NULL row counts only after collect_usage has backfilled it."""
     _ready_content(db_session, tmp_path, video_id="legacysum01", size_bytes=4096, stored_size=None)
 
     before_backfill = usage_summary(db_session, USER_ID)
-    assert before_backfill.total_bytes == 0  # NULL isn't counted by SUM yet
+    assert before_backfill.total_bytes == 0
 
-    collect_usage(db_session, USER_ID)  # the backfill
+    collect_usage(db_session, USER_ID)
 
     after_backfill = usage_summary(db_session, USER_ID)
     assert after_backfill.total_bytes == 4096
 
 
 def test_clear_all_resets_the_stored_size_too(db_session, tmp_path):
-    """A stale size left behind would make the next collect_usage skip its
-    own backfill and report a size for a row with no file at all."""
+    """A stale size would make the next collect_usage skip its backfill."""
     content, audio = _ready_content(
         db_session, tmp_path, video_id="cleared0001", size_bytes=64, stored_size=64
     )
@@ -172,13 +156,7 @@ def test_delete_endpoint_resets_the_stored_size_too(client, db_session, tmp_path
 
 
 def test_export_streams_from_disk_and_leaves_nothing_behind(client, db_session, tmp_path):
-    """The archive is built on disk, not in memory, and cleaned up afterwards.
-
-    It used to be assembled in an `io.BytesIO` with ZIP_STORED, i.e. the whole
-    library held in RAM for one request — a 1 GB library made "Export all" a
-    1 GB allocation. This pins the observable half of that change: a real zip
-    comes back, and no `.export.tmp` survives the response.
-    """
+    """The archive is built on disk, not in memory, and cleaned up afterwards."""
     from app.config import settings
     from app.routers.storage import EXPORT_TEMP_SUFFIX
 
@@ -207,10 +185,7 @@ def test_export_with_nothing_downloaded_is_a_conflict(client, db_session):
 
 
 def test_items_endpoint_carries_what_a_device_copy_needs(client, db_session, tmp_path):
-    """Settings' "Save all to this device" has no rendered list to scrape, so
-    the endpoint has to hand over everything a copy kept in the browser needs
-    to render itself later with no server to ask (see static/js/offline.js):
-    the title, the artist, the cover and the duration."""
+    """A device copy must render with no server: title, artist, cover and duration."""
     content, _audio = _ready_content(
         db_session, tmp_path, video_id="items000001", size_bytes=7, stored_size=7
     )

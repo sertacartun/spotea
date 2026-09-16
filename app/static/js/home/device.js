@@ -1,21 +1,4 @@
-// What this device itself is holding, and what the app is while there is no
-// connection.
-//
-// Three things that look separate and are not:
-//
-//   * Settings' "Offline playback" switch — one control that keeps the phone
-//     stocked with everything the server has, instead of the per-row toggle
-//     the Downloads modal used to carry on every single line.
-//   * Library's "Downloads" tile and the panel it opens, which is the only
-//     track list in the app whose rows do not come from the server. They
-//     come out of IndexedDB (see ../offline.js), because the moment this
-//     panel matters is the moment nothing can be fetched.
-//   * The offline lock: with no connection, everything that needs one is
-//     shut off and Library's Downloads tile is what is left.
-//
-// They share one fact — which content ids are on this device — and keeping
-// that fact in one module is why they are here together rather than spread
-// across settings.js, detail.js and a fourth file.
+// What this device holds (IndexedDB via ../offline.js) and the offline lock.
 
 import {
   CONNECTION_CHANGED,
@@ -42,18 +25,12 @@ import {
 import { activeAudio, onPlayerEvent } from "../player.js";
 import { activate } from "./tabs.js";
 
-// The rows the open Downloads panel was built from, in the order it drew
-// them. Read back when one is clicked so the queue is the rest of this list
-// — the same thing clicking a row means anywhere else in the app, except
-// that here there is no /content/queue endpoint to ask for it.
+// Rows the open Downloads panel was drawn from; a row click queues the rest.
 let panelTracks = [];
 
-// Object URLs handed to the panel's <img> tags. An object URL pins its Blob
-// until it is revoked, and these are whole cover images, so the previous
-// panel's are dropped before the next one's are made.
+// Object URLs pin their Blob until revoked, so the previous panel's are dropped.
 let panelCoverUrls = [];
 
-/** Every content id currently on this device, in the panel's order. */
 export function deviceTrackIds() {
   return panelTracks.map((track) => track.id);
 }
@@ -63,31 +40,19 @@ function releasePanelCovers() {
   panelCoverUrls = [];
 }
 
-/* -------------------------------------------------------------------------
-   The summary line, in Settings and on Library's tile
-   ---------------------------------------------------------------------- */
-
-/**
- * Re-reads IndexedDB and pushes the answer at both places that show it.
- *
- * Registered against every fragment swap as well as called directly: the
- * Library grid (and so its Downloads tile) is replaced wholesale by
- * refreshFragments, and a swapped-in tile comes back with the server's
- * placeholder text on it.
- */
-/** Puts the switch back in step with the stored preference. */
 function syncSwitch() {
   const toggle = document.getElementById("offline-playback-toggle");
   if (toggle) toggle.checked = offlinePlaybackOn();
 }
 
+// Also run on every fragment swap: the swapped-in Library tile carries the
+// server's placeholder text.
 export async function syncDeviceSummary() {
   const line = document.getElementById("device-summary-text");
   const tileCount = document.getElementById("downloads-card-count");
   const toggle = document.getElementById("offline-playback-toggle");
 
-  // A browser with no IndexedDB (private mode, chiefly) cannot keep anything,
-  // and a switch that silently fails is worse than no switch.
+  // No IndexedDB (private mode): a switch that silently fails is worse than none.
   if (!deviceStorageSupported()) {
     if (toggle) toggle.disabled = true;
     if (line) line.textContent = "This browser can't keep songs on the device.";
@@ -105,37 +70,16 @@ export async function syncDeviceSummary() {
     line.textContent = "Keep every download on this phone, so it plays with no connection.";
     return;
   }
-  // "about", because the browser's quota figure is advisory, covers the whole
-  // origin rather than this feature, and on iOS is both smaller and less
-  // predictable than elsewhere. Shown anyway: a device that refuses the next
-  // save is a lot less mysterious when the ceiling was visible beforehand.
+  // "about": the quota is advisory, origin-wide, and unpredictable on iOS.
   const ceiling = quota ? ` of about ${formatSize(quota)}` : "";
   line.textContent = `${count} song${count === 1 ? "" : "s"} on this device · ${formatSize(bytes)}${ceiling}`;
 }
 
-/* -------------------------------------------------------------------------
-   Offline playback: one switch that keeps this device stocked
-   ---------------------------------------------------------------------- */
-
-// The preference itself lives in ../offline.js, beside the store it governs,
-// because the player reads it too — see storeTrack.
-
-/* -------------------------------------------------------------------------
-   Giving way to the thing the user is actually listening to
-   ---------------------------------------------------------------------- */
-
-// The save currently in flight, so playback can call it off.
 let saveAbort = null;
 
 /**
- * Whether the player needs the connection more than this does.
- *
- * readyState below HAVE_FUTURE_DATA on an element that is trying to play is
- * exactly the "sitting at 0:00 with the spinner up" state — and those are the
- * seconds in which pulling a whole other song down the same connection is the
- * difference between a track starting and a track stalling. Once a track is
- * playing steadily this answers false: audio is a few tens of KB a second and
- * a background copy alongside it costs nothing anyone can hear.
+ * True while a playing element is still buffering (< HAVE_FUTURE_DATA): pulling
+ * another whole file then is what makes the track stall.
  */
 function playbackNeedsTheConnection() {
   const audio = activeAudio();
@@ -143,41 +87,18 @@ function playbackNeedsTheConnection() {
   return audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA;
 }
 
-// One sync at a time. The switch, the boot pass and the top-up after a new
-// download can all ask at once, and two passes would fetch the same track
-// twice — both would write, and the loser's bytes would be orphaned under a
-// record the winner had already replaced.
+// One sync at a time: concurrent passes would fetch a track twice and orphan
+// the loser's bytes.
 let syncing = false;
 
-/** Says what the sync is doing, in the line that otherwise holds the total. */
 function reportProgress(text) {
   const line = document.getElementById("device-summary-text");
   if (line) line.textContent = text;
 }
 
 /**
- * Brings this device up to date with the server: everything downloaded that
- * is not here yet, one at a time.
- *
- * Sequential deliberately. Each save is a whole audio file, and firing forty
- * at a household server over a phone's connection is how a convenience turns
- * into a stall — the line reports progress instead, which is what makes the
- * wait legible.
- *
- * Sequential was not enough on its own, though, and the reason is worth
- * keeping: this is scheduled by a fragment refresh, a fragment refresh is
- * what happens when you play something, and the one track missing from the
- * device at that moment is the one the server has just downloaded — the one
- * playing. So the top-up reliably went and fetched the current track's whole
- * file over the network, eight seconds into it, while the element was still
- * buffering the same bytes. Breadcrumbs from a real device on 2026-08-27:
- * three consecutive `playback-stalled` at readyState 0-1, with two full
- * copies of the track in flight beside the element's own range requests. So
- * the run now gives way — see playbackNeedsTheConnection.
- *
- * `announce` is off for the background top-up: that one runs after a track
- * finishes downloading, where a toast for something nobody asked for is just
- * noise.
+ * Saves everything downloaded that isn't on the device yet, sequentially. Gives
+ * way to playback: the missing track is often the one currently buffering.
  */
 async function syncDevice({ announce = false } = {}) {
   if (syncing || !deviceStorageSupported()) return;
@@ -186,8 +107,6 @@ async function syncDevice({ announce = false } = {}) {
     const { ok, data } = await api("/storage/items", {
       errorMessage: announce ? "Could not read your downloads" : undefined,
     });
-    // Offline, or the server said no. Nothing to do and nothing to say — the
-    // switch stays on and the next top-up picks this up.
     if (!ok) return;
 
     const items = data || [];
@@ -199,18 +118,15 @@ async function syncDevice({ announce = false } = {}) {
       return;
     }
 
-    // Asked for at the moment the user first commits to keeping something,
-    // not on boot: an unprompted permission request before there is anything
-    // to protect is the kind a browser is most likely to refuse.
+    // Requested only once the user commits to keeping something; an unprompted
+    // request before there's anything to protect is likelier to be refused.
     await requestPersistence();
 
     let saved = 0;
     let failure = null;
     let deferred = false;
     for (const item of pending) {
-      // Asked before every single track rather than once at the top: a run
-      // over a whole library is minutes long, and the track the user starts
-      // in the middle of one is precisely the one that would otherwise stall.
+      // Checked per track: a run is minutes long and playback may start mid-run.
       if (playbackNeedsTheConnection()) {
         deferred = true;
         break;
@@ -231,16 +147,12 @@ async function syncDevice({ announce = false } = {}) {
         );
         saved += 1;
       } catch (err) {
-        // Called off because the element ran out of data (see the `waiting`
-        // handler in setupDeviceStorage). Not a failure — it is this module
-        // doing what it was told, and the rest goes on in a quieter moment.
+        // Aborted by the player's `waiting` handler: deferred, not a failure.
         if (err?.name === "AbortError") {
           deferred = true;
           break;
         }
-        // A full device ends the run rather than skipping one song: every
-        // remaining save would fail the same way, and forty toasts saying so
-        // is not a better answer than one.
+        // A full device fails every remaining save the same way, so stop here.
         failure = err?.message || "Could not save one of these songs";
         break;
       } finally {
@@ -250,8 +162,6 @@ async function syncDevice({ announce = false } = {}) {
 
     if (failure) showToast(`Saved ${saved} of ${pending.length}. ${failure}`);
     else if (deferred) {
-      // Neither finished nor broken. Saying "saved 0 songs" here would be a
-      // lie about a run that is going to carry on by itself.
       if (announce) showToast(`Saving ${pending.length} songs in the background`);
       scheduleTopUp(TOP_UP_RETRY_DELAY);
     } else if (announce) {
@@ -263,8 +173,6 @@ async function syncDevice({ announce = false } = {}) {
   }
 }
 
-/** The switch was turned on: keep everything, starting with what is already
- *  downloaded. */
 async function enableOfflinePlayback(toggle) {
   if (!deviceStorageSupported()) {
     showToast("This browser can't keep songs on the device");
@@ -275,9 +183,6 @@ async function enableOfflinePlayback(toggle) {
   await syncDevice({ announce: true });
 }
 
-/** And off again, which means the copies go — that is the only thing being
- *  "on" ever did. Confirmed, because it is the one action here that destroys
- *  something the app cannot get back without a connection. */
 async function disableOfflinePlayback(toggle) {
   const { count, bytes } = await deviceUsage();
   if (count) {
@@ -288,7 +193,6 @@ async function disableOfflinePlayback(toggle) {
       "Turn off"
     );
     if (!confirmed) {
-      // Nothing changed, so the switch has to go back to saying so.
       toggle.checked = true;
       return;
     }
@@ -300,12 +204,9 @@ async function disableOfflinePlayback(toggle) {
   }
   rememberOfflinePlayback(false);
   await syncDeviceSummary();
-  // The open panel, if this was pressed with one behind Settings, is now a
-  // list of songs that are not there.
   if (isDownloadsPanelOpen()) await renderDownloadsPanel();
 }
 
-/** Forgets one track's bytes, from a row in the Downloads panel. */
 async function forgetOne(button) {
   if (button.disabled) return;
   button.disabled = true;
@@ -320,20 +221,13 @@ async function forgetOne(button) {
   await renderDownloadsPanel();
 }
 
-/* -------------------------------------------------------------------------
-   The Downloads panel
-   ---------------------------------------------------------------------- */
-
 function isDownloadsPanelOpen() {
   return Boolean(document.getElementById("downloads-panel"));
 }
 
 function rowHtml(track, index) {
   const duration = track.duration ? formatDuration(track.duration) : "";
-  // Only when nothing is going to put it straight back. With offline playback
-  // on, this device is meant to hold everything the server has — a × that the
-  // next top-up undoes reads as broken rather than obeyed, so the way to drop
-  // one song is to turn the switch off.
+  // No × with offline playback on: the next top-up would just put it back.
   const forget = offlinePlaybackOn()
     ? ""
     : `<button type="button" class="track-forget" data-content-id="${track.id}" aria-label="Remove from this device">
@@ -355,14 +249,8 @@ function rowHtml(track, index) {
 }
 
 /**
- * Draws the panel from IndexedDB, and fills each row's cover from the blob
- * saved beside its audio.
- *
- * The covers are a second pass rather than part of the markup above because
- * each one is an IndexedDB read: doing them inline would hold the whole list
- * behind the slowest of them, for artwork nobody is waiting on. The stored
- * `coverUrl` is deliberately not used as a fallback — it points at
- * /image-proxy, which is a request, on the one screen that must make none.
+ * Covers are a second pass (each is an IndexedDB read). The stored `coverUrl`
+ * is never a fallback: /image-proxy is a request, on the screen that must make none.
  */
 export async function renderDownloadsPanel() {
   const panel = document.getElementById("detail-panel");
@@ -418,16 +306,13 @@ export async function renderDownloadsPanel() {
     if (!url) continue;
     const slot = panel.querySelector(`.track-thumb[data-cover-for="${track.id}"]`);
     if (!slot) {
-      // The panel was replaced while this read was in flight — the URL has
-      // no slot to belong to and would otherwise pin its Blob forever.
+      // Panel replaced mid-read: revoke, or the URL pins its Blob forever.
       URL.revokeObjectURL(url);
       continue;
     }
     panelCoverUrls.push(url);
-    // Created rather than rendered hidden above and revealed here:
-    // .track-thumb img is display: block, which beats the [hidden]
-    // attribute, so a placeholder <img> with no src would render as a broken
-    // image for every track whose cover was never saved.
+    // Created, not pre-rendered hidden: `.track-thumb img { display: block }`
+    // beats [hidden], so an empty <img> would show as broken.
     const img = document.createElement("img");
     img.alt = "";
     img.src = url;
@@ -435,12 +320,7 @@ export async function renderDownloadsPanel() {
   }
 }
 
-/* -------------------------------------------------------------------------
-   The offline lock
-   ---------------------------------------------------------------------- */
-
-// Where the app is allowed to be with no connection: Library, and the one
-// detail view whose contents do not come from the server.
+// With no connection, only Library and the Downloads panel remain reachable.
 function lockToOfflineSurface() {
   const tab = document.documentElement.dataset.activeTab;
   if (tab === "library") return;
@@ -451,15 +331,10 @@ function lockToOfflineSurface() {
 export function setupOfflineMode() {
   document.addEventListener(CONNECTION_CHANGED, (event) => {
     if (!event.detail?.offline) return;
-    // Everything else in the app is a request away, and CSS has already
-    // dimmed the controls that lead there (see style.css's body.is-offline).
-    // This is for wherever the user already was when the connection went.
     lockToOfflineSurface();
   });
 
-  // The connection can already be gone by the time this runs — an offline
-  // open is the whole case the service worker's cached shell exists for, and
-  // it is the one where nothing will ever fire the event above.
+  // Already offline at boot (SW-cached open): the event above will never fire.
   if (document.body.classList.contains("is-offline")) lockToOfflineSurface();
 }
 
@@ -470,51 +345,31 @@ export function setupDeviceStorage() {
     else disableOfflinePlayback(toggle);
   });
 
-  // The element ran out of data mid-track. What this module has in flight
-  // when that happens is a whole audio file coming down the same connection,
-  // which makes it both the likeliest cause and the only one of the two that
-  // can wait. Bound rather than polled because it is the exact signal: no
-  // starvation, no abort.
+  // Stalled mid-track: the in-flight save is the likeliest cause and can wait.
   onPlayerEvent("waiting", () => saveAbort?.abort());
 
-  // Delegated from #detail-panel, whose children are replaced on every panel
-  // open — a listener on a row would go with them.
+  // Delegated: #detail-panel's children are replaced on every open.
   document.getElementById("detail-panel")?.addEventListener("click", (event) => {
     const forget = event.target.closest(".track-forget");
     if (forget) forgetOne(forget);
   });
 
-  // Library's grid is inside the fragment refreshFragments replaces, so its
-  // tile comes back carrying the server's placeholder count each time.
   onFragmentsSwapped(() => {
     syncDeviceSummary();
-    // A fragment refresh is what happens after a track finishes downloading,
-    // which is exactly when this device is one song behind the server. Not on
-    // the swap itself: refreshFragments fires on every play and every
-    // favourite too, and asking the server for the full download list that
-    // often would be a request per tap.
+    // Debounced via scheduleTopUp: refreshFragments fires on every play and
+    // favourite, and each pass asks the server for the full download list.
     if (offlinePlaybackOn()) scheduleTopUp();
   });
 
   syncSwitch();
   syncDeviceSummary();
-  // Whatever arrived while this device was closed, or was left half-done by
-  // a save that ran out of room and has since been given some.
   if (offlinePlaybackOn()) scheduleTopUp();
 }
 
-// Long enough that a burst of refreshes (a play, then its download finishing,
-// then a favourite) collapses into one pass, and short enough that a song is
-// on the device before the phone is put down.
+// Collapses a burst of refreshes into one pass.
 const TOP_UP_DELAY = 8000;
 
-// And how long a run that gave way to playback waits before trying again.
-// Deliberately far longer: the reason it stopped is that the player is
-// struggling for the connection, and coming back every eight seconds to ask
-// the server for the download list is the same impatience in a smaller form.
-// Nothing is lost by waiting — the tracks being played are already being kept
-// as they go (see overlay.js's cacheUpcomingAudio), so this is only ever the
-// backlog of songs nobody is listening to right now.
+// Longer: the run stopped because the player is struggling for the connection.
 const TOP_UP_RETRY_DELAY = 30000;
 
 let topUpTimer = null;

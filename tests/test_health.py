@@ -1,11 +1,4 @@
-"""/health and the background refresh loop's survival.
-
-Both halves of one bug: the loop used to die on any exception raised outside
-its inner try (reading the refresh interval was outside it, and "database is
-locked" there is entirely plausible while eight refresh threads write), and
-/health returned a hardcoded ok, so nothing noticed. The app looked healthy
-and simply stopped ever fetching a new upload.
-"""
+"""/health, and the background loop surviving a failed cycle."""
 
 import asyncio
 
@@ -20,8 +13,7 @@ def test_health_reports_ok_while_everything_runs(client):
 
 
 def test_health_is_503_when_the_refresh_loop_has_died(client, monkeypatch):
-    """A dead loop has to be reported, not hidden — that's what lets
-    compose's restart policy replace the process."""
+    """Reporting it is what lets compose's restart policy replace the process."""
     monkeypatch.setattr(scheduler, "is_alive", lambda: False)
 
     res = client.get("/health")
@@ -48,21 +40,12 @@ def test_health_is_503_when_the_database_is_unreachable(client, monkeypatch):
 
 
 def test_the_background_loop_survives_a_failure_during_a_cycle(monkeypatch):
-    """The actual regression: an exception anywhere in the cycle.
-
-    Before the fix this killed the task outright and the only place that
-    would ever have surfaced it was the `await` in the lifespan's shutdown.
-    Aimed at the sweep now that refreshing has moved off this loop (see
-    app/services/refresh.py) — the property being pinned is the loop's, not
-    any particular piece of work inside it.
-    """
     calls: list[int] = []
 
     def sometimes_locked() -> None:
         calls.append(1)
         if len(calls) == 1:
             raise RuntimeError("database is locked")
-        # Second time round: a normal no-op cycle.
 
     monkeypatch.setattr(scheduler, "_sweep_disk", sometimes_locked)
     monkeypatch.setattr(scheduler, "ERROR_BACKOFF_SECONDS", 0)

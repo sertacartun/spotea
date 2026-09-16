@@ -5,8 +5,7 @@ from app.images import proxied_image_url, unproxied_image_url
 from app.models import Artist, Content, User
 
 USER_ID = 1
-# Must match conftest.py's own DEFAULT_USER_ID (duplicated rather than
-# imported — see test_profiles_api.py for why).
+# Must match conftest.py's DEFAULT_USER_ID; conftest can't be imported as a module.
 DEFAULT_USER_ID = 1
 
 
@@ -65,12 +64,7 @@ def test_get_single_content_returns_full_shape(client, db_session):
 
 
 def test_the_payload_carries_the_cover_at_several_declared_sizes(client, db_session):
-    """What the player publishes to the OS's Now Playing surface. iOS picks
-    an entry per surface and will not resize a large one down for a small
-    one — given only art above 128px it draws a grey box on the compact
-    player, which is the Dynamic Island. Every cover here is stored at
-    music.COVER_SIZE (544), so a single entry was always in that range.
-    """
+    """iOS won't downscale art for the compact player (Dynamic Island), so small sizes must be declared."""
     _feed, items = _seed(db_session, count=1)
     items[0].thumbnail_url = proxied_image_url(
         "https://yt3.ggpht.com/COVER=w544-h544-l90-rj"
@@ -80,16 +74,13 @@ def test_the_payload_carries_the_cover_at_several_declared_sizes(client, db_sess
     artwork = client.get(f"/content/{items[0].id}").json()["artwork"]
 
     assert [entry["sizes"] for entry in artwork] == ["96x96", "192x192", "512x512"]
-    # The same picture each time, only the size segment differs.
     assert all("COVER" in entry["src"] for entry in artwork)
     assert "w96-h96" in unproxied_image_url(artwork[0]["src"])
     assert "w512-h512" in unproxied_image_url(artwork[-1]["src"])
 
 
 def test_a_cover_that_cannot_be_resized_is_published_once_without_a_size(client, db_session):
-    """A video still ignores the size segment — it carries a signed query
-    instead — so three identical URLs claiming three different sizes would
-    be a lie the OS acts on. One honest entry instead."""
+    """A video still ignores the size segment, so identical URLs mustn't claim different sizes."""
     _feed, items = _seed(db_session, count=1)
     items[0].thumbnail_url = None
     db_session.commit()
@@ -101,10 +92,7 @@ def test_a_cover_that_cannot_be_resized_is_published_once_without_a_size(client,
 
 
 def test_the_payload_says_how_to_open_the_artist(client, db_session):
-    """The player's artist line is a link now (see _player_overlay.html), and
-    this is what it opens. The browse id where the artist row has one; the
-    channel it was created from otherwise, which the yt-artist panel resolves
-    the same way Explore's own artist links do."""
+    """The browse id when the artist has one, otherwise the channel id it was created from."""
     artist, items = _seed(db_session, count=1)
 
     artist.browse_id = "UCbrowseidbrowseid1234"
@@ -117,15 +105,7 @@ def test_the_payload_says_how_to_open_the_artist(client, db_session):
 
 
 def test_the_payload_carries_a_cover_even_when_the_row_has_none(client, db_session):
-    """The player overlay and the mini player set their artwork straight from
-    this payload (home/overlay.js), never from a template — so the fallback
-    has to live in the serializer, not only in the Jinja filter.
-
-    It did not, at first. A track stored without a cover then showed one in
-    its row and its card and a blank square in the player it opened, which is
-    how this was reported the second time: an album opened from an artist's
-    profile, a track played, still no image. See images.track_cover.
-    """
+    """The player sets its artwork from this payload, so the cover fallback must live in the serializer."""
     artist, items = _seed(db_session, count=1)
     track = items[0]
     track.thumbnail_url = None
@@ -138,8 +118,6 @@ def test_the_payload_carries_a_cover_even_when_the_row_has_none(client, db_sessi
 
 
 def test_a_tracks_own_cover_reaches_the_payload_unchanged(client, db_session):
-    """The fallback is a fallback — a row that has artwork is served exactly
-    that, with nothing derived or rewritten."""
     artist, items = _seed(db_session, count=1)
     track = items[0]
     track.thumbnail_url = "/thumbnails/kept.jpg"
@@ -204,8 +182,6 @@ def test_channel_queue_404s_for_another_users_channel(client, db_session):
 
 
 def test_queue_is_capped(client, db_session, monkeypatch):
-    """A long-standing library's Favorites can run deep; the queue stops well
-    before that rather than shipping (and storing) all of it."""
     from app import content_query
 
     monkeypatch.setattr(content_query, "QUEUE_MAX_ITEMS", 5)
@@ -240,10 +216,7 @@ def test_start_download_dispatches_and_settles_to_ready(client, db_session, monk
 
     res = client.post(f"/content/{item.id}/download")
     assert res.status_code == 200
-    # TestClient runs BackgroundTasks synchronously right after the response
-    # is built, so the response body still reflects the pre-task state —
-    # this is the same "status flips synchronously, the actual work happens
-    # after" contract the real deployment relies on (see ARCHITECTURE.md §5).
+    # TestClient runs BackgroundTasks after building the response, so the body is the pre-task state.
     assert res.json()["status"] == "downloading"
 
     db_session.refresh(item)
@@ -254,15 +227,7 @@ def test_start_download_dispatches_and_settles_to_ready(client, db_session, monk
 def test_start_download_swaps_the_music_video_before_it_fetches_anything(
     client, db_session, monkeypatch, tmp_path
 ):
-    """The download fetches whatever video_id the row names, so the swap has
-    to land first — and this is where it lands.
-
-    It used to be the client's to sequence: home/overlay.js's prefetch POSTed
-    the swap, waited, then POSTed the download, and the ordering held only
-    because it was written that way. Measured on a device on 2026-08-27 that
-    cost a whole round trip per track on the one path where seconds are the
-    point. The server can simply guarantee it.
-    """
+    """The download fetches the row's video_id, so the song swap has to land server-side first."""
     from app.routers import content as content_router
 
     item = _seed_one(db_session, thumbnail_url=_STILL, duration_seconds=235)
@@ -283,9 +248,7 @@ def test_start_download_swaps_the_music_video_before_it_fetches_anything(
     # The song's id, not the music video's the row was seeded with.
     assert fetched == ["songvideo11"]
 
-    # And the answer carries the row it ended up with, because the caller's
-    # title, cover and credit all still describe the video at this point —
-    # this is what let the prefetch drop its separate metadata fetch too.
+    # The answer carries the swapped row: the caller's title/cover still describe the video.
     body = res.json()
     assert body["content"]["title"] == "Download Me"
     assert body["content"]["thumbnail_url"] == _SQUARE
@@ -296,10 +259,7 @@ def test_start_download_swaps_the_music_video_before_it_fetches_anything(
 
 
 def test_the_status_poll_carries_no_row_of_its_own(client, db_session):
-    """Only the download answers with `content`. Nothing about a row changes
-    between status ticks, and repeating it on every one of a poll that runs
-    at 200ms would be the payload of the whole chain, several times over, for
-    a field nobody reads there."""
+    """Only the download answers with `content`; repeating it on every 200ms status tick is waste."""
     item = _seed_one(db_session)
 
     body = client.get(f"/content/{item.id}/status").json()
@@ -315,9 +275,7 @@ def test_start_download_409s_while_already_downloading(client, db_session):
 
 
 def test_start_download_leaves_a_track_thats_already_on_disk_alone(client, db_session, monkeypatch, tmp_path):
-    """The queue's one-track-ahead prefetch (home/overlay.js) fires without
-    knowing the next track's status, so asking for something already
-    downloaded has to be free — not a second fetch of the same audio."""
+    """The queue's prefetch fires without knowing the next track's status."""
     from app.routers import content as content_router
 
     on_disk = tmp_path / "already-here.m4a"
@@ -339,8 +297,6 @@ def test_start_download_leaves_a_track_thats_already_on_disk_alone(client, db_se
 
 
 def test_start_download_refetches_when_the_file_is_gone(client, db_session, monkeypatch, tmp_path):
-    """"ready" taken at face value would strand playback whenever storage was
-    cleared out from under the row."""
     from app.routers import content as content_router
 
     item = _seed_one(db_session, status="ready", file_path=str(tmp_path / "vanished.m4a"))
@@ -356,8 +312,7 @@ def test_start_download_refetches_when_the_file_is_gone(client, db_session, monk
 
 
 def test_a_video_youtube_wont_serve_is_recorded_as_settled(client, db_session, monkeypatch):
-    """Distinguishing this from an ordinary failure is what stops the app
-    re-attempting it forever — see Content.is_unavailable."""
+    """So the app stops re-attempting it forever (see Content.is_unavailable)."""
     from app.routers import content as content_router
 
     item = _seed_one(db_session)
@@ -391,10 +346,7 @@ def test_an_ordinary_failure_stays_worth_retrying(client, db_session, monkeypatc
 
 
 def test_an_unavailable_track_is_never_attempted_again(client, db_session, monkeypatch):
-    """The queue's prefetch fires for whatever is next without knowing
-    anything about it, so without this every pass over a broken track pays
-    for a full extraction against YouTube to be told what the row already
-    says."""
+    """The prefetch fires blindly, so a known-broken track must not cost another extraction."""
     from app.routers import content as content_router
 
     item = _seed_one(db_session, status="error")
@@ -415,8 +367,7 @@ def test_an_unavailable_track_is_never_attempted_again(client, db_session, monke
 
 
 def test_removing_a_download_reopens_an_unavailable_track(client, db_session):
-    """YouTube licensing changes, so writing a track off has to be
-    reversible — this is the only "start over" action the app has."""
+    """Licensing changes, so removing the download is the one way to reopen a track."""
     item = _seed_one(db_session, status="error")
     item.is_unavailable = True
     db_session.commit()
@@ -429,22 +380,14 @@ def test_removing_a_download_reopens_an_unavailable_track(client, db_session):
 
 
 def test_there_is_no_restart_endpoint(client, db_session):
-    """The client used to POST this every 3s while a download showed no byte
-    progress, which restarted attempts that were working and left the
-    abandoned ones running. Retrying is downloader.py's ladder's job now, and
-    nothing should be able to dispatch a second concurrent attempt for one
-    row — two yt-dlp runs writing the same .part file is how a real play died
-    on "Unable to rename file"."""
+    """Retrying is downloader.py's job; two concurrent yt-dlp runs on one .part file broke plays."""
     item = _seed_one(db_session, status="downloading")
     res = client.post(f"/content/{item.id}/download/restart")
     assert res.status_code == 404
 
 
 def test_the_extracting_phase_reaches_the_status_endpoint(client, db_session, monkeypatch, tmp_path):
-    """Resolving a URL YouTube will honour is the slow part of a play and
-    moves no bytes, so the phase downloader.py reports during it has to make
-    it out to the poller — otherwise the UI sits on "Preparing audio…" for
-    the entire wait."""
+    """Resolving moves no bytes, so without the phase the UI sits on "Preparing audio…" throughout."""
     from app.routers import content as content_router
 
     item = _seed_one(db_session, status="downloading")
@@ -459,8 +402,7 @@ def test_the_extracting_phase_reaches_the_status_endpoint(client, db_session, mo
     monkeypatch.setattr(content_router, "download_audio", fake_download)
     content_router._run_download(item.id, item.video_id, "high", USER_ID)
 
-    # ...and it's cleared once the download settles, rather than leaving a
-    # finished track reporting a phase forever.
+    # ...and cleared once the download settles.
     assert client.get(f"/content/{item.id}/status").json()["phase"] is None
 
 
@@ -482,14 +424,7 @@ def _seed_ready(db_session, tmp_path):
 
 
 def test_streaming_a_track_does_not_record_it_as_played(client, db_session, tmp_path):
-    """Asking for the audio stopped being evidence that anyone heard it.
-
-    The player pulls the *next* track's bytes down while the current one is
-    still playing (home/overlay.js's cacheUpcomingAudio) so the handoff has
-    nothing to wait for, which means this route now fires a whole track early
-    for something the listener may well skip past. It used to set
-    last_played_at here, and that would mark every prefetch as played.
-    """
+    """The player prefetches the next track's audio, so a stream request is not a play."""
     item = _seed_ready(db_session, tmp_path)
 
     assert client.get(f"/content/{item.id}/stream").status_code == 200
@@ -499,7 +434,6 @@ def test_streaming_a_track_does_not_record_it_as_played(client, db_session, tmp_
 
 
 def test_marking_a_track_played_records_it(client, db_session, tmp_path):
-    """The signal that replaced it — sent when playback actually starts."""
     item = _seed_ready(db_session, tmp_path)
     assert item.last_played_at is None
 
@@ -514,11 +448,7 @@ def test_marking_an_unknown_track_played_is_a_404(client):
 
 
 def test_only_the_export_link_serves_the_file_as_an_attachment(client, db_session, tmp_path):
-    """?download=1 is _downloads.html's export link; the player is everything
-    else. A filename is what makes Starlette send Content-Disposition:
-    attachment, which is what a file being saved wants and what one being
-    played does not — and both were getting it while the filename was
-    unconditional."""
+    """?download=1 is the export link; a player stream must not get Content-Disposition: attachment."""
     item = _seed_ready(db_session, tmp_path)
 
     played = client.get(f"/content/{item.id}/stream")
@@ -532,15 +462,6 @@ def test_only_the_export_link_serves_the_file_as_an_attachment(client, db_sessio
     db_session.refresh(item)
     assert item.last_played_at is None
 
-
-
-
-# --- POST /content/{id}/song-version --------------------------------------
-#
-# Explore's playlists are music-video playlists almost end to end (measured:
-# 3 of 200, 3 of 96 and 2 of 200 entries were songs). A video entry carries a
-# 16:9 still where the rest of the app draws square album art, has no lyrics
-# and is a different recording. This route swaps the row for the song.
 
 _STILL = "/image-proxy?u=https%3A//i.ytimg.com/vi/downloadvi1/hqdefault.jpg%3Fsqp%3Dabc"
 _SQUARE = "/image-proxy?u=https%3A//yt3.ggpht.com/abc%3Dw544-h544-l90-rj"
@@ -560,10 +481,7 @@ def _song(video_id="songvideo11", title="Download Me", duration=200):
 
 
 def test_a_music_video_row_is_rewritten_in_place(client, db_session, monkeypatch):
-    """In place, not alongside. The client is holding this row's id — it is in
-    the queue and it is what the player is opening — so a second row would
-    mean the id being played and the id in the queue disagreeing, and
-    queue.js drops a queue the playing track isn't in."""
+    """In place: the queue holds this row's id, and a new row would drop the playing track from it."""
     from app.routers import content as content_router
 
     item = _seed_one(db_session, thumbnail_url=_STILL, duration_seconds=235)
@@ -584,11 +502,7 @@ def test_a_music_video_row_is_rewritten_in_place(client, db_session, monkeypatch
 
 
 def test_the_swap_takes_the_songs_credit_and_drops_the_videos(client, db_session, monkeypatch):
-    """The row *is* the song now, for the same reason its title and cover are
-    replaced: a music-video row is named for whoever uploaded it. Written
-    unconditionally, None included — a song credited to one artist has no
-    credit of its own, and leaving the video's behind would be worse than
-    falling back to the artist row."""
+    """A music-video row is credited to its uploader, so the song's credit replaces it."""
     from app.routers import content as content_router
     from app.youtube.models import VideoSearchResult
 
@@ -609,9 +523,6 @@ def test_the_swap_takes_the_songs_credit_and_drops_the_videos(client, db_session
 
 
 def test_the_swap_clears_a_credit_the_song_does_not_have(client, db_session, monkeypatch):
-    """The other half of the same rule: a stale credit carried over from the
-    music-video row would keep naming people who are not on the recording,
-    which is the whole bug this column exists to end."""
     from app.routers import content as content_router
     from app.youtube.models import VideoSearchResult
 
@@ -631,8 +542,7 @@ def test_the_swap_clears_a_credit_the_song_does_not_have(client, db_session, mon
 
 
 def test_a_row_that_is_already_the_song_is_left_alone(client, db_session, monkeypatch):
-    """Square art means YouTube Music called it a song. Nothing to resolve,
-    and no search worth paying for."""
+    """Square art means YouTube Music already calls it a song."""
     from app.routers import content as content_router
 
     item = _seed_one(db_session, thumbnail_url=_SQUARE)
@@ -649,8 +559,7 @@ def test_a_row_that_is_already_the_song_is_left_alone(client, db_session, monkey
 
 
 def test_a_downloaded_row_is_never_rewritten(client, db_session, monkeypatch):
-    """Rewriting video_id under a file that has already been fetched would
-    orphan it and leave the row naming audio it no longer points at."""
+    """Changing video_id under a fetched file would orphan the audio."""
     from app.routers import content as content_router
 
     item = _seed_one(db_session, thumbnail_url=_STILL, status="ready", file_path="data/x.m4a")
@@ -667,8 +576,6 @@ def test_a_downloaded_row_is_never_rewritten(client, db_session, monkeypatch):
 
 
 def test_no_song_version_leaves_the_video_playable(client, db_session, monkeypatch):
-    """A miss is a normal answer, not an error — the caller plays what it gets
-    back."""
     from app.routers import content as content_router
 
     item = _seed_one(db_session, thumbnail_url=_STILL)
@@ -682,9 +589,7 @@ def test_no_song_version_leaves_the_video_playable(client, db_session, monkeypat
 
 
 def test_a_song_already_in_the_library_is_not_swapped_into(client, db_session, monkeypatch):
-    """The unique constraint is on (user_id, video_id). Handing back the other
-    row's id would take the playing track out of the queue it came from, so
-    the video is left as it is."""
+    """(user_id, video_id) is unique; returning the other row's id would drop the track from its queue."""
     from app.models import Content
     from app.routers import content as content_router
 
@@ -708,10 +613,7 @@ def test_a_song_already_in_the_library_is_not_swapped_into(client, db_session, m
 
 
 def test_the_stored_channel_id_is_offered_to_the_matcher(client, db_session, monkeypatch):
-    """The id is the strongest thing we know about the artist: YouTube Music
-    gives one artist different display names in different responses — a
-    playlist entry says "Marie Ulven" where search says "girl in red" — and
-    the same channel id in both."""
+    """Display names differ between responses ("Marie Ulven" vs "girl in red"); the channel id doesn't."""
     from app.routers import content as content_router
 
     item = _seed_one(db_session, thumbnail_url=_STILL)
@@ -729,10 +631,7 @@ def test_the_stored_channel_id_is_offered_to_the_matcher(client, db_session, mon
 
 
 def test_a_placeholder_attribution_moves_to_the_credited_artist(client, db_session, monkeypatch):
-    """A music video uploaded by a label arrives attributed to the *label* —
-    "HYBE LABELS" owns the channel the chart entry came from — so the
-    player's artist line links there rather than to KATSEYE. The song version
-    names the real artist, and the swap is when we find out who that is."""
+    """Label-uploaded videos are attributed to the label; the song version names the real artist."""
     from app.models import Artist
     from app.routers import content as content_router
 
@@ -749,15 +648,12 @@ def test_a_placeholder_attribution_moves_to_the_credited_artist(client, db_sessi
     assert item.artist_id != label.id
     moved_to = db_session.get(Artist, item.artist_id)
     assert moved_to.channel_id == "UCsomethingsomething"
-    # Still a placeholder: knowing who recorded a track isn't a decision to
-    # put them in Library.
+    # Still a placeholder: knowing who recorded a track isn't a decision to follow them.
     assert moved_to.followed is False
 
 
 def test_a_followed_artist_keeps_the_track(client, db_session, monkeypatch):
-    """Where the track belongs is the user's own decision once they've
-    followed someone — re-pointing the row would take it off that artist's
-    Library page."""
+    """Once followed, re-pointing the row would take it off that artist's Library page."""
     from app.models import Artist
     from app.routers import content as content_router
 
@@ -774,10 +670,7 @@ def test_a_followed_artist_keeps_the_track(client, db_session, monkeypatch):
 
 
 def test_the_row_takes_the_song_s_own_title(client, db_session, monkeypatch):
-    """A chart entry arrives named for the video file — "KATSEYE (캣츠아이)
-    'Hootie Frutti' Official MV" — and once the row *is* the song, leaving
-    that in place means every list in the app still announces a music video
-    the player is no longer playing."""
+    """A chart entry is named for the video file ("... Official MV"), not the song."""
     from app.routers import content as content_router
 
     item = _seed_one(db_session, thumbnail_url=_STILL)

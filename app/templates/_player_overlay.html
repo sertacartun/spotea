@@ -1,24 +1,7 @@
-<!-- Home/Library/Explore's in-page player: an overlay (full "now playing"
-     view) plus a persistent mini-bar that stays visible while it's
-     collapsed. The controls themselves come from _player_controls.html —
-     see its header for why the element ids are bound directly. Starts
-     with an empty #player-root dataset; nothing is loaded until a track
-     is actually opened (see home/overlay.js's openPlayer), which fills it
-     in client-side. -->
 <div id="player-overlay" class="player-overlay" hidden>
-  <!-- The backdrop already had a fixed glow at the top of the screen; this
-       makes it come from the record instead. Same field, same clamp and same
-       two-layer cross-fade as Home's and the detail panel's, so the three
-       cover-led surfaces are lit one way rather than three. The static
-       gradient underneath stays as the answer for no artwork and no JS. -->
   <div class="ambient-field player-overlay-ambient" aria-hidden="true"></div>
   <div class="player-card" id="player-root" data-content-id="" data-status="" data-stream="">
-    <!-- Everything except the panel, grouped so the two can sit side by side
-         on a wide screen. `display: contents` below that breakpoint (see
-         style.css), so on a phone this wrapper isn't in the layout at all and
-         the card's children are still its own direct flex items — the
-         artwork-gives-way-to-queue behaviour depends on that and is
-         deliberately unchanged. -->
+    <!-- `display: contents` on phones (style.css): the card's children must stay its direct flex items. -->
     <div class="player-main">
       <button type="button" class="back-link" id="overlay-collapse-btn" aria-label="Back">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-arrow-left" /></svg>
@@ -29,12 +12,7 @@
         <img id="player-art-img" data-ambient-source alt="" hidden />
       </div>
 
-      <!-- The artist line is a button, not a label: it is the one place in
-           the app where you are looking straight at an artist's name with no
-           way to reach them. Filled and enabled by home/overlay.js, which
-           knows whether the track's artist has a page to open at all (see
-           ContentOut.artist_page_id) — disabled it styles and behaves as the
-           plain text it used to be. -->
+      <!-- Enabled by home/overlay.js only when ContentOut.artist_page_id exists. -->
       <div class="player-meta">
         <h1 class="player-title"></h1>
         <p class="player-channel-line">
@@ -46,29 +24,10 @@
 {% endwith %}
     </div>
 
-    <!-- Starts empty and closed. The queue lives in the browser, so there is
-         nothing to render here until the panel is opened and home/overlay.js
-         fetches /partials/queue with the ids it holds.
-
-         Closed by a class rather than `hidden`, and wrapped: `display: none`
-         has nothing to animate between, so the panel is a grid collapsed to
-         0fr and the wrapper is what clips its contents on the way. The
-         border and padding live on the body inside that wrapper so they are
-         clipped too — left on the panel they'd draw a stray line under the
-         controls with nothing beneath it. -->
+    <!-- Closed by a class, not `hidden`, so the 0fr grid collapse can animate; the wrapper clips it. -->
     <div id="queue-panel" class="queue-panel">
-      {# Two views of the same panel. The tabs are what used to be the queue's
-         own <h2>: one heading became two, so the heading became a control.
-
-         Outside .queue-panel-inner, which is the scroller — a header that
-         scrolls away with its own contents isn't one. Being outside also
-         means it needs no background to sit on: nothing ever passes behind
-         it, so there's no opaque strip seaming against the overlay's
-         gradient.
-
-         Lyrics deliberately starts empty. Nothing is fetched until this tab
-         is actually selected (see home/lyrics.js): most tracks have none,
-         and asking on every play would be two live requests thrown away. #}
+      {# Outside .queue-panel-inner (the scroller) so the header doesn't scroll away. Lyrics are fetched
+         only when their tab is selected (home/lyrics.js). #}
       <div class="panel-tabs" role="tablist" aria-label="Player panel">
         <button type="button" class="panel-tab is-selected" id="panel-tab-queue" role="tab" aria-selected="true" aria-controls="queue-panel-body">Queue</button>
         <button type="button" class="panel-tab" id="panel-tab-lyrics" role="tab" aria-selected="false" aria-controls="lyrics-panel-body">Lyrics</button>
@@ -82,10 +41,7 @@
 </div>
 
 <div id="mini-player" class="mini-player" hidden>
-  <!-- A button, not a bare div: on desktop this bar is the player most of the
-       time, and a progress line you cannot scrub is a line, not a control.
-       role/aria-* describe it as a slider so it is operable from the keyboard
-       too; home/overlay.js keeps the values in step. -->
+  <!-- A slider-role button so the mini bar's progress is keyboard-scrubbable; home/overlay.js syncs aria values. -->
   <button
     type="button"
     id="mini-player-progress"
@@ -109,11 +65,6 @@
       </span>
     </button>
 
-    <!-- The transport. Previous is desktop-only (see style.css): on a phone
-         the bar has no width to spare for it, and the full overlay is one tap
-         away. Previous/next are both only shown while a queue is loaded —
-         with a single track open there is nothing to skip to, and a
-         permanently dead control is worse than none. -->
     <div class="mini-player-transport">
       <button type="button" id="mini-player-prev" class="mini-player-skip" aria-label="Previous track" hidden>
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><use href="#i-skip-previous" /></svg>

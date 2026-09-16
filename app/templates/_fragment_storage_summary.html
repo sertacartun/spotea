@@ -1,6 +1,1 @@
-{# Wrapper that GET /partials/storage-summary returns — just the Settings
-   "Storage used" line, via storage.usage_summary rather than the full
-   collect_usage() the Downloads modal's own list needs. This is what
-   refreshFragments() actually fetches after a save/favorite/play; see
-   _fragment_downloads.html for the modal's own (separately fetched) list. #}
 <template data-target="settings-storage-desc">{% include "_storage_summary.html" %}</template>

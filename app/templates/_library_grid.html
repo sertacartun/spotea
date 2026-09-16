@@ -1,27 +1,6 @@
-{# Library's channel grid: the pinned tiles and the hand-made lists, then one
-   card per followed artist.
-
-   Rendered inside index.html and on its own by GET /partials/library. The
-   search input above it deliberately stays in index.html: it holds what the
-   user has typed, and the only things that would change its presence (the
-   first artist ever followed, or unfollowing the last one) both navigate away
-   anyway.
-
-   Everything above the artist cards renders whether or not anyone is
-   followed. It used to be the other way round — one artists check around
-   the whole grid — so a profile following nobody got "Your library is empty"
-   and nothing else, hiding Recently Played, Favorites, Downloads and their
-   own playlists behind a follow they had not made yet. None of those depend
-   on following anyone: you can play something from Explore, or make a list,
-   long before you follow an artist, and then the one place those live said
-   there was nothing here.
-#}
+{# The search input stays in index.html to keep typed text.
+   Pinned tiles and playlists render even when nobody is followed. #}
     <div class="channel-grid">
-      {# First of the three, because it is the only one that changes on its
-         own: Favorites and Recently Played are both consequences of
-         something you just did, so you already know what is in them. This
-         is the tile that answers "has anything happened since I last
-         looked", which is the question the Library is opened with. #}
       <a class="channel-card" href="/#new-uploads" data-detail-kind="new-uploads">
         <span class="channel-card-avatar channel-card-icon is-new-uploads">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-upload" /></svg>
@@ -49,31 +28,17 @@
           <span class="channel-card-count">{{ recently_played_count }} song{{ '' if recently_played_count == 1 else 's' }}</span>
         </span>
       </a>
-      {# The fourth pinned tile, and the only one whose contents the server
-         cannot render: what this device itself has saved (see
-         static/js/home/device.js). It is here rather than in Settings because
-         offline it is the only thing in the app that still works, and the
-         Library is where anyone looks for "what can I actually play".
-
-         Here whether or not anyone is followed, like every other pinned
-         tile: what this device is holding has nothing to do with who the
-         library follows. #}
+      {# The server can't render this tile's contents: it is what this device saved (home/device.js). #}
       <a class="channel-card" href="/#downloads" data-detail-kind="downloads">
         <span class="channel-card-avatar channel-card-icon is-downloads">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-phone" /></svg>
         </span>
         <span class="channel-card-info">
           <span class="channel-card-title">Downloads</span>
-          {# Filled in by home/device.js once IndexedDB has been read; the
-             server has no way of knowing the number, and a count rendered as
-             0 here would be a claim rather than a placeholder. #}
+          {# Filled in by home/device.js from IndexedDB; a rendered 0 would be a claim, not a placeholder. #}
           <span class="channel-card-count" id="downloads-card-count">On this device</span>
         </span>
       </a>
-      {# The hand-made lists, after the three pinned ones and before the
-         artists. They sit in the same grid because they answer the same
-         question the pinned tiles do — "what do I want to put on" — and a
-         second grid below would separate two kinds of the same thing. #}
       {% for playlist in playlists %}
       {% set playlist_count = playlist_track_counts.get(playlist.id, 0) %}
       <a class="channel-card" href="/#user-playlist/{{ playlist.id }}" data-detail-kind="user-playlist" data-detail-id="{{ playlist.id }}">
@@ -86,9 +51,6 @@
         </span>
       </a>
       {% endfor %}
-      {# A button rather than a link: it opens a prompt, not a view. Styled as
-         a card so the way to make a list sits where the lists are, instead of
-         in a menu somewhere else. #}
       <button type="button" class="channel-card is-new-playlist" id="new-playlist-btn">
         <span class="channel-card-avatar channel-card-icon is-user-playlist">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-plus" /></svg>
@@ -99,26 +61,13 @@
         </span>
       </button>
       {% if artists %}
-      {# Everything above is a place; everything below is someone you follow.
-         They are the same card shape on purpose — one grid, one rhythm — so
-         this heading is what keeps them from reading as one undifferentiated
-         list. #}
       <h2 class="channel-grid-heading">Artists you follow</h2>
       {% endif %}
-      {% for artist in artists %}{# the only part of this grid that needs one #}
+      {% for artist in artists %}
       {% set video_count = artist_track_counts.get(artist.id, 0) %}
       {% set release_count = artist_release_counts.get(artist.id, 0) %}
-      {# An artist followed minutes ago is still having its first sync run
-         in the background (services/initial_sync.py). It is already
-         openable, so this replaces the count rather than blocking anything
-         — and it is why nothing else in the app waits for that sync any
-         more. The data-preparing attribute is what home/library.js polls
-         on. #}
+      {# First sync still running in the background; home/library.js polls on data-preparing. #}
       {% set is_preparing = artist.id in preparing_artist_ids %}
-      {# The card opens the artist's own profile — albums, singles and what
-         they just released, which is what the card stands for. There is no
-         local per-artist track list any more: what the library holds of
-         theirs is on Home's shelves and the pinned playlists. #}
       {% set detail_kind = "yt-artist" %}
       {% set detail_id = artist.browse_id %}
       <a
@@ -140,20 +89,10 @@
             <span class="spinner"></span><span class="channel-card-preparing-text">Fetching releases…</span>
           </span>
           {% elif artist.monthly_listeners %}
-          {# YouTube Music's own count, refreshed on every sync (see
-             services/artist_sync.py) — the same figure Spotify shows under
-             an artist's name, and unlike the counts below it, it doesn't
-             read as 0 for an artist you just followed. #}
           <span class="channel-card-count">{{ artist.monthly_listeners }} monthly listeners</span>
           {% elif video_count %}
-          {# A track from this artist has actually synced in since you
-             followed — see page_context.library_context's
-             artist_track_counts. The rarer, more interesting case. #}
           <span class="channel-card-count">{{ video_count }} track{{ '' if video_count == 1 else 's' }}</span>
           {% elif release_count %}
-          {# Following only starts recording releases from here on, so this
-             is what most cards show most of the time: what YouTube Music's
-             own artist page already lists, not what's synced locally. #}
           <span class="channel-card-count">{{ release_count }} release{{ '' if release_count == 1 else 's' }}</span>
           {% else %}
           <span class="channel-card-count">Following</span>
@@ -164,9 +103,6 @@
     </div>
     <p id="channel-search-empty" class="muted" hidden>No artists match your search.</p>
     {% if not artists %}
-    {# Under the tiles, not instead of them. This says what is missing — nobody
-       followed — rather than claiming the whole library is empty, which was
-       never true of the tiles right above it. #}
     <div class="empty-state">
       <p class="empty-state-title">You're not following anyone yet</p>
       <p class="empty-state-help">Follow an artist and their new releases collect here.</p>

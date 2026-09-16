@@ -1,11 +1,4 @@
-"""Timed lyrics for the player panel's Lyrics tab.
-
-The fetch is monkeypatched out; what's under test is the caching contract,
-because that is where the cost is. A miss is two live YouTube requests and,
-measured over 21 tracks before this was built, about two thirds of tracks
-have no lyrics at all — so "we asked and there are none" has to be as
-durable an answer as "here they are".
-"""
+"""Timed lyrics caching: most tracks have none, so "none" is cached as durably as lines."""
 
 import json
 
@@ -41,7 +34,6 @@ def _content(db_session, video_id=VIDEO_ID, user_id=USER_ID):
 
 @pytest.fixture
 def fake_lyrics(monkeypatch):
-    """Installs an answer for the fetcher and counts how often it was asked."""
     holder = {
         "result": TimedLyrics(
             lines=[
@@ -88,8 +80,6 @@ def test_a_second_request_is_served_from_the_cache(client, db_session, fake_lyri
 
 
 def test_having_no_lyrics_is_cached_just_as_hard(client, db_session, fake_lyrics):
-    """The majority answer. Without storing it, the two-request miss would
-    repeat every single time the tab is opened on such a track."""
     holder, calls = fake_lyrics
     holder["result"] = None
     content = _content(db_session)
@@ -100,17 +90,14 @@ def test_having_no_lyrics_is_cached_just_as_hard(client, db_session, fake_lyrics
     assert first.json() == {"lines": None, "source": None}
     assert second.json() == {"lines": None, "source": None}
     assert calls == [VIDEO_ID]
-    # A row that exists with lines NULL — "asked, there are none" — rather
-    # than no row, which would mean "never asked".
+    # lines NULL means "asked, there are none"; no row would mean "never asked".
     row = db_session.get(TrackLyrics, VIDEO_ID)
     assert row is not None
     assert row.lines is None
 
 
 def test_the_cache_is_keyed_by_recording_not_by_content_row(client, db_session, fake_lyrics):
-    """The same track is several Content rows — a preview from Explore, the
-    same song picked up by a sync, one row per user — and the lyrics are a
-    property of the recording, not of anyone's library."""
+    """One recording can be several Content rows (preview, sync, other users)."""
     _, calls = fake_lyrics
     mine = _content(db_session)
     other_user = User(username="lyrics-other", password_hash="x")

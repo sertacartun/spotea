@@ -25,20 +25,10 @@ def home(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
-    """index.html is the whole app — Home, Library, Explore and Settings are
-    tab panels in one document (see its inline head script), so this single
-    route builds the context for all of them at once.
-
-    Each region's context comes from app/page_context.py, shared with the
-    fragment endpoints (routers/partials.py) that re-render that same region
-    later. The full page and a refresh of one part of it therefore can't
-    disagree about what it contains."""
+    """index.html is the whole app: one render builds every tab panel's context."""
     home = home_context(db, user.id)
     queue_thumbnail_caching(background_tasks, home_shelf_items(home))
-    # Opening the app is what triggers a look for new releases now, rather
-    # than a background loop running whether or not anyone is here (see
-    # services/refresh.py). Queued behind this response, so this render still
-    # shows what was already stored and the next one shows what arrived.
+    # Opening the app triggers the new-release check, queued behind this response.
     queue_due_refresh(background_tasks, user)
     interests = parse_interests(user.interests)
 
@@ -47,14 +37,8 @@ def home(
         "index.html",
         {
             "audio_quality": user.audio_quality,
-            # Labels the Settings panel — the login is otherwise never shown
-            # anywhere in the app after registration.
             "account_name": user.username,
-            # Server-rendered rather than fetched by home/settings.js on boot:
-            # the interest chips are part of the Settings panel's first paint,
-            # and filling them in afterwards flashes an empty editor on every
-            # load. Explore's recommendations are the opposite case — they can
-            # cost a YouTube round trip, so they stay a deliberate fetch.
+            # Server-rendered so the Settings chips don't flash empty on load.
             "interests": interests,
             **home,
             **library_context(db, user.id),
@@ -63,10 +47,7 @@ def home(
     )
 
 
-# Channel, the pinned playlists, and the player all moved in-page (see
-# home/detail.js, home/overlay.js) — index.html's hash router handles them
-# now. These redirects exist only so a link or bookmark from before that
-# change still lands somewhere real.
+# Legacy URLs, kept so old links still land.
 @router.get("/favorites")
 def favorites_redirect() -> RedirectResponse:
     return RedirectResponse("/#favorites")

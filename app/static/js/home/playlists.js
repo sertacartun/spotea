@@ -1,39 +1,13 @@
-// Lists the user made themselves: creating one, putting the playing track in
-// one, taking a track back out, and deleting one.
-//
-// The lists *render* through the machinery that was already here — Library's
-// grid draws its tiles from library_context, and opening one swaps in
-// /partials/detail/user-playlist/{id}, which is the same _detail_panel.html
-// every other track list uses. So there is no rendering here at all beyond
-// the picker, whose contents (which lists already hold *this* track) is the
-// one thing a page render cannot know in advance.
-
 import { api, confirmDialog, escapeHtml, promptDialog, setupOverlay, showToast } from "../core.js";
 import { refreshFragments } from "../fragments.js";
 
-/**
- * "This playlist's contents changed" / "this playlist is gone", announced
- * rather than acted on.
- *
- * home/detail.js owns the panel — reopening it, and knowing whether Library
- * is behind it to go back to — and importing it here for that would be a
- * cycle, since it is what opens a playlist in the first place. Same one-way
- * arrangement OPEN_ARTIST and QUEUE_CHANGED use.
- */
+/** Announced as events, not acted on: detail.js owns the panel and importing it would be a cycle. */
 export const PLAYLIST_CHANGED = "spotea:playlist-changed";
 export const PLAYLIST_DELETED = "spotea:playlist-deleted";
 
-// The track the picker is open for. Read back when a row in it is pressed,
-// so the list doesn't have to carry the id on every row.
 let pickerContentId = null;
 
-/**
- * Asks for a name and creates it. Resolves to the new playlist, or null.
- *
- * `message` is what the dialog asks. The duplicate-name retry calls back in
- * with the reason as the question, rather than a toast that would appear
- * behind the modal that caused it.
- */
+/** Resolves to the new playlist, or null when dismissed. */
 async function createPlaylist(message = "Give it a name you'll recognise later.") {
   const name = await promptDialog(message, {
     title: "New playlist",
@@ -48,14 +22,11 @@ async function createPlaylist(message = "Give it a name you'll recognise later."
   });
   if (ok) return data;
 
-  // 409 is the one failure worth another go: the name is taken, and the user
-  // is one edit away from a name that isn't.
   if (status === 409) return createPlaylist("You already have a playlist called that — try another name.");
   showToast("Could not create that playlist");
   return null;
 }
 
-/** Renders the picker's rows for whatever /playlists just returned. */
 function renderPicker(playlists) {
   const list = document.getElementById("playlist-picker-list");
   if (!list) return;
@@ -66,16 +37,8 @@ function renderPicker(playlists) {
     return;
   }
 
-  // escapeHtml on the name: it is user-entered text going into both an
-  // attribute and a text position (see core.js's note on why textContent
-  // serialization is not enough for the attribute case).
-  //
-  // `isIn` is lifted out rather than written as a ternary inside the
-  // attribute, so the interpolation is a bare identifier. That is what
-  // test_escape_html_is_the_only_escaper_used_in_markup can see is safe — it
-  // reads the expression, and a blanket-strict guard that has to reason about
-  // ternaries is a guard with a hole in it. A boolean stringifies to exactly
-  // the "true"/"false" aria-pressed wants.
+  // `isIn` stays a bare identifier: test_escape_html_is_the_only_escaper_used_in_markup
+  // only accepts bare interpolations, and a boolean stringifies to what aria-pressed wants.
   list.innerHTML = playlists
     .map((playlist) => {
       const isIn = playlist.contains === true;
@@ -93,7 +56,6 @@ function renderPicker(playlists) {
     .join("");
 }
 
-/** Fetches the list fresh, with `contains` filled in for the open track. */
 async function loadPicker() {
   const { ok, data } = await api(`/playlists?content_id=${pickerContentId}`);
   if (!ok) {
@@ -114,12 +76,9 @@ async function openPicker() {
   if (label) label.textContent = title;
 
   document.getElementById("playlist-picker-overlay").hidden = false;
-  // Opened first, filled after: the list is a round trip, and a picker that
-  // waits for it reads as a press that did nothing.
   await loadPicker();
 }
 
-/** Puts the open track in a list, or takes it back out. */
 async function togglePlaylistMembership(button) {
   const playlistId = button.dataset.playlistId;
   const isIn = button.getAttribute("aria-pressed") === "true";
@@ -140,13 +99,8 @@ async function togglePlaylistMembership(button) {
   button.disabled = false;
   if (!ok) return;
 
-  // "duplicate" means it was already there — the outcome the press asked for,
-  // so it is a success with different wording rather than an error.
   showToast(isIn ? "Removed from playlist" : data?.status === "duplicate" ? "Already in that playlist" : "Added to playlist");
-  // Re-read rather than toggling the button: the count on the row changed
-  // too, and the server is the only thing that knows the new one.
   await loadPicker();
-  // Library's tiles carry the counts as well.
   refreshFragments();
 }
 
@@ -155,8 +109,7 @@ export function setupPlaylists() {
 
   document.getElementById("add-to-playlist-btn")?.addEventListener("click", openPicker);
 
-  // Delegated from #playlist-picker-list's parent modal, because the list's
-  // rows are rewritten on every change.
+  // Delegated: the list's rows are rewritten on every change.
   document.getElementById("playlist-picker-overlay")?.addEventListener("click", (event) => {
     const row = event.target.closest(".playlist-picker-row");
     if (row) {
@@ -166,9 +119,6 @@ export function setupPlaylists() {
     if (event.target.closest("#playlist-picker-new")) {
       createPlaylist().then((playlist) => {
         if (!playlist) return;
-        // Made from inside the picker, for a track the user is trying to
-        // file — so putting the track in it is the whole point of having
-        // pressed this, not a second step.
         api(`/playlists/${playlist.id}/tracks`, {
           method: "POST",
           body: { content_id: Number(pickerContentId) },
@@ -181,9 +131,7 @@ export function setupPlaylists() {
     }
   });
 
-  // #library-grid is the fragment's swap target rather than one of the nodes
-  // swapped into it, so it survives every refresh and a listener here does
-  // too (same reasoning as the Downloads modal's, see home/settings.js).
+  // #library-grid is the swap target, not a swapped node, so this listener survives refreshes.
   document.getElementById("library-grid")?.addEventListener("click", (event) => {
     if (!event.target.closest("#new-playlist-btn")) return;
     createPlaylist().then((playlist) => {
@@ -191,10 +139,7 @@ export function setupPlaylists() {
     });
   });
 
-  // The detail panel's two playlist-only controls. A separate listener from
-  // home/detail.js's rather than a branch inside it: neither target is
-  // reachable through that one, since it routes row clicks via
-  // ".track-row .track-link" and the remove button is that link's sibling.
+  // Separate from detail.js's listener, which routes via ".track-row .track-link" and can't reach these.
   document.getElementById("detail-panel")?.addEventListener("click", (event) => {
     const removeBtn = event.target.closest(".track-remove");
     if (removeBtn) {
@@ -216,9 +161,7 @@ async function removeFromPlaylist(button) {
   });
   button.disabled = false;
   if (!ok) return;
-  // The row is gone from the list, and so is one from the count in the hero
-  // and on Library's tile — all of which the server renders, so the panel is
-  // re-opened rather than having the row plucked out of the DOM here.
+  // Counts are server-rendered, so the panel is re-opened rather than patched in the DOM.
   document.dispatchEvent(new CustomEvent(PLAYLIST_CHANGED, { detail: { playlistId } }));
   refreshFragments();
 }

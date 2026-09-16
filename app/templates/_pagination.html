@@ -1,10 +1,4 @@
 {% if total_pages > 1 %}
-{# Numbered links (current ± 2, plus the first/last page, "…" for the gap)
-   instead of a plain "Page X of Y" label — a playlist with a few thousand
-   videos can run past a thousand pages at DEFAULT_PAGE_SIZE, where First/
-   Prev/Next/Last alone means walking one page at a time to get anywhere in
-   the middle. aria-label carries the same "page X of Y" summary the old
-   label gave a screen reader, since the numbers alone don't say it. #}
 <div class="pagination" aria-label="Pagination, page {{ page }} of {{ total_pages }}">
   {% if page > 1 %}
   <a class="pagination-btn" href="{{ base_url }}?page=1" aria-label="First page">

@@ -1,24 +1,6 @@
-{# The controls half of the player card, split out of _player_overlay.html
-   (its only includer). Element ids are bound directly rather than
-   scoped/namespaced — player.js's
-   setupPlayer/prepareAudio/setupMediaSession/setupFavorite rely on that.
-
-   Initial state comes in from the includer via {% with %}:
-     duration_label      — starts at "0:00"; the overlay has no track
-                           loaded yet
-     favorite_content_id — empty until openPlayer loads a track
-     favorite_is_on      — drives the class, aria-pressed and svg fill
-
-   Everything above this in the card (back link, artwork, title/artist)
-   stays in _player_overlay.html, which starts them empty and
-   home/overlay.js fills them in once a track is opened.
-#}
-    {# The only <audio> in the document, and it has to stay that way — two of
-       them are two media sessions competing to be the one iOS shows in Now
-       Playing, and it picks wrong: lock screen stuck on Play, no waveform in
-       the Dynamic Island, on a track you can hear. A pre-roll deck and an
-       inaudible keep-alive clip have each been tried here and each caused
-       exactly that. See player.js's "Playback element" note. #}
+{# Element ids are bound directly by player.js — keep them unscoped. Only included by _player_overlay.html. #}
+    {# The only <audio> in the document, and it must stay so: a second element competes for iOS Now Playing
+       and breaks the lock screen. See player.js's "Playback element" note. #}
     <audio id="audio" preload="auto"></audio>
 
     <div id="prepare-state" class="prepare-state" hidden>
@@ -34,14 +16,7 @@
       </div>
     </div>
 
-    {# prev/next start disabled and stay that way until a queue exists (see
-       home/overlay.js's syncQueueControls) — nothing is loaded yet on the
-       overlay, and opening a single track from a Home shelf never builds
-       one. #}
-    {# The outer two slots used to hold ±15s skips, which are podcast
-       controls: a music app spends them on shuffle and repeat, the two
-       things that decide what plays next. Scrubbing didn't go away with the
-       buttons — the arrow keys still jump by SKIP_SECONDS (see player.js). #}
+    {# prev/next stay disabled until a queue exists (home/overlay.js's syncQueueControls). #}
     <div class="transport">
       <button type="button" id="player-shuffle" class="btn-transport btn-shuffle" aria-pressed="false" aria-label="Shuffle" title="Shuffle">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-shuffle" /></svg>
@@ -60,9 +35,7 @@
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><use href="#i-skip-next" /></svg>
       </button>
 
-      {# Three states on one button, like every other music player: off, repeat
-         the queue, repeat this track. aria-label is rewritten per state by
-         player.js, since "Repeat" alone wouldn't say which one is on. #}
+      {# aria-label is rewritten per repeat state by player.js. #}
       <button type="button" id="player-repeat" class="btn-transport btn-repeat" data-repeat="off" aria-label="Repeat off" title="Repeat">
         <svg id="icon-repeat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-repeat" /></svg>
         <svg id="icon-repeat-one" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><use href="#i-repeat-one" /></svg>
@@ -70,9 +43,6 @@
     </div>
 
     <div class="player-footer">
-      {# Shuffle moved up into the transport row (it decides what plays next,
-         which is what that row is for). Its slot here holds the way into the
-         queue instead. #}
       <button type="button" id="queue-toggle" class="btn-quiet-icon" aria-expanded="false" aria-controls="queue-panel" aria-label="Queue" title="Queue">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-queue" /></svg>
       </button>
@@ -85,10 +55,7 @@
         <input type="range" id="volume-bar" class="range range-volume" min="0" max="100" value="100" aria-label="Volume" />
       </div>
 
-      {# Beside the heart because they are the same gesture on the same
-         track — one puts it in the list the app keeps for you, the other in
-         a list you keep yourself. Disabled until a track is open, and again
-         while offline (see home/overlay.js), since both are server writes. #}
+      {# Disabled until a track is open and while offline (home/overlay.js): both are server writes. #}
       <button
         type="button"
         id="add-to-playlist-btn"

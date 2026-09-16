@@ -1,25 +1,5 @@
-{# Library's "New releases": everything the artists you follow have put out
-   this year. GET /partials/detail/playlist/new-uploads returns this, and
-   Home's shelf of the same name links here — the shelf shows twelve, this
-   shows all of them.
-
-   A grid rather than a track list, which is what this tile used to open. It
-   held Content rows flagged `is_new_upload`: tracks from releases that
-   appeared *after* the follow, expiring after fourteen days. Measured on a
-   real library it was three tracks with a fortnight to live, and it could
-   never show anything an artist released before you followed them. Releases
-   read off `Artist.release_snapshot` have neither limit and cost no request.
-
-   So there is no Play all here, and that is deliberate rather than missing:
-   a release carries no video ids until it is opened, so "play all of these"
-   would mean opening every one of them — a live request each. Open a release
-   and it has its own Play all, exactly like an album on an artist's page.
-   A release holding one track skips the panel and plays.
-
-   .mood-grid rather than a class of its own: a mood's playlists are the same
-   shape of thing on the same kind of page (see _mood_panel.html), and the
-   grid was built there for the same reason — a row that scrolls sideways
-   makes a full page look nearly empty. #}
+{# Library's "New releases" grid. No Play all on purpose: releases carry no video ids until opened,
+   so it would cost a live request per release. #}
 <button type="button" class="back-link" id="detail-back-btn">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-arrow-left" /></svg>
   {{ back_label | default("Library") }}

@@ -1,26 +1,5 @@
-{# A mood's playlists — GET /partials/detail/yt-mood/{params} returns this.
-   Opened from Explore's "Moods" row (see home/explore.js).
-
-   No _detail_hero.html here: that component expects a single hero image
-   and a list of tracks to play, and neither exists for a mood — there's no
-   artwork representing "Sad" the way an avatar represents an artist, and
-   nothing to Play all until a specific playlist below is opened. A plain
-   title plus a shelf of playlist cards is the whole panel.
-
-   Cards reuse .rec-card, the same class Explore's own chart shelves render
-   client-side (see home/explore.js's recPlaylistCardHtml) — same look, and
-   clicking one opens it through the ordinary yt-playlist route (see
-   home/detail.js's click handler).
-
-   A grid rather than Explore's .shelf-row slider. A slider is right on
-   Explore, where a shelf is one of several and has to give the ones below
-   it room; here the playlists are the entire page, and a single row of them
-   with the other twenty scrolled off the side made a mood look nearly
-   empty. Stacking downward in fours fills the panel with what is actually
-   in it. .shelf-row also carries the drag-to-scroll wiring (see
-   home/scrollers.js), which a grid must not have — hence a class of its
-   own rather than an override.
-#}
+{# A mood's playlists (GET /partials/detail/yt-mood/{params}). A grid, not .shelf-row, which would
+   bring home/scrollers.js's drag-to-scroll wiring with it. #}
 <button type="button" class="back-link" id="detail-back-btn">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-arrow-left" /></svg>
   {{ back_label | default("Explore") }}

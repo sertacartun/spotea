@@ -12,10 +12,7 @@ AUDIO_QUALITIES = ("high", "low")
 
 
 def _settings_out(user: User) -> SettingsOut:
-    """Both endpoints answer with the same full settings shape — a PUT that
-    replied with only the fields it changed would leave the client guessing
-    what the rest ended up as (interests in particular, which the server
-    normalizes on the way in)."""
+    """Full settings shape from both endpoints, since interests are normalized on the way in."""
     return SettingsOut(
         audio_quality=user.audio_quality,
         interests=parse_interests(user.interests),
@@ -39,16 +36,8 @@ def update_settings(
         user.audio_quality = payload.audio_quality
 
     if payload.interests is not None:
-        # Normalized rather than validated: an interest is free text, so
-        # there's nothing to reject — over-long or duplicate tags are
-        # something to clean up, not a 400. The client is told what actually
-        # got stored by the SettingsOut it gets back.
         user.interests = serialize_interests(payload.interests)
-        # The recommendation cache isn't cleared here — it's keyed by an
-        # interests hash and goes stale on its own the moment this list
-        # changes (see services/recommendations.py). Leaving the row alone
-        # means editing interests back to a previous set still hits its
-        # cached batch instead of paying for a rebuild.
+        # Recommendation cache is keyed by an interests hash, so it isn't cleared here.
 
     db.commit()
     return _settings_out(user)

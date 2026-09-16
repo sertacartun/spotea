@@ -1,21 +1,5 @@
-{# The one place interests are chosen — the chip grid inside the interests
-   overlay (index.html), which is both what Settings' "Manage interests"
-   opens and what a brand new profile has to get through. It used to be
-   mounted twice, here and in a first-run panel on Home; that panel is gone
-   and this is the survivor rather than a compromise between them.
-
-   `chips` is (label, selected) pairs from interests.interest_chips. It is
-   not just SUGGESTED_GENRES: anything already saved that isn't a suggested
-   genre comes along at the end, already on. The picker saves exactly the
-   chips it shows, so a tag with no chip here would be dropped the first time
-   anything was toggled. That tail is not hypothetical — SUGGESTED_GENRES has
-   had entries renamed for returning the wrong genre from YouTube Music
-   search (see interests.py), and a profile that had saved the old spelling
-   keeps it here.
-
-   `aria-pressed` is what home/settings.js reads to decide what is selected —
-   the .is-on class beside it is presentation only, so nothing depends on the
-   two agreeing beyond this template. #}
+{# `chips` includes saved tags outside SUGGESTED_GENRES: the picker saves exactly the chips it shows.
+   home/settings.js reads aria-pressed for selection; .is-on is presentation only. #}
 <div class="interest-chips">
   {% for label, selected in chips %}
   <button

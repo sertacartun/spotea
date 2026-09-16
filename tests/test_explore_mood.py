@@ -1,11 +1,4 @@
-"""A mood's playlists (GET /partials/detail/yt-mood/{params}), opened from
-Explore's "Moods" row — see templates/_mood_panel.html.
-
-Both YouTube Music calls are monkeypatched out, same as
-test_explore_remote.py. What's under test: the params validation guarding
-the route, that a title passed in is used as-is, and that a missing one
-falls back to one extra category lookup rather than 500ing or guessing.
-"""
+"""A mood's playlists (GET /partials/detail/yt-mood/{params}); YouTube Music calls are faked."""
 
 import pytest
 
@@ -23,8 +16,6 @@ def _playlist(playlist_id, title="A Playlist"):
 
 @pytest.fixture
 def fake_mood(monkeypatch):
-    """Installs a mood's playlists, and records what params it was asked
-    for so tests can assert nothing extra was fetched."""
     requested = []
 
     def fetch(params):
@@ -50,8 +41,6 @@ def test_a_mood_panel_renders_its_playlists(client, fake_mood):
 
 
 def test_a_mood_panel_has_no_hero_or_play_all(client, fake_mood):
-    """No single list of tracks exists here to play — see
-    _mood_panel.html's own docstring on why it skips _detail_hero.html."""
     text = client.get(f"/partials/detail/yt-mood/{PARAMS}", params={"title": "Sad"}).text
 
     assert "detail-play-all" not in text
@@ -77,8 +66,7 @@ def test_an_empty_playlist_list_is_a_404(client, monkeypatch):
 
 
 def test_a_missing_title_falls_back_to_a_category_lookup(client, monkeypatch):
-    """A reload or a shared link arrives with no title — the only case this
-    extra request is worth paying for."""
+    """A reload or shared link has no title — the only case worth the extra request."""
     monkeypatch.setattr(
         "app.services.remote_detail.fetch_mood_playlists", lambda params: [_playlist("ccccccccccccccccccccccc")]
     )
@@ -121,15 +109,7 @@ def test_yt_mood_route_requires_login():
 
 
 def test_a_moods_playlists_render_as_a_grid_not_a_slider(client, fake_mood):
-    """Explore's shelves scroll sideways because each is one of several and
-    has to leave room for the ones below. In a mood's own panel the
-    playlists are the entire page, and one row of them with the rest
-    scrolled off made a full mood look nearly empty.
-
-    .shelf-row is also what home/scrollers.js binds drag-to-scroll to, so
-    this must not merely be styled differently — it has to be a different
-    class.
-    """
+    """.shelf-row is what drag-to-scroll binds to, so the grid needs a different class, not just style."""
     text = client.get(f"/partials/detail/yt-mood/{PARAMS}", params={"title": "Sad"}).text
 
     assert 'class="mood-grid"' in text

@@ -11,15 +11,8 @@
     {% endif %}
     <form method="post" action="/login">
       <label for="username">Username</label>
-      {# type="text", not type="email", so a phone doesn't offer an @ keyboard
-         for something that has no @ in it. The autocomplete/autocapitalize
-         attributes are what keep a password manager filling this correctly
-         now that the browser can no longer infer the field from its type.
-
-         No autofocus: focus draws the accent edge, so an autofocused field
-         opened the page with a red box in it before anything was touched,
-         a second red next to the submit button. iOS ignores autofocus in an
-         installed app anyway. #}
+      {# type="text" (usernames have no @); autocomplete attributes keep password managers working.
+         No autofocus: the focus ring would greet the user with a red box. #}
       <input type="text" id="username" name="username" value="{{ username }}"
              autocomplete="username" autocapitalize="none" autocorrect="off"
              spellcheck="false" required />

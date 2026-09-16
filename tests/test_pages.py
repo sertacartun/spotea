@@ -1,13 +1,4 @@
-"""Smoke tests for the server-rendered pages (routers/pages.py).
-
-Every other test file exercises JSON endpoints, so nothing covered the
-Jinja templates at all: a renamed context key, a filter dropped from
-`templates.env.filters`, a `{% include %}` referencing a variable a caller
-stopped passing — all of it would only surface by opening the app in a
-browser. These are deliberately shallow (status code plus one marker string
-that could only come from the template actually rendering) — they're here
-to catch "the page 500s", not to assert layout.
-"""
+"""Shallow smoke tests that the server-rendered pages render (routers/pages.py)."""
 
 from datetime import datetime, timedelta
 
@@ -19,8 +10,7 @@ USER_ID = 1
 
 
 def _seed(db_session, *, followed=True):
-    """One followed channel with three items, each hitting a different
-    Library surface: a new upload, a favorite, and a played+downloaded one."""
+    """One followed channel with a new upload, a favorite, and a played+downloaded item."""
     artist = Artist(
         user_id=USER_ID,
         channel_id="UCpagetest00000000000000",
@@ -73,25 +63,17 @@ def test_home_renders_every_shelf_and_the_library_grid(client, db_session):
 
     assert res.status_code == 200
     body = res.text
-    # Not "Fresh Upload": Home's "New releases" shelf is releases read off
-    # Artist.release_snapshot now, not is_new_upload Content rows — see
-    # page_context._new_releases. That row is still reachable through
-    # Library's own New releases playlist.
-    assert "A Favorite" in body  # Favorites shelf
-    assert "Played And Downloaded" in body  # Recently played shelf
-    assert "Page Test Channel" in body  # Library channel card + Home chip
+    # Not "Fresh Upload": Home's New releases shelf reads Artist.release_snapshot, not Content rows.
+    assert "A Favorite" in body
+    assert "Played And Downloaded" in body
+    assert "Page Test Channel" in body
 
 
 def test_a_brand_new_library_opens_on_the_interests_overlay(client):
-    """Nothing followed and no interests listed: every shelf on this page and
-    most of Explore has nothing to build from, so the app asks what the user
-    listens to instead of naming a tab and leaving it there. Interests are
-    what Explore's Playlists shelf is built from — see interests.py."""
     res = client.get("/")
 
     assert res.status_code == 200
     overlay = res.text[res.text.index('id="interests-overlay"') :][:300]
-    # Open from the start, rather than waiting to be triggered.
     assert "hidden" not in overlay
     assert 'data-required="true"' in overlay
     assert "What do you listen to?" in res.text
@@ -99,27 +81,17 @@ def test_a_brand_new_library_opens_on_the_interests_overlay(client):
 
 
 def test_the_first_run_cannot_be_skipped(client):
-    """It used to have a Skip button beside Continue, which dropped the
-    profile into an app with an empty library and empty Explore shelves —
-    the exact state the screen exists to prevent. There is no way past it now
-    but to pick something; core.js's isRequired is what makes the close
-    button, the backdrop and Escape refuse too."""
+    """There is no Skip: the only way past the first run is to pick something."""
     body = client.get("/").text
 
     assert 'id="onboarding-skip"' not in body
     assert ">Skip<" not in body
-    # The floor the Continue button enforces, handed over rather than
-    # duplicated in the client (see interests.ONBOARDING_MIN_INTERESTS).
+    # The floor is handed to the client rather than duplicated (interests.ONBOARDING_MIN_INTERESTS).
     assert f'data-min-interests="{ONBOARDING_MIN_INTERESTS}"' in body
 
 
 def test_a_library_that_has_been_started_is_not_asked_again(client, db_session):
-    """One interest is enough to mean "this person has been here" — the
-    overlay would otherwise open over every visit until something is played.
-
-    The element is still in the page, because it is also what Settings'
-    "Manage interests" opens; what changes is that it starts hidden and
-    unlocked."""
+    """The overlay stays in the page (Settings reuses it) but starts hidden and unlocked."""
     from app.models import User
 
     db_session.query(User).filter(User.id == 1).update({"interests": "rock"})
@@ -133,10 +105,6 @@ def test_a_library_that_has_been_started_is_not_asked_again(client, db_session):
     assert "Nothing played yet" in body
 
 def test_channel_avatars_are_lazy_loaded(client, db_session):
-    """70 eager image requests were measured on a real, heavy library —
-    avatars in the Library grid and Home's "Recently followed" chips were
-    the two spots that never got the loading="lazy" every content thumbnail
-    already has."""
     artist = Artist(
         user_id=USER_ID,
         channel_id="UCavatarlazy00000000000",
@@ -154,31 +122,17 @@ def test_channel_avatars_are_lazy_loaded(client, db_session):
 
 
 def test_the_duration_and_filesize_template_filters_are_registered(client, db_session):
-    """Both filters live on the one shared Jinja2Templates instance (see
-    app/templating.py). A template rendered through an environment missing
-    one raises at render time, and nothing else would catch it.
-
-    They're checked on two surfaces because that's where each one actually
-    renders: filesize in Home's storage summary, duration in a track row.
-    Cards used to stamp the duration over the artwork, which put both on
-    Home — that badge is gone (a video convention on a music cover), so the
-    duration is now asserted where track durations live."""
     _seed(db_session)
 
     assert "MB" in client.get("/").text  # filesize, from the storage summary
 
-    # Favorites rather than New releases: that one stopped being a track
-    # list — it holds releases now, which have no duration to render.
+    # Favorites, not New releases: releases have no duration to render.
     rows = client.get("/partials/detail/playlist/favorites").text
     assert "1:01" in rows  # duration, from duration_seconds=61
 
 
 def test_channel_and_playlist_pages_redirect_to_their_hash_route(client):
-    """Favorites/New releases/Recently Played/a track all moved
-    in-page (see app/static/js/home/detail.js, home/overlay.js) — these
-    routes exist only so an old link or bookmark still lands somewhere real.
-    The actual rendering is now GET /partials/detail/... — see
-    test_partials.py."""
+    """These routes only exist so old links and bookmarks still land somewhere."""
     for path, expected_hash in [
         ("/favorites", "/#favorites"),
         ("/new-uploads", "/#new-uploads"),
@@ -191,9 +145,6 @@ def test_channel_and_playlist_pages_redirect_to_their_hash_route(client):
 
 
 def test_page_routes_require_login():
-    """Every route in pages.py sits behind require_login — an unauthenticated
-    request has to land on /login, not render someone's library or redirect
-    into the app."""
     from fastapi.testclient import TestClient
 
     from app.main import app
@@ -206,20 +157,12 @@ def test_page_routes_require_login():
 
 
 def test_the_player_overlay_renders_every_element_its_script_binds(client):
-    """A structural regression guard.
-
-    home/overlay.js and player.js bind these by id at boot and, for most of
-    them, without a null check — dropping one from the template doesn't
-    degrade the player, it throws during setup and takes every later
-    setup call in pages/index.js down with it. The symptom is a blank app,
-    and nothing else in this suite would notice: every route still answers
-    200 with markup that merely happens to be missing a div.
-    """
+    """The player scripts bind these ids without null checks; a missing one blanks the app."""
     body = client.get("/").text
 
     for element_id in [
         "player-overlay",
-        "player-root",  # the card. Dropped once; nothing failed but the app.
+        "player-root",
         "player-art-img",
         "queue-panel",
         "queue-panel-body",
@@ -236,10 +179,7 @@ def test_the_player_overlay_renders_every_element_its_script_binds(client):
 
 
 def test_the_player_card_wraps_its_column_and_its_panel(client):
-    """The desktop layout puts .player-main and #queue-panel side by side
-    inside #player-root (see style.css's min-width: 900px block). If the
-    panel ends up inside .player-main, or the card stops wrapping both,
-    the two-column layout silently becomes one column again."""
+    """The desktop two-column layout needs .player-main and #queue-panel side by side in #player-root."""
     body = client.get("/").text
 
     card = body.index('id="player-root"')

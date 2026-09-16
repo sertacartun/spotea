@@ -1,12 +1,4 @@
-"""Explore: searching YouTube, and turning what comes back into something
-playable without following anything.
-
-Kept under the /artists prefix rather than its own, because that's the URL
-shape the client already speaks — this is a code-organisation split, not an
-API change. What makes these routes a group is that none of them involve
-following a channel: search returns things the user doesn't have yet, and
-both "listen" endpoints attach their rows to placeholder artists.
-"""
+"""Explore: search YouTube Music and make results playable without following anything."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
@@ -34,12 +26,7 @@ router = APIRouter(prefix="/explore", tags=["explore"], dependencies=[Depends(re
 
 @router.get("/artists", response_model=list[ChannelSearchResultOut])
 def search_feeds(q: str) -> list[ChannelSearchResultOut]:
-    """Artists to follow.
-
-    Asks the music catalogue for musicians rather than youtube.com for
-    channels, which is the whole reason the "<Artist> - Topic" containers
-    that search used to filter back out by name never turn up here.
-    """
+    """Artists to follow, from the music catalogue rather than youtube.com channels."""
     query = q.strip()
     if not query:
         return []
@@ -49,19 +36,7 @@ def search_feeds(q: str) -> list[ChannelSearchResultOut]:
 
 @router.get("/songs", response_model=list[VideoSearchResultOut])
 def search_video_feeds(q: str) -> list[VideoSearchResultOut]:
-    """Songs, from YouTube Music rather than youtube.com.
-
-    Same endpoint, same response shape, different index — and the index is
-    the point. youtube.com ranks a music query against everything it has,
-    so an artist's name returns reaction videos and hour-long compilations
-    alongside the tracks; YouTube Music only has tracks, and hands back the
-    artist, album and duration already attached instead of leaving the row
-    to say nothing but a title.
-
-    There is no youtube.com fallback any more: this app only holds music,
-    so a query YouTube Music has no answer for is a query with no answer
-    here either, and an empty list says that honestly.
-    """
+    """Songs from YouTube Music; no youtube.com fallback, since this app only holds music."""
     query = q.strip()
     if not query:
         return []
@@ -75,26 +50,17 @@ def add_single_video(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> VideoAddResult:
-    """Explore's "listen" action — adds exactly one video without following
-    its channel. Always created as a preview (Content.is_preview=True): it
-    plays through the normal player like any other content, but stays out of
-    Library/New releases until the user favorites it (see
-    routers/content.py's add_favorite).
+    """Explore's "listen": add one track as a preview without following its channel.
 
-    If this video already has a Content row for this user — a previous
-    Explore preview, or a real upload from a followed channel — this isn't a
-    conflict: it just means there's nothing to add, so hand back that row's
-    id and let the player match/replay whatever was already downloaded."""
+    An existing row for this video is not a conflict; its id is returned.
+    """
     existing_content = (
         db.query(Content)
         .filter(Content.user_id == user.id, Content.video_id == payload.video_id)
         .first()
     )
     if existing_content is None:
-        # It may answer to a different id now: playing a music video swaps the
-        # row for the song it is a video of, and this search result still
-        # names the video. Same lookup add_video_batch does, and for the same
-        # reason — see SwappedVideo.
+        # Playing a music video swaps the row to the song; this result still names the video.
         existing_content = (
             db.query(Content)
             .join(SwappedVideo, SwappedVideo.content_id == Content.id)
@@ -115,18 +81,10 @@ def add_single_video(
         user_id=user.id,
         video_id=payload.video_id,
         title=payload.title,
-        # Stored as-is — see _run_backfill's comment above; the player page
-        # (or wherever this ends up rendered first) queues the same lazy
-        # caching, and this is a synchronous request handler so downloading
-        # here would delay the "listen" click's own response for no benefit.
         thumbnail_url=payload.thumbnail_url,
         duration_seconds=payload.duration_seconds,
-        # The recording's own credit, which the artist row cannot hold — see
-        # models.Content.artist_credit.
         artist_credit=payload.artist_credit,
-        # Flat search results don't reliably expose a real upload date, and
-        # NULL sorts last in SQLite's ORDER BY ... DESC (every Home shelf) —
-        # "just added" as the effective date is also the correct intent here.
+        # NULL sorts last in ORDER BY ... DESC on every Home shelf; "just added" is the intended date.
         published_at=utcnow(),
         is_preview=True,
     )
@@ -138,9 +96,6 @@ def add_single_video(
 
 
 def _preview_content(artist_id: int, user_id: int, item) -> Content:
-    """A preview row from something Explore already has full metadata for.
-    Same shape add_single_video builds — see its comments for why the
-    thumbnail is stored as-is and why published_at is "now"."""
     return Content(
         artist_id=artist_id,
         user_id=user_id,
@@ -160,35 +115,10 @@ def add_video_batch(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> VideoBatchResult:
-    """Turns a whole remote playlist or channel listing into playable rows in
-    one go — what "Play all" (and clicking any row) on those pages calls
-    before handing the queue its ids.
+    """Turn a whole remote playlist into playable rows, in order, with no network calls.
 
-    Makes **no network calls at all**, which is the reason it can be a single
-    synchronous request over fifty tracks: unlike add_single_video, every
-    field is already known. The client got them from the same fetch that
-    rendered the list, `channel_id` included — and a playlist/channel page's
-    per-entry channel attribution is the real uploader, so there's nothing to
-    resolve.
-
-    Rows that already exist (an earlier preview, or a real
-    upload from a followed channel) are reused rather than duplicated, the
-    same way add_single_video treats them. Order in equals order out: the
-    caller uses it directly as the play queue.
-
-    Retried once on a collision, because two of these can be in flight at the
-    same time: clicking a row calls it without a button to disable, so a
-    double tap sends two. Each one reads "which of these already exist",
-    both get the same empty answer, and both insert — which is a UNIQUE
-    violation on the second to commit, a 500, and a plain-text body the
-    client can't read a `detail` out of. That is the whole of the "Could not
-    start this list" toast: the message is api()'s fallback, not anything the
-    server said. Reproduced locally with three concurrent calls: 201, 500,
-    500.
-
-    The retry is enough on its own because the losing request's second pass
-    re-reads a database that now *does* contain the other's rows, so it
-    inserts nothing and simply reports their ids.
+    Retried on IntegrityError: a double tap sends two concurrent calls that both insert the
+    same rows. The losing retry re-reads and just reports the winner's ids.
     """
     items = [item for item in payload.items if CHANNEL_ID_RE.match(item.channel_id)]
     if not items:
@@ -198,8 +128,7 @@ def add_video_batch(
         try:
             return _insert_batch(db, user.id, items)
         except IntegrityError as err:
-            # Someone else inserted a row this pass had decided was missing.
-            # Rolling back is what makes the re-read see it.
+            # Rolling back is what lets the re-read see the other request's rows.
             db.rollback()
             if attempt == BATCH_INSERT_ATTEMPTS - 1:
                 raise HTTPException(
@@ -209,19 +138,13 @@ def add_video_batch(
     raise AssertionError("unreachable")
 
 
-# Two concurrent calls need one retry between them; the third covers a third
-# tab, and past that "try again" is the honest answer.
+# Two concurrent calls need one retry; past a third, "try again" is the honest answer.
 BATCH_INSERT_ATTEMPTS = 3
 
 
 
 def _insert_batch(db: Session, user_id: int, items: list) -> VideoBatchResult:
-    """One attempt at add_video_batch's insert. Separate so the retry above
-    re-runs the *reads* too — re-running only the writes would keep acting on
-    the stale answer that lost the race."""
-    # Three bulk lookups instead of two queries per track — this runs over a
-    # whole playlist, and the per-item version of it was the only thing that
-    # made a fifty-track "Play all" slow.
+    """One attempt; the retry must re-run the reads too, not just the writes."""
     wanted_video_ids = [item.video_id for item in items]
     existing_content = {
         content.video_id: content
@@ -230,13 +153,8 @@ def _insert_batch(db: Session, user_id: int, items: list) -> VideoBatchResult:
             Content.video_id.in_(wanted_video_ids),
         )
     }
-    # Rows that no longer answer to the id this listing shows, because playing
-    # them swapped the music video for the song (see SwappedVideo). Without
-    # this lookup every one of them reads as missing and gets a duplicate —
-    # measured on the live library, 205 rows in an hour.
-    #
-    # Joined rather than looked up in two steps so a stale mapping (the row it
-    # points at deleted since) simply doesn't come back.
+    # Rows swapped from music video to song no longer match this id (see SwappedVideo);
+    # without this every one would get a duplicate.
     swapped = (
         db.query(SwappedVideo.video_id, Content)
         .join(Content, Content.id == SwappedVideo.content_id)
@@ -259,8 +177,7 @@ def _insert_batch(db: Session, user_id: int, items: list) -> VideoBatchResult:
 
     for item in items:
         if item.channel_id not in artists_by_channel:
-            # Same placeholder contract as get_or_create_placeholder;
-            # built inline here so the whole batch is one flush.
+            # Same placeholder contract as get_or_create_placeholder, inline so the batch is one flush.
             artist = Artist(
                 user_id=user_id,
                 channel_id=item.channel_id,
@@ -290,11 +207,7 @@ def _insert_batch(db: Session, user_id: int, items: list) -> VideoBatchResult:
 def remove_single_video(
     content_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> None:
-    """Removes a video added via Explore outright (unlike DELETE
-    /content/{id}, which only resets download status) — used both to dismiss
-    a preview early and to remove something already kept. Only for content on
-    a followed=False artist; a real follow's content comes off through
-    unfollowing the channel, not this."""
+    """Remove an Explore-added track outright; only for content on a followed=False artist."""
     content = (
         db.query(Content)
         .join(Artist)

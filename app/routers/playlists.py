@@ -1,17 +1,4 @@
-"""Lists the user assembled by hand.
-
-Library's other three lists — Favorites, New releases, Recently Played — are
-filters over `content` computed on every open (see
-page_context.PLAYLIST_KINDS), so they have no HTTP surface of their own
-beyond the detail panel that renders them. These have rows, an order nobody
-but the user decides, and therefore all of this.
-
-The detail panel for one is still a fragment, not JSON: it renders through
-the same _detail_panel.html every other track list uses (see
-routers/partials.py's user_playlist_detail_fragment), which is what keeps a
-playlist row identical to a Favorites row rather than a second list built by
-hand in JS.
-"""
+"""Hand-made playlists; the pinned lists are filters with no HTTP surface of their own."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
@@ -42,13 +29,7 @@ def list_playlists(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[UserPlaylistOut]:
-    """Every playlist, newest last.
-
-    `content_id` is what the "add to playlist" picker passes: it fills in
-    `contains` so each row can say whether the track being added is already
-    there, rather than the client opening the picker and then asking once per
-    playlist. Omitted, `contains` stays None and nothing claims otherwise.
-    """
+    """Every playlist, oldest first; `content_id` fills in `contains` for the add-to-playlist picker."""
     playlists = (
         db.query(Playlist)
         .filter(Playlist.user_id == user.id)
@@ -92,9 +73,7 @@ def create_playlist(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Give the playlist a name"
         )
 
-    # Checked here as well as by the unique constraint, because this is the
-    # only place that can say *why* in words the user put on screen. The
-    # constraint stays as the backstop against two tabs racing.
+    # Pre-checked for a readable message; the unique constraint remains the race backstop.
     existing = (
         db.query(Playlist)
         .filter(Playlist.user_id == user.id, func.lower(Playlist.name) == name.lower())
@@ -121,9 +100,7 @@ def delete_playlist(
     db: Session = Depends(get_db),
 ) -> StatusOut:
     playlist = _get_playlist_or_404(db, playlist_id, user.id)
-    # The items go with it (cascade="all, delete-orphan" on Playlist.items),
-    # and nothing else does: the Content rows are the library's, not this
-    # list's, and deleting a playlist must not take the songs.
+    # Cascade removes the items only; the Content rows belong to the library.
     db.delete(playlist)
     db.commit()
     return StatusOut(id=playlist_id, status="deleted")
@@ -136,13 +113,7 @@ def add_track(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StatusOut:
-    """Appends a track, or reports that it was already there.
-
-    Already-present answers 200 with status "duplicate" rather than 409: from
-    the picker's point of view "it is in the list" is the outcome the user
-    asked for either way, and the only difference worth surfacing is the
-    wording of the confirmation.
-    """
+    """Append a track; already present answers 200 "duplicate", not 409."""
     playlist = _get_playlist_or_404(db, playlist_id, user.id)
 
     # Scoped to this user, so one account cannot add another's track by id.
@@ -165,8 +136,7 @@ def add_track(
     if already is not None:
         return StatusOut(id=playlist.id, status="duplicate")
 
-    # max+1 rather than a count: a removal leaves a gap, and counting would
-    # then hand the next append a position an existing row already has.
+    # max+1, not a count: removals leave gaps, so a count could reuse an existing position.
     highest = (
         db.query(func.max(PlaylistItem.position))
         .filter(PlaylistItem.playlist_id == playlist.id)
@@ -204,7 +174,5 @@ def remove_track(
             status_code=status.HTTP_404_NOT_FOUND, detail="That track isn't in this playlist"
         )
     db.commit()
-    # Positions are deliberately left with a gap where this was. Nothing reads
-    # the numbers themselves, only their order, so renumbering would be a
-    # write per remaining row for no observable difference.
+    # Gaps are left on purpose: only the order of positions is read.
     return StatusOut(id=playlist.id, status="removed")

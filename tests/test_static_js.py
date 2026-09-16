@@ -1,11 +1,4 @@
-"""Guards on the shipped JavaScript that Python tests can still enforce.
-
-There is no JS test runner in this project (no package.json, no node_modules)
-and adding one — plus a browser — for a handful of assertions costs more than
-it returns. So these are source-level guards, not behavioural tests: they
-check that a specific, previously-shipped mistake cannot come back, and they
-say so rather than pretending to execute anything.
-"""
+"""Source-level guards on the shipped JavaScript; there is no JS test runner in this project."""
 
 import re
 from pathlib import Path
@@ -18,8 +11,6 @@ def _function_body(source: str, name: str) -> str:
     """The text of `export [async] function <name>(...) { ... }`, brace-matched."""
     needle = f"export function {name}("
     if needle not in source:
-        # api() and the rest of core.js's request helpers are async; this used
-        # to only know the plain form and raised a bare "substring not found".
         needle = f"export async function {name}("
     start = source.index(needle)
     open_brace = source.index("{", start)
@@ -35,46 +26,27 @@ def _function_body(source: str, name: str) -> str:
 
 
 def test_escape_html_escapes_quotes() -> None:
-    """escapeHtml has to be safe in attribute position, not just in text.
-
-    It was written as `div.textContent = str; return div.innerHTML`, which
-    escapes `&`, `<` and `>` and nothing else — serializing a text node has no
-    reason to touch quotes. Every caller interpolates the result into a
-    double-quoted attribute (data-title, aria-label, title, src), so a YouTube
-    title containing `"` closed the attribute and everything after it parsed
-    as further attributes on the same element. Confirmed executable: an
-    injected `onerror` on the card's <img> fired on render, with no
-    interaction. Ordinary titles carry quotes constantly, so this also
-    corrupted plain markup.
-    """
+    """escapeHtml must escape quotes: every caller interpolates it into a double-quoted attribute."""
     body = _function_body(CORE_JS.read_text(), "escapeHtml")
 
     for char, entity in (("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"), ('"', "&quot;"), ("'", "&#39;")):
         assert entity in body, f"escapeHtml no longer escapes {char!r} to {entity}"
 
-    # The specific implementation that was unsafe. textContent/innerHTML is a
-    # reasonable-looking way to write this and is exactly what came back.
+    # The unsafe implementation that already came back once.
     assert "innerHTML" not in body, "escapeHtml is back to the textContent/innerHTML form, which leaves quotes intact"
 
 
 def test_escape_html_is_the_only_escaper_used_in_markup() -> None:
-    """No module builds attribute markup with a second, hand-rolled escaper.
-
-    The fix above is only worth anything if there is one escaper to fix. A
-    module that grows its own (or interpolates raw) puts the same hole back
-    somewhere this test cannot see.
-    """
+    """No module builds attribute markup with a second, hand-rolled escaper."""
     offenders: list[str] = []
     for path in sorted(JS_DIR.rglob("*.js")):
         source = path.read_text()
-        # `="${...}"` interpolations inside a template literal, i.e. a value
-        # landing in attribute position.
+        # `="${...}"` interpolations, i.e. a value landing in attribute position.
         for match in re.finditer(r'="\$\{([^}]+)\}"', source):
             expression = match.group(1)
             if "escapeHtml" in expression:
                 continue
-            # Numeric/enum-ish values that cannot carry a quote: `?? ""`
-            # fallbacks over ids and durations, and String(bool) conversions.
+            # Values that cannot carry a quote: `?? ""` fallbacks over ids/durations, and String(bool).
             if re.fullmatch(r"[\w.?\s]*(\?\?\s*\"\")?", expression):
                 continue
             offenders.append(f"{path}: {match.group(0)}")
@@ -83,21 +55,10 @@ def test_escape_html_is_the_only_escaper_used_in_markup() -> None:
 
 
 def test_service_worker_ignores_cross_origin_requests() -> None:
-    """The worker must not intercept anything it doesn't serve itself.
-
-    It used to handle every GET, including the no-cors `<img>` requests for
-    remote artwork on i.ytimg.com. Passing an opaque response through its
-    fetch/clone/cache.put path made those fail outright: measured against the
-    live app, 23 of Explore's thumbnails failed with ERR_FAILED while the
-    worker was registered and none did with it blocked. So uncached Explore
-    artwork was broken in the installed PWA, and fine on the very first load
-    before the worker activated — which is what made it look intermittent.
-    """
+    """Intercepting no-cors cross-origin <img> requests made remote artwork fail with ERR_FAILED."""
     source = (JS_DIR / "sw.js").read_text()
 
-    # Matched on the exact expressions rather than loose substrings — both
-    # phrases also appear in the prose around them, and an earlier version of
-    # this test happily found them in a comment.
+    # Exact expressions, since looser phrases also appear in sw.js's comments.
     check = "url.origin !== self.location.origin"
     write = "cache.put(request, copy)"
 
@@ -106,11 +67,7 @@ def test_service_worker_ignores_cross_origin_requests() -> None:
         "remote artwork again"
     )
     assert write in source, "sw.js's caching call moved; this guard needs updating"
-    # The early return has to come before the request reaches the caching
-    # path, or the check is decoration. Compared inside the fetch listener
-    # rather than across the whole file: the caching now lives in
-    # networkFirst(), which is declared above the listener, so a file-wide
-    # index comparison would fail on ordering that is perfectly correct.
+    # Compared inside the fetch listener: networkFirst() is declared above it.
     handler = source[source.index('self.addEventListener("fetch"') :]
     assert handler.index(check) < handler.index("networkFirst("), (
         "the origin check must short-circuit before the request is handed to "
@@ -119,41 +76,24 @@ def test_service_worker_ignores_cross_origin_requests() -> None:
 
 
 def test_the_service_worker_falls_back_to_cache_when_the_network_hangs() -> None:
-    """Falling back on rejection alone assumes an unreachable server says so.
-
-    This one doesn't. The app is served over Tailscale, and its hostname
-    resolves *publicly* to a 100.x CGNAT address — so with the VPN off the
-    phone still has internet, still resolves the name, and then opens a
-    connection to an address with no route to it. Nothing rejects; fetch()
-    just hangs, and so did respondWith(), with a complete cached copy of the
-    app sitting there unused. Measured against a socket that accepts and never
-    answers: no app shell within 15s, where a genuinely offline launch (which
-    rejects immediately) served it at once.
-
-    So the fallback has to be driven by a clock and not only by a rejection.
-    """
+    """The app's host can hang instead of rejecting (Tailscale CGNAT), so the fallback needs a timeout."""
     source = (JS_DIR / "sw.js").read_text()
 
     assert "NETWORK_TIMEOUT_MS" in source, (
         "sw.js has no network timeout — a hanging server (VPN off, captive "
         "portal, black-holed route) never reaches the cache fallback"
     )
-    # Sliced by hand rather than via _function_body: a service worker is not a
-    # module, so nothing here is `export function`.
+    # Sliced by hand: a service worker is not a module, so there is no `export function`.
     body = source[source.index("function networkFirst(") :]
     body = body[: body.index("\n}\n")]
     assert "setTimeout(" in body, "networkFirst no longer races the network against a clock"
     assert "caches.match(request)" in body, "networkFirst never consults the cache"
-    # One timeout has to stand for the rest of the launch. A request left
-    # running holds its socket, and a browser only opens ~6 per origin, so
-    # without this the shell's modules queue behind dead connections and pay
-    # the timeout several times over — 6s in one measured run, 38s in another.
+    # One timeout for the whole launch: hung requests hold sockets (~6 per origin) and queue the shell.
     assert "unreachableUntil" in body, (
         "networkFirst no longer short-circuits once the server has been seen "
         "not answering — every module pays the timeout again, in series"
     )
-    # The timeout must not abort the request: a slow-but-alive network should
-    # still land and refresh the cache for next time.
+    # The timeout must not abort: a slow network should still land and refresh the cache.
     for aborting in ("AbortController", "signal"):
         assert aborting not in body, (
             f"networkFirst aborts the in-flight request ({aborting}) — a slow "
@@ -162,14 +102,7 @@ def test_the_service_worker_falls_back_to_cache_when_the_network_hangs() -> None
 
 
 def test_service_worker_api_prefixes_have_no_trailing_slash() -> None:
-    """A prefix with a trailing slash (e.g. "/settings/") never matches the
-    *bare* route ("/settings" has none of its own) — that exact bug shipped
-    once already and meant GET /settings, GET /profiles and GET
-    /recommendations were all getting cached instead of excluded, so a
-    profile switch or creation could serve a stale, different profile's
-    settings straight from the service worker cache. isApiPath's own
-    path === prefix || path.startsWith(`${prefix}/`) check only works if the
-    prefixes themselves stay bare."""
+    """A trailing slash would stop the prefix matching the bare route, caching it instead of excluding it."""
     source = (JS_DIR / "sw.js").read_text()
 
     match = re.search(r"const API_PREFIXES = \[(.*?)\];", source, re.DOTALL)
@@ -180,11 +113,7 @@ def test_service_worker_api_prefixes_have_no_trailing_slash() -> None:
     trailing_slash = [p for p in prefixes if p.endswith("/")]
     assert not trailing_slash, f"these API_PREFIXES entries have a trailing slash: {trailing_slash}"
 
-    # The fetch handler has to actually call the boundary-aware matcher, not
-    # a raw path.startsWith(prefix) loop over the (now-bare) prefixes —
-    # otherwise a bare "/settings" would still slip past every prefix listed
-    # here for the opposite reason (no prefix is a strict startsWith match of
-    # an equal-length string).
+    # The fetch handler must use the boundary-aware matcher, not a raw startsWith loop.
     assert "isApiPath(url.pathname)" in source, (
         "sw.js's fetch handler no longer calls isApiPath — bare API routes "
         "can get cached again"
@@ -192,22 +121,7 @@ def test_service_worker_api_prefixes_have_no_trailing_slash() -> None:
 
 
 def test_report_playback_only_sends_the_unexpected_events() -> None:
-    """4 beacons were measured per track played under the old blanket policy
-    — "now-playing", "play-requested" and a successful "playing" for starting
-    a track, "track-ended" for finishing it — and three of those four say
-    nothing, since every track produces them whether or not anything went
-    wrong.
-
-    "track-ended" was cut with them and has since been put back, because it
-    is not like the other three: it carries `next` and `prepared` alongside
-    the page's visibility, and that is precisely what separates "the queue was
-    empty" from "the page stopped running". Without it a track that simply
-    stopped dead leaves no trace at all on the server — one real failure took
-    several rounds of guesswork for exactly that reason. One beacon per track
-    is the price.
-
-    Pinned as an exact set rather than "at least these" so a future change to
-    the allowlist is a deliberate edit here, not a silent one in player.js."""
+    """Pinned as an exact set so a change to the allowlist is a deliberate edit here."""
     source = (JS_DIR / "player.js").read_text()
 
     match = re.search(r"const REPORTED_EVENTS = new Set\(\[(.*?)\]\);", source, re.S)
@@ -225,22 +139,13 @@ def test_report_playback_only_sends_the_unexpected_events() -> None:
         "media-session-action",
         "audio-session",
         "early-handoff",
-        # Temporary, and player.js says what for: one track whose prefetch had
-        # completed still started over the network, and nothing on the server
-        # distinguished it from the track before it that did not. `buffered`
-        # answered that, and these are now how the fix for it gets checked.
-        # They come out once it has been.
+        # Temporary diagnostics for the prefetch handoff; removed once that fix is verified.
         "handoff-cached",
         "handoff-device",
         "handoff-missed",
     }
 
-    # The allowlist alone proves nothing if reportPlayback doesn't actually
-    # enforce it — this is the guard clause that turns "defined" into "used".
-    # Checked as one contiguous block (not via _function_body's brace
-    # matching) because reportPlayback's own `detail = {}` default parameter
-    # contains a brace pair that helper isn't parameter-list-aware enough to
-    # skip past.
+    # One contiguous block: _function_body's brace matching trips on `detail = {}`.
     assert (
         "export function reportPlayback(event, detail = {}) {\n"
         "  if (!REPORTED_EVENTS.has(event)) return;"
@@ -251,19 +156,7 @@ def test_report_playback_only_sends_the_unexpected_events() -> None:
 
 
 def test_the_volume_slider_is_gated_on_ios_as_well_as_on_the_write_taking() -> None:
-    """iOS routes playback volume to the hardware buttons, so the slider does
-    nothing there and is hidden. That used to be decided by feature detection
-    alone — write a volume, read it back — on the reasoning that the
-    restriction is per-browser rather than per-OS.
-
-    That is measurably wrong on a modern iPhone, confirmed from the device
-    (iOS 18.7, Safari 26.6): writing 0.5 and reading it back returns 0.5, so
-    the detection reports "settable" over a slider that does nothing. Apple's
-    documentation still claims reading always returns 1; it has stopped being
-    true. Nothing readable separates the two cases any more, hence the second,
-    user-agent gate — and hence this test, because "just feature-detect it" is
-    exactly the tidy-looking change that would put the dead control back on
-    every iPhone."""
+    """iOS 18 reads back a written volume, so feature detection alone shows a dead slider."""
     source = (JS_DIR / "player.js").read_text()
 
     assert "function isIOSWebKit()" in source, (
@@ -282,13 +175,7 @@ def test_the_volume_slider_is_gated_on_ios_as_well_as_on_the_write_taking() -> N
 
 
 def test_wire_scrollers_does_not_leak_a_listener_or_observer_per_row() -> None:
-    """wireScrollers() runs again after every fragment swap (Home/Library
-    rows get replaced wholesale), and it used to create a brand new
-    ResizeObserver *and* a brand new `window` "mouseup" listener for every
-    row, every single time — neither was ever torn down. Measured live: 5 of
-    each at boot, 105 of each after 20 refreshes. The fix is structural
-    (module-scope singletons, not per-row), so this checks the structure
-    rather than actually leaking memory in a browser this suite can't run."""
+    """wireScrollers() re-runs after every swap, so its observer and listener must be module singletons."""
     source = (JS_DIR / "home" / "scrollers.js").read_text()
 
     mouseup_registrations = source.count('addEventListener("mouseup"')
@@ -296,9 +183,7 @@ def test_wire_scrollers_does_not_leak_a_listener_or_observer_per_row() -> None:
         f"expected exactly one window mouseup listener, found {mouseup_registrations} "
         "— a per-row registration inside wireScrollers is back"
     )
-    # The one registration that exists must be at module scope (outside
-    # wireScrollers' body), or "exactly one" would just mean it moved rather
-    # than stopped repeating.
+    # The single registration must be at module scope, not merely moved.
     wire_scrollers_start = source.index("export function wireScrollers")
     assert source.index('addEventListener("mouseup"') < wire_scrollers_start, (
         "the mouseup listener is registered inside wireScrollers — it will "
@@ -317,17 +202,10 @@ def test_wire_scrollers_does_not_leak_a_listener_or_observer_per_row() -> None:
 
 
 def test_downloads_modal_actions_refresh_its_own_list() -> None:
-    """Clearing all downloads or removing one both run from *inside* the open
-    Downloads modal — since refreshFragments() alone no longer touches that
-    modal's list (see the sweep test above), those two actions have to opt
-    back in explicitly, or a user's own action wouldn't appear to do
-    anything until they closed and reopened the modal."""
+    """refreshFragments() skips the Downloads list, so actions inside that modal must opt back in."""
     source = (JS_DIR / "home" / "settings.js").read_text()
 
-    # Matched on the option rather than on the whole options object: both
-    # calls now also pass alsoDevice (they drop the device's own copy of what
-    # the server just deleted), and pinning the exact literal made this fail
-    # for an unrelated addition rather than for the thing it guards.
+    # Matched on the option alone: both calls pass other options too.
     assert source.count("alsoDownloads: true") == 2, (
         "expected exactly two confirmedAction calls (clear-storage, "
         "remove-download) to opt into refreshing the open modal's own list"
@@ -335,11 +213,7 @@ def test_downloads_modal_actions_refresh_its_own_list() -> None:
 
 
 def test_refresh_fragments_default_sweep_does_not_include_the_downloads_body() -> None:
-    """/partials/downloads was 86.5KB — the Downloads modal's full item list —
-    behind a modal that's closed the vast majority of the time, and
-    refreshFragments() (called after every save/favorite/play) used to
-    refetch it every single time regardless. See fragments.js's
-    refreshDownloadsBody for where that list is fetched instead."""
+    """The Downloads list is large and usually closed, so the default sweep must not refetch it."""
     source = (JS_DIR / "fragments.js").read_text()
     fragments_block = source[source.index("const FRAGMENTS") : source.index("];") + 2]
 
@@ -354,16 +228,7 @@ def test_refresh_fragments_default_sweep_does_not_include_the_downloads_body() -
 
 
 def test_initial_tab_is_never_restored_from_local_storage() -> None:
-    """Opening the app fresh starts on Home.
-
-    The pre-paint script used to fall back to a localStorage copy of the last
-    tab whenever the URL carried no hash — which is every PWA launch, every
-    bookmark, and every reload done by profiles.js. Creating a profile from
-    Settings → Manage profiles therefore handed the brand-new profile the
-    Settings tab with the onboarding wizard sitting on top of it. The hash is
-    still written on every tab switch (home/tabs.js), so a reload or a deep
-    link keeps its tab; a fresh open with no hash is meant to mean Home.
-    """
+    """A fresh open with no hash starts on Home."""
     index = Path("app/templates/index.html").read_text()
     tabs = (JS_DIR / "home" / "tabs.js").read_text()
 
@@ -372,18 +237,11 @@ def test_initial_tab_is_never_restored_from_local_storage() -> None:
         "fresh open no longer starts on Home"
     )
     assert "spotea-active-tab" not in tabs, "home/tabs.js is writing the remembered tab again"
-    # The word itself still appears in the comment explaining why it's gone.
     assert "localStorage." not in tabs, "home/tabs.js is back to persisting the active tab"
 
 
 def test_opening_explore_never_shows_a_loading_placeholder() -> None:
-    """The shelves are fetched in the background at boot and re-checked
-    quietly on every later visit. Entering the tab used to swap a spinner in
-    over them — worst right after onboarding, where the interest list had
-    just changed and the re-check was a full rebuild (several live YouTube
-    searches) with the user watching it. An unchanged batch isn't re-rendered
-    at all, since replacing every card with an identical copy flashes every
-    thumbnail for nothing."""
+    """The shelves refresh in the background; entering the tab never swaps in a spinner."""
     source = (JS_DIR / "home" / "explore.js").read_text()
     setup = _function_body(source, "setupRecommendations")
 
@@ -398,11 +256,7 @@ def test_opening_explore_never_shows_a_loading_placeholder() -> None:
     )
 
 def test_an_artist_name_is_only_a_link_when_there_is_an_artist_to_open() -> None:
-    """A song result carries the artist's channel id most of the time but not
-    always — the fallback yt-dlp search (routers/explore.py's
-    search_video_feeds) doesn't reliably report one on a flat entry. Rendering
-    the name as a button anyway gives a control that opens nothing, which is
-    worse than plain text."""
+    """A song result doesn't always carry a channel id; without one the name is text, not a dead button."""
     source = (JS_DIR / "home" / "explore.js").read_text()
 
     body = source[source.index("function artistNameHtml(") :]
@@ -415,9 +269,7 @@ def test_an_artist_name_is_only_a_link_when_there_is_an_artist_to_open() -> None
 
 
 def test_the_artist_link_is_handled_before_the_card_it_sits_inside() -> None:
-    """The name sits inside a .rec-card, and that whole card is a play
-    target. Whichever branch runs first wins, so putting the artist check
-    after the card's would make clicking the artist start the song."""
+    """The whole .rec-card is a play target, so the artist check must run first."""
     source = (JS_DIR / "home" / "explore.js").read_text()
 
     listener = source[source.index('body.addEventListener("click"') :]
@@ -430,11 +282,7 @@ def test_the_artist_link_is_handled_before_the_card_it_sits_inside() -> None:
 
 
 def test_a_channel_result_opens_the_artist_route() -> None:
-    """The fix for an artist whose YouTube channel is mostly vlogs: the
-    search result and the shelf card both go to yt-artist, and the server
-    decides whether that id is an artist or falls back to the channel's
-    uploads (see services/remote_detail.py). Sending them to yt-channel
-    instead skips that decision and shows the vlogs again."""
+    """The server decides whether an id is an artist or a channel (services/remote_detail.py)."""
     source = (JS_DIR / "home" / "explore.js").read_text()
 
     assert 'openDetail("yt-channel"' not in source, (
@@ -446,10 +294,7 @@ def test_a_channel_result_opens_the_artist_route() -> None:
 
 
 def test_the_scroller_module_has_no_import_cycle() -> None:
-    """Drag-to-scroll moved out of home/library.js so home/detail.js could
-    wire the artist profile's shelves after a panel swap. Importing it back
-    from library.js would recreate the cycle the move exists to avoid —
-    library.js already imports openDetail from detail.js."""
+    """library.js imports detail.js, so the scroller importing library.js would be a cycle."""
     detail = (JS_DIR / "home" / "detail.js").read_text()
     scrollers = (JS_DIR / "home" / "scrollers.js").read_text()
 
@@ -463,13 +308,9 @@ def test_the_scroller_module_has_no_import_cycle() -> None:
 
 
 def test_both_panel_swaps_run_the_same_wiring() -> None:
-    """A cached fragment and a freshly fetched one are the same markup, so
-    anything one needs wired the other does too. They used to diverge."""
     source = (JS_DIR / "home" / "detail.js").read_text()
 
-    # Three of them now: a cached remote fragment, a freshly fetched one, and
-    # the device's own Downloads panel, which is built in the browser but is
-    # still the same markup with the same controls in it.
+    # A cached remote fragment, a freshly fetched one, and the device's own Downloads panel.
     assert source.count("  afterPanelSwap();") == 3, (
         "a swap path skips afterPanelSwap — its shelves won't drag-scroll, "
         "or its shuffle button won't match the current preference"
@@ -477,22 +318,16 @@ def test_both_panel_swaps_run_the_same_wiring() -> None:
 
 
 def test_a_release_card_opens_by_browse_id() -> None:
-    """An album carries an audioPlaylistId and a single doesn't, so the
-    browse id is the only identifier that works for both — see
-    music.ArtistRelease."""
+    """A single has no audioPlaylistId, so the browse id is the only identifier for both."""
     source = (JS_DIR / "home" / "detail.js").read_text()
 
     assert 'openDetail("yt-release", card.dataset.releaseId)' in source
-    # Reached from both places a release card is rendered: the artist profile
-    # (inside #detail-panel) and Home's "New releases" shelf.
+    # Rendered in the artist profile (#detail-panel) and Home's New releases shelf.
     assert source.count("openReleaseCard(") == 3
 
 
 def test_a_single_is_resolved_before_any_history_is_pushed() -> None:
-    """A one-track release plays instead of opening a panel (see
-    routers/partials.py's remote_release_fragment), so it must not leave a
-    history entry pointing at a panel that was never shown. The only way to
-    guarantee that is to ask what the release is before pushing."""
+    """A one-track release plays instead of opening a panel, so it must not push a history entry."""
     source = (JS_DIR / "home" / "detail.js").read_text()
 
     resolve = source.index("await resolveRelease(id)")
@@ -501,44 +336,31 @@ def test_a_single_is_resolved_before_any_history_is_pushed() -> None:
 
 
 def test_playing_a_standalone_track_sets_a_one_track_queue() -> None:
-    """Nothing playRemoteVideo opens came out of a list, so there is no rest
-    of it to queue. Left to itself, queue.js's noteCurrent would clear the
-    queue instead and the queue panel would go blank — which on desktop is a
-    permanently open panel showing nothing while a track plays."""
+    """Otherwise noteCurrent clears the queue and the queue panel goes blank."""
     source = (JS_DIR / "home" / "remote.js").read_text()
 
     play = source.index("export async function playRemoteVideo")
     set_queue = source.index('setQueue({ kind: "single" }, [data.content_id])', play)
     open_player = source.index("openPlayer(data.content_id)", play)
-    # Order matters: noteCurrent runs off openPlayer and drops any queue the
-    # new track isn't in, so the queue has to exist first.
+    # noteCurrent drops any queue the new track isn't in, so the queue has to exist first.
     assert set_queue < open_player
 
 
 def test_following_someone_does_not_navigate_anywhere() -> None:
-    """Follow follows, and that is all it does.
-
-    It used to jump straight to the artist's profile, which made a search
-    result's Follow button and the result row itself do the same thing — and
-    the button you press when you already know who you're adding is exactly
-    the one that must not take you anywhere. The row still opens the profile.
-    """
     source = (JS_DIR / "home" / "detail.js").read_text()
 
     assert "event.detail.browseId" not in source
 
 
 def test_the_follow_event_carries_what_the_server_decided() -> None:
-    """Off the response, not off the request: the caller sends a channel URL
-    and the server says whose page that turned out to be."""
+    """Off the response: the server says whose page the channel URL turned out to be."""
     source = (JS_DIR / "home" / "remote.js").read_text()
 
     assert "browseId: data.artist.browse_id || null" in source
 
 
 def test_the_first_sync_counts_as_an_artist_still_filling_in() -> None:
-    """"syncing" is the only phase there is: the server puts an artist in it
-    before fetching anything, and Library's card polls on exactly that."""
+    """"syncing" is the only phase, and Library's card polls on it."""
     initial_sync = Path("app/services/initial_sync.py").read_text()
     library = (JS_DIR / "home" / "library.js").read_text()
 
@@ -547,16 +369,7 @@ def test_the_first_sync_counts_as_an_artist_still_filling_in() -> None:
 
 
 def test_every_module_import_resolves() -> None:
-    """The regression this exists for: a rename left home/remote.js exporting
-    neither playRemoteVideo nor playRemoteList while home/explore.js and
-    home/detail.js still imported both. One unresolved import fails the whole
-    module graph, so *nothing* on the page was wired — no tabs, no menu, no
-    play button — and every server-side test still passed.
-
-    There is no JS runner here to catch that by executing it, so this parses
-    the import/export graph instead: every named import has to be exported by
-    the file it names, and that file has to exist.
-    """
+    """Every named import must be exported by an existing file; one broken import blanks the page."""
     modules = {path.resolve(): path.read_text() for path in JS_DIR.rglob("*.js")}
 
     exported = {}
@@ -580,10 +393,7 @@ def test_every_module_import_resolves() -> None:
 
 
 def test_the_lyrics_panel_only_listens_to_the_audio_element() -> None:
-    """Following along is a timeupdate consumer and nothing more. The
-    player's iOS behaviour is load-bearing and easy to break from outside —
-    an unrelated module calling pause() is exactly the bug that cost days
-    (see player.js's notes on background playback)."""
+    """The lyrics panel must not control playback; the player's iOS behaviour breaks easily from outside."""
     source = (JS_DIR / "home" / "lyrics.js").read_text()
 
     for forbidden in (".play()", ".pause()", ".src =", ".load()", "new Audio"):
@@ -592,14 +402,10 @@ def test_the_lyrics_panel_only_listens_to_the_audio_element() -> None:
 
 
 def test_lyrics_are_not_fetched_until_the_tab_is_opened() -> None:
-    """A miss is two live YouTube requests and most tracks have none, so
-    fetching on play would spend the request budget on answers nobody asked
-    for. The only paths that may call load() are selecting the tab and, once
-    selected, the track changing underneath it."""
+    """A miss costs live YouTube requests, so load() only runs once the lyrics tab is selected."""
     source = (JS_DIR / "home" / "lyrics.js").read_text()
 
-    # Every call site of load() sits after a check that the lyrics tab is the
-    # selected one.
+    # Every call site of load() sits after a check that the lyrics tab is selected.
     for match in re.finditer(r"^\s*(?:else )?(?:if \([^)]*\) )?load\(", source, re.M):
         before = source[: match.start()]
         assert 'selected !== "lyrics"' in before or "isLyrics" in before, (
@@ -608,10 +414,7 @@ def test_lyrics_are_not_fetched_until_the_tab_is_opened() -> None:
 
 
 def test_the_pinned_panel_breakpoint_matches_the_stylesheet() -> None:
-    """The panel counts as open on a wide screen so the existing load and
-    refresh paths keep working (see overlay.js's setQueueOpen). If the two
-    breakpoints drift, the panel is either invisible-but-loading or
-    visible-but-empty."""
+    """If the breakpoints drift, the panel is invisible-but-loading or visible-but-empty."""
     overlay = (JS_DIR / "home" / "overlay.js").read_text()
     css = (JS_DIR.parent / "css" / "style.css").read_text()
 
@@ -620,16 +423,7 @@ def test_the_pinned_panel_breakpoint_matches_the_stylesheet() -> None:
 
 
 def test_the_desktop_panel_does_not_decide_how_tall_the_card_is() -> None:
-    """The tab strip has to sit level with the player's Collapse link, and it
-    only does while the card's height comes from the player column alone. So
-    the panel's list is taken out of flow and the panel's own in-flow content
-    is just the tabs.
-
-    The rule this replaced was `max-height: min(680px, 100%)`, which quietly
-    stopped capping anything once the card no longer had a definite height —
-    a percentage max-height against an auto-height parent computes to none.
-    Measured before the fix: a 40-track queue stretched the card to 1211px
-    and pushed Collapse 272px below the tabs."""
+    """The card's height must come from the player column so the tab strip sits level with Collapse."""
     css = (JS_DIR.parent / "css" / "style.css").read_text()
 
     desktop = css[css.index("@media (min-width: 900px) {") :]
@@ -638,7 +432,7 @@ def test_the_desktop_panel_does_not_decide_how_tall_the_card_is() -> None:
 
     assert "position: relative" in inner
     assert "overflow: hidden" in inner
-    # The cap that cannot work here must not come back.
+    # A percentage max-height against an auto-height parent caps nothing.
     panel_start = desktop.index(".queue-panel {")
     assert "max-height" not in desktop[panel_start : desktop.index("}", panel_start)]
     # And the list itself has to be the thing that scrolls.
@@ -646,10 +440,7 @@ def test_the_desktop_panel_does_not_decide_how_tall_the_card_is() -> None:
 
 
 def test_the_overlay_centres_the_card_safely() -> None:
-    """`safe center`, never plain `center`: a centred flex item taller than
-    its scroll container overflows in both directions and its top becomes
-    unreachable at any scroll position — which is why the base rule says
-    stretch. `safe` falls back to start exactly then."""
+    """`safe center`: a plain-centred item taller than its container has an unreachable top."""
     css = (JS_DIR.parent / "css" / "style.css").read_text()
 
     assert "align-items: safe center" in css
@@ -658,16 +449,7 @@ def test_the_overlay_centres_the_card_safely() -> None:
 
 
 def test_a_remote_track_row_says_it_is_clickable() -> None:
-    """.track-link is an <a href> in _content_row.html but a <button> in
-    _remote_track_row.html, and a button's default cursor is an arrow. Every
-    row on a chart, album, mood or artist-release page is the remote one, so
-    without this they were the only tracks in the app that gave no sign of
-    being clickable, beside local rows that looked identical and did.
-
-    Asserted on button.track-link specifically: that block exists to strip
-    button chrome so the row reads as a link, and the cursor is the piece of
-    chrome it originally missed. A plain .track-link rule would also pass
-    here while leaving the button's own default in place."""
+    """.track-link is a <button> in remote rows, whose default cursor is an arrow."""
     css = (JS_DIR.parent / "css" / "style.css").read_text()
 
     start = css.index("button.track-link {")
@@ -675,10 +457,7 @@ def test_a_remote_track_row_says_it_is_clickable() -> None:
 
 
 def test_the_desktop_panel_is_not_centred_against_the_card() -> None:
-    """The tab strip is the panel's first element, so a panel sized to its
-    own contents drifts up and down as the queue fills and empties, taking
-    Queue and Lyrics with it. Stretching pins them where a full panel would
-    have put them, which is the only place a tab strip may be."""
+    """Stretching keeps the tab strip in place as the queue fills and empties."""
     css = (JS_DIR.parent / "css" / "style.css").read_text()
 
     desktop = css[css.index("@media (min-width: 900px) {") :]
@@ -688,10 +467,7 @@ def test_the_desktop_panel_is_not_centred_against_the_card() -> None:
 
 
 def test_moods_is_the_first_shelf_in_explore() -> None:
-    """It is the only shelf that needs nothing followed and nothing typed,
-    so on a library that has just been created it is the difference between
-    Explore being somewhere to start and Explore being a heading over
-    nothing."""
+    """Moods is the only shelf that needs nothing followed and nothing typed."""
     source = (JS_DIR / "home" / "explore.js").read_text()
     shelves = source[source.index("const shelves = ["): source.index("].join(\"\")")]
 
@@ -700,10 +476,7 @@ def test_moods_is_the_first_shelf_in_explore() -> None:
 
 
 def test_the_moods_shelf_does_not_promise_genres() -> None:
-    """ytmusicapi fails to parse 25 of YouTube Music's 40 mood categories and
-    they are every entry under Genres (see music.MOOD_SECTION), so only the
-    moods section is listed. The old "Moods & genres" heading offered Rock
-    and Jazz and then showed neither."""
+    """Genre categories can't be parsed by ytmusicapi (music.MOOD_SECTION), so only moods are listed."""
     source = (JS_DIR / "home" / "explore.js").read_text()
 
     assert "Moods &amp; genres" not in source
@@ -711,9 +484,6 @@ def test_the_moods_shelf_does_not_promise_genres() -> None:
 
 
 def test_there_is_no_second_module_editing_interests() -> None:
-    """home/onboarding.js was a whole second copy of this — its own chip
-    query, its own selected-set, its own PUT /settings — for a panel that
-    showed the same partial. Both jobs are one overlay and one module now."""
     assert not (JS_DIR / "home" / "onboarding.js").exists()
 
     for path in JS_DIR.rglob("*.js"):
@@ -724,61 +494,36 @@ def test_there_is_no_second_module_editing_interests() -> None:
 
 
 def test_settings_reads_the_picker_rather_than_a_second_copy_of_it() -> None:
-    """Which chips are on is server-rendered into aria-pressed (see
-    interests.interest_chips). Shipping the same fact a second time — as JSON
-    on the element, which is how the free-text editor did it — would only be
-    something to keep in step."""
+    """Selection is server-rendered into aria-pressed; no second copy as JSON."""
     source = (JS_DIR / "home" / "settings.js").read_text()
 
     assert 'getAttribute("aria-pressed")' in source
     assert "dataset.interests" not in source
-    # The free-text editor's own machinery, gone rather than left unreachable.
     for gone in ("interests-input", "interests-form", "interest-chip-remove", "renderInterests"):
         assert gone not in source, gone
 
 
 def test_the_first_run_releases_the_overlay_when_it_is_done() -> None:
-    """The same element is a locked first run and, later in the same session,
-    what Settings' "Manage interests" opens. Every way out consults
-    data-required at the moment of the click (see core.js's isRequired), so
-    removing the attribute is what hands the overlay back — without it,
-    reopening it from Settings afterwards would trap the user in a screen
-    they had already finished with, until they reloaded the page."""
+    """The overlay is also Settings' picker, so finishing the first run must remove data-required."""
     source = (JS_DIR / "home" / "settings.js").read_text()
 
     assert 'removeAttribute("data-required")' in source
 
     core = (JS_DIR / "core.js").read_text()
-    # A wiring-time flag can't express "locked for part of a session", which
-    # is the shape this actually needs.
+    # Checked at click time: a wiring-time flag can't express "locked for part of a session".
     assert "dismissible" not in core, "a fixed flag is what this replaced"
     assert core.count("isRequired(overlay)") >= 2  # the Escape path and the click paths
 
 
 def test_the_interests_modal_outranks_the_generic_one() -> None:
-    """.modal-interests and .modal are both a single class, so neither
-    out-specifies the other and whichever comes last in the file wins.
-
-    This block used to sit up with the Settings rules, ~1500 lines above
-    .modal — so its max-width lost to .modal's 360px and the declaration sat
-    there doing nothing, which is not something reading either rule reveals.
-    Anything .modal also sets has to be declared below it.
-    """
+    """Both are single-class selectors, so .modal-interests must come after .modal to win."""
     css = (JS_DIR.parent / "css" / "style.css").read_text()
 
     assert css.index("\n.modal {") < css.index("\n.modal-interests {")
 
 
 def test_the_first_run_is_fullscreen_and_the_settings_one_is_not() -> None:
-    """Both modes are the same element, so the difference has to live in a
-    selector rather than in a class the template picks. Scoped to
-    [data-required] — an id-plus-attribute selector, which outranks .modal
-    wherever it sits in the file, unlike the class-only rules around it.
-
-    The fullscreen treatment deliberately doesn't apply in both: Settings'
-    picker has no Continue row and about half a screen of chips, so a
-    full-height panel there was mostly empty space below them.
-    """
+    """Fullscreen is scoped to [data-required]; the Settings picker is not fullscreen."""
     css = (JS_DIR.parent / "css" / "style.css").read_text()
 
     fullscreen = css[css.index("#interests-overlay[data-required] .modal-interests {") :][:400]
@@ -788,14 +533,7 @@ def test_the_first_run_is_fullscreen_and_the_settings_one_is_not() -> None:
 
 
 def test_lyrics_ignores_its_own_smooth_scroll() -> None:
-    """Following along stalled for six seconds after every line change.
-
-    The panel leaves the list alone for MANUAL_SCROLL_GRACE_MS after a manual
-    scroll, and the automatic scroll fires the very same `scroll` event as it
-    animates — dozens of times — so each line change armed the grace period
-    against the next one. On a phone that was long enough for the current
-    line to slide off the bottom of a short panel before the list caught up.
-    """
+    """The automatic smooth scroll fires `scroll` events that must not arm the manual-scroll grace period."""
     source = (JS_DIR / "home" / "lyrics.js").read_text()
 
     assert "autoScrolling = true" in source
@@ -804,29 +542,18 @@ def test_lyrics_ignores_its_own_smooth_scroll() -> None:
 
 
 def test_opening_the_lyrics_tab_jumps_to_the_line_being_sung() -> None:
-    """The tab switch resets the scroll to the top, and the only thing that
-    moves it afterwards reacts to the line *changing* — so opening this tab
-    mid-verse left the reader at the start of the song until the next line
-    came round."""
+    """The tab switch resets scroll, so opening mid-verse must jump to the current line."""
     source = (JS_DIR / "home" / "lyrics.js").read_text()
 
     assert "syncActiveLine({ force: true })" in source
 
 
 def test_the_keyboard_is_measured_without_the_scroll_offset() -> None:
-    """`innerHeight - height`, and nothing else.
-
-    Subtracting visualViewport.offsetTop as well walked the answer towards
-    zero as the page was scrolled with the keyboard open; past
-    KEYBOARD_MIN_HEIGHT the class came off and iOS dragged the bottom bar and
-    mini player into the middle of the screen, right above the keys.
-    """
+    """Subtracting visualViewport.offsetTop shrinks the answer as the page scrolls with the keyboard open."""
     source = (JS_DIR / "viewport.js").read_text()
 
     assert "const covered = window.innerHeight - viewport.height;" in source
-    # Scoped to the function that does the measuring, not the whole file: this
-    # is about one subtraction, and a file-wide ban on the string also forbids
-    # unrelated code from ever reading the offset for something else.
+    # Scoped to the measuring function, not a file-wide ban.
     body = _function_body(source, "installKeyboardInset")
     # In the note explaining why, not in the arithmetic.
     code = "\n".join(line for line in body.splitlines() if not line.lstrip().startswith("//"))
@@ -834,10 +561,7 @@ def test_the_keyboard_is_measured_without_the_scroll_offset() -> None:
 
 
 def test_a_focused_text_field_hides_the_bottom_furniture_on_its_own() -> None:
-    """The second, independent signal. The measurement says how tall the
-    keyboard is — nothing else reports that — but focus is what says one is
-    up at all, and unlike the geometry it can't be talked out of it by a
-    scroll."""
+    """Focus is a second signal that a scroll can't talk out of a keyboard being up."""
     source = (JS_DIR / "viewport.js").read_text()
     css = (JS_DIR.parent / "css" / "style.css").read_text()
 
@@ -848,12 +572,7 @@ def test_a_focused_text_field_hides_the_bottom_furniture_on_its_own() -> None:
 
 
 def test_a_toggle_that_is_on_outranks_a_stuck_hover() -> None:
-    """A touch browser applies :hover on tap and never sends the mouseleave
-    that clears it, so shuffle stayed hovered after being pressed. At two
-    classes the on-state tied with .btn-transport:hover and lost outright to
-    .btn-quiet-icon:hover, which is further down the file — so pressing
-    shuffle repainted it to the hover colour on both buttons that carry it.
-    """
+    """Touch browsers keep :hover after a tap, so the on-state must outrank every hover rule."""
     css = (JS_DIR.parent / "css" / "style.css").read_text()
 
     assert ".btn-transport.btn-shuffle.is-on" in css
@@ -862,14 +581,7 @@ def test_a_toggle_that_is_on_outranks_a_stuck_hover() -> None:
 
 
 def test_the_pinned_playlists_hero_badge_is_smaller_than_an_artists() -> None:
-    """Both fill the same slot in _detail_hero.html, and they started at the
-    same size. An artist's hero is a photograph and a photograph at 96px is a
-    portrait; a single white glyph on a saturated disc at 96px is louder than
-    the playlist's own name beside it.
-
-    Scoped to .channel-hero-avatar so the library grid's 44px badge, which is
-    deliberately sized to match the avatars beside it, is left alone.
-    """
+    """Scoped to .channel-hero-avatar so the library grid's 44px badge is left alone."""
     css = (JS_DIR.parent / "css" / "style.css").read_text()
 
     assert ".channel-hero-avatar.channel-card-icon {" in css
@@ -879,10 +591,7 @@ def test_the_pinned_playlists_hero_badge_is_smaller_than_an_artists() -> None:
 
 
 def test_the_players_artist_line_opens_the_artist() -> None:
-    """The one place in the app where you look straight at an artist's name
-    with no way to reach them. Announced rather than called: home/detail.js
-    owns openDetail and already imports the overlay, so importing it back
-    would be a cycle."""
+    """Announced rather than called: importing home/detail.js here would be a cycle."""
     overlay = (JS_DIR / "home" / "overlay.js").read_text()
     detail = (JS_DIR / "home" / "detail.js").read_text()
 
@@ -892,9 +601,7 @@ def test_the_players_artist_line_opens_the_artist() -> None:
 
 
 def test_a_song_search_result_plays_from_anywhere_on_the_row() -> None:
-    """A track in a list is something you tap. The play button stays for
-    keyboard and screen-reader use, and the artist link inside the row is
-    still checked first so it isn't swallowed."""
+    """The artist link inside the row is still checked first so it isn't swallowed."""
     source = (JS_DIR / "home" / "explore.js").read_text()
 
     handler = source[source.index('videoResults.addEventListener("click"') :][:900]
@@ -903,18 +610,14 @@ def test_a_song_search_result_plays_from_anywhere_on_the_row() -> None:
 
 
 def test_repeat_all_does_not_wrap_a_single_track_queue() -> None:
-    """`1 % 1` is 0, so the wrap-around modulo turned a one-track queue's
-    next and previous into the track already playing — turning repeat on lit
-    both skip buttons up and pressing either restarted it."""
+    """`1 % 1` is 0, so wrapping a one-track queue would make next/previous restart the track."""
     source = (JS_DIR / "home" / "queue.js").read_text()
 
     assert "if (state.order.length < 2) return null;" in source
 
 
 def test_the_queue_is_dragged_closed_by_its_own_top_edge() -> None:
-    """It used to be the artwork and the title — the two elements furthest
-    from the panel being dismissed. The tab strip is the sheet's top edge and
-    sits directly above what moves."""
+    """The tab strip is the sheet's top edge, directly above what moves."""
     js = (JS_DIR / "home" / "overlay.js").read_text()
     css = (JS_DIR.parent / "css" / "style.css").read_text()
 
@@ -924,15 +627,7 @@ def test_the_queue_is_dragged_closed_by_its_own_top_edge() -> None:
 
 
 def test_a_drag_does_not_also_switch_the_tab_it_started_on() -> None:
-    """Pointer events fire first and the click lands after the panel has
-    already closed, so without this a pull-to-close that began on LYRICS also
-    selected it.
-
-    A time window, not a "swallow the next click" flag. A touch drag doesn't
-    always produce a click, and the flag then stayed armed until the next tap
-    — a real one — was eaten instead. Caught in a browser test: the tab
-    tapped after a pull-to-close silently didn't switch.
-    """
+    """A time window, not a "swallow the next click" flag: a touch drag doesn't always produce a click."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
     assert "closedByDragAt" in source
@@ -941,9 +636,7 @@ def test_a_drag_does_not_also_switch_the_tab_it_started_on() -> None:
 
 
 def test_explores_search_field_and_tabs_are_one_sticky_block() -> None:
-    """Two stacked sticky elements would mean hardcoding the strip's offset to
-    the field's rendered height. On a phone the app header is sticky too, so
-    this pins below it — measured, not assumed (see installHeaderOffset)."""
+    """Two stacked sticky elements would need a hardcoded offset; it pins below the sticky app header."""
     css = (JS_DIR.parent / "css" / "style.css").read_text()
     viewport = (JS_DIR / "viewport.js").read_text()
 
@@ -955,50 +648,26 @@ def test_explores_search_field_and_tabs_are_one_sticky_block() -> None:
 
 
 def test_a_music_video_row_is_swapped_for_the_song_before_it_plays() -> None:
-    """Explore's playlists are video playlists almost end to end, and a video
-    entry has a 16:9 still for a cover, no lyrics and a different recording.
-    Resolved for the track actually being played — and for the one prefetched
-    behind it, before its download, since the download fetches whatever
-    video_id the row names."""
+    """Video entries have a 16:9 still, no lyrics and a different recording."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
     assert "songVersionOf" in source
     assert "is_music_video" in source
 
-    # The prefetch used to enforce the ordering itself, with its own swap
-    # request placed ahead of its own download request. That is now the
-    # server's job — start_download swaps on the way in, so the ordering is
-    # guaranteed rather than arranged, and there is nothing left here to
-    # order. See test_content_api.py's coverage of the download endpoint.
+    # The prefetch's download request swaps server-side (start_download), so no client ordering is needed.
     prefetch = source[source.index("async function cacheUpcoming(contentId) {") :]
     prefetch = prefetch[: prefetch.index("\n}\n")]
     assert "songVersionOf" not in prefetch
 
-    # The cold open is the one path that still has to do it for itself: it
-    # draws the title and the cover from the row before anything asks for a
-    # download, so it cannot wait for the download's answer to carry the swap.
+    # The cold open draws from the row before any download, so it swaps for itself.
     assert "await songVersionOf(data);" in source
 
 
 def test_start_playback_does_not_reload_the_track_already_loaded() -> None:
-    """Assigning `src` runs the media element's load algorithm, which resets
-    the playback position to the beginning — including when the URL assigned
-    is the one already loaded. So an unconditional `audio.src = streamUrl`
-    turns any second call to startPlayback into a silent restart from 0:00.
-
-    That is how a real session lost a queue. iOS reports a page as visible
-    again when the screen merely *wakes* at the lock screen, which re-runs
-    prepareAudio's visibility check-in; it re-entered startPlayback for the
-    track already playing, reset it to 0:00, and — the phone still being
-    locked — left it pinned there. A track pinned at 0 never reaches its end,
-    so it never advances, and a home-screen PWA that has stopped making sound
-    is frozen by iOS seconds later, so nothing was left running to recover.
-    """
+    """Assigning `src` resets playback to 0:00 even for the same URL, freezing a locked iOS queue."""
     source = (JS_DIR / "player.js").read_text()
 
-    # What "already loaded" is decided from moved (see
-    # test_the_loaded_track_is_not_identified_by_comparing_urls); that it is
-    # decided at all, and that it gates the assignment, has not.
+    # How "already loaded" is decided may change; that it gates the assignment may not.
     assert "const alreadyLoaded = loadedContentId === contentId && !audio.ended;" in source, (
         "startPlayback no longer checks whether this track is already loaded — "
         "a repeat call restarts the playing track from 0:00"
@@ -1018,12 +687,7 @@ def test_start_playback_does_not_reload_the_track_already_loaded() -> None:
 
 
 def test_the_stall_watchdog_does_not_trust_an_unpaused_element() -> None:
-    """The watchdog used to bail out on `!audio.paused || currentTime > 0`,
-    which let through the worse of the two silent states: a play() the browser
-    accepted and then never produced a frame for leaves the element unpaused
-    and pinned at 0 indefinitely — "playing" on the lock screen with nothing
-    coming out of it. Being at the start is the symptom; whether the element
-    admits to being paused is not part of it."""
+    """An unpaused element pinned at 0 is the worse silent state; being paused is not part of the check."""
     source = (JS_DIR / "player.js").read_text()
 
     assert "if (!audio.paused || audio.currentTime > 0) return;" not in source, (
@@ -1034,16 +698,10 @@ def test_the_stall_watchdog_does_not_trust_an_unpaused_element() -> None:
 
 
 def test_the_prefetch_guard_is_set_only_once_the_prefetch_goes_out() -> None:
-    """`prefetchedFor` is a once-per-track guard, so setting it before the
-    queue had been consulted made it permanent for that track: a queue that
-    was momentarily empty at this one second — or a track pinned at 0, so that
-    the check ran at the same instant every time — never got a second
-    chance."""
+    """prefetchedFor is once-per-track, so it must not be set before the queue was consulted."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
-    # Matched as contiguous text rather than by comparing indexes: peekNextId
-    # is called from the transport sync earlier in this same file, so a plain
-    # source.index() finds that one and compares the wrong pair.
+    # Contiguous text: peekNextId is also called earlier in the file.
     assert "prefetchedFor = playing;\n  const upcoming = peekNextId();" not in source, (
         "prefetchedFor is marked before peekNextId() is consulted — a track "
         "whose queue was momentarily empty never prefetches again"
@@ -1054,16 +712,7 @@ def test_the_prefetch_guard_is_set_only_once_the_prefetch_goes_out() -> None:
 
 
 def test_the_stall_watchdog_does_not_interfere_with_a_loading_element() -> None:
-    """Widening the watchdog to catch an unpaused element pinned at 0 was
-    right; repairing that case was not. `readyState: 1` on an unpaused element
-    does not mean stuck, it means "no data yet" — a backgrounded PWA opening
-    audio sits there for seconds with a play() already in flight.
-
-    A version of this called `audio.load()` to unstick it. Measured on a real
-    device: three stalls, three `AbortError`s from the play() it aborted, and
-    the last track never played again — it died 2 seconds after the call. The
-    pending play() of a backgrounded iOS page is the whole audio grant, so
-    interrupting a load is worse than waiting for one."""
+    """Calling audio.load() aborts a backgrounded iOS page's pending play(), killing playback."""
     source = (JS_DIR / "player.js").read_text()
 
     # Comment lines stripped first: the comment above the fix names the call
@@ -1079,11 +728,7 @@ def test_the_stall_watchdog_does_not_interfere_with_a_loading_element() -> None:
 
 
 def test_a_visibility_change_is_recorded_while_a_track_is_loaded() -> None:
-    """A locked phone whose screen comes on makes no request of its own, so
-    "it advances with the screen off but not while the screen is awake on the
-    lock screen" is invisible in the server log — there is nothing to line the
-    failure up against. Gated on a loaded track so it stays quiet outside
-    playback."""
+    """A waking lock screen makes no request of its own, so the beacon is the only trace."""
     source = (JS_DIR / "player.js").read_text()
 
     body = _function_body(source, "installVisibilityBreadcrumb")
@@ -1099,18 +744,7 @@ def test_a_visibility_change_is_recorded_while_a_track_is_loaded() -> None:
 
 
 def test_a_prefetched_track_is_played_from_memory_rather_than_refetched() -> None:
-    """Prefetching used to mean "tell the server to download it", and stopped
-    there — nothing pulled a byte of the next track into the page, so every
-    handoff still opened a network fetch at the one moment it could least
-    afford to. Measured over nine auto-advances that all had their next track
-    already on the server's disk: 0.28-1.43s just to get the /stream request
-    out, and six playback-stalled beacons, every one of them readyState 1
-    (metadata in hand, not one sample of audio) three seconds after play().
-
-    So the bytes are fetched during the previous track and the element is
-    handed an object URL for them. If either half of that goes away the wait
-    comes back, and it comes back invisibly — everything still works, just
-    slowly, which is exactly how it went unnoticed the first time."""
+    """The next track's bytes are fetched ahead and handed over as an object URL, not refetched."""
     overlay = (JS_DIR / "home" / "overlay.js").read_text()
     player = (JS_DIR / "player.js").read_text()
 
@@ -1129,15 +763,7 @@ def test_a_prefetched_track_is_played_from_memory_rather_than_refetched() -> Non
 
 
 def test_the_loaded_track_is_not_identified_by_comparing_urls() -> None:
-    """`audio.currentSrc.endsWith(dataset.stream)` was how two places asked
-    "is this track the one loaded?", and it cannot answer that any more: a
-    prefetched track is handed a blob: URL, which carries no content id, so
-    the comparison says "not loaded" for the track playing right now.
-
-    Both readers break loudly if that comes back. startPlayback would
-    reassign src on a track already playing — which resets it to 0:00, the
-    whole of the screen-wake bug — and overlay's `ended` handler would take
-    the finished track for an outgoing one and stop advancing the queue."""
+    """A prefetched track has a blob: URL, so currentSrc can't identify the loaded track."""
     player = (JS_DIR / "player.js").read_text()
     overlay = (JS_DIR / "home" / "overlay.js").read_text()
 
@@ -1157,11 +783,7 @@ def test_the_loaded_track_is_not_identified_by_comparing_urls() -> None:
 
 
 def test_every_prefetched_object_url_is_released() -> None:
-    """An object URL pins its Blob in memory until revoked, and these are
-    whole audio files. There are three ways one stops being needed — the
-    queue moves off it before the handoff, the element replaces it with the
-    next track, the player is closed — and only the middle one is on the
-    happy path, so the other two are the ones that would quietly leak."""
+    """Object URLs pin whole audio Blobs until revoked, on every path, not just the happy one."""
     overlay = (JS_DIR / "home" / "overlay.js").read_text()
     player = (JS_DIR / "player.js").read_text()
 
@@ -1171,18 +793,15 @@ def test_every_prefetched_object_url_is_released() -> None:
         "since every one of them has to be revoked somewhere"
     )
 
-    # Dropped without ever being played: the queue moved on mid-fetch, or the
-    # open went to a different track than the one prefetched.
+    # Dropped without playing: the queue moved on, or a different track was opened.
     assert "if (upcomingTrack?.id !== id) {\n    URL.revokeObjectURL(objectUrl);" in overlay, (
         "a prefetch superseded while its bytes were in flight leaks its Blob"
     )
-    # Braced rather than the one-liner the close path uses, deliberately: the
-    # two revoke the same expression, and an assertion that matched either
-    # would pass with one of them deleted.
-    assert (
-        "    if (upcomingTrack?.objectUrl) {\n"
-        "      // Bytes pulled down for a track this open isn't going to."
-    ) in overlay, (
+    # Braced form, distinct from the close path's one-liner, so each revoke is checked separately.
+    assert re.search(
+        r"if \(upcomingTrack\?\.objectUrl\) \{\n(?:\s*//[^\n]*\n)*\s*URL\.revokeObjectURL\(upcomingTrack\.objectUrl\);",
+        overlay,
+    ), (
         "bytes prefetched for a track the user then skipped past leak their Blob"
     )
     assert "if (upcomingTrack?.objectUrl) URL.revokeObjectURL(upcomingTrack.objectUrl);" in overlay, (
@@ -1200,17 +819,7 @@ def test_every_prefetched_object_url_is_released() -> None:
 
 
 def test_the_prefetch_goes_out_with_the_track_not_part_way_through_it() -> None:
-    """It used to wait for 8 seconds of the current track before pulling the
-    next one down, so that skipping quickly through a queue didn't start a
-    download per track passed over. That put the cost on the wrong person:
-    press Next inside those 8 seconds — which is most of the time anyone
-    presses it — and nothing had been prefetched, so the press paid for the
-    metadata round trip, the live song-version search behind it, and the whole
-    download before a single thing on screen changed.
-
-    A track skipped past before it plays a frame still prefetches nothing,
-    because no timeupdate ever fires for it — that part never needed a
-    threshold."""
+    """The prefetch starts with the track, not after a delay, so an early Next finds it ready."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
     assert "PREFETCH_AFTER_SECONDS" not in source, (
@@ -1225,22 +834,7 @@ def test_the_prefetch_goes_out_with_the_track_not_part_way_through_it() -> None:
 
 
 def test_the_upcoming_track_is_published_before_its_audio_is_fetched() -> None:
-    """A Next press landing mid-prefetch has to find something here, or it
-    repeats the whole chain before anything on screen changes.
-
-    This used to publish between the swap request and the download request,
-    which was the earliest point the row was trustworthy back when the client
-    made three calls. It now publishes off the download's own answer — later
-    in the function, and yet *earlier* in wall-clock terms, because two round
-    trips came out from in front of it: the live song search dominates either
-    arrangement, and the metadata fetch and the swap request no longer sit
-    ahead of it. What must not come back is publishing ahead of the swap, off
-    a row still naming the music video.
-
-    What has to stay after the publish is the audio: the fetch is a whole
-    track and the poll loop that waits for it can run for thirty seconds, so
-    an entry that only appeared at the end of those would be no entry at all
-    for most of the window it exists to cover."""
+    """Published off the download's answer (post-swap row), before the audio fetch and its long poll."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
     body = source[source.index("async function cacheUpcoming(contentId) {") :]
@@ -1255,23 +849,14 @@ def test_the_upcoming_track_is_published_before_its_audio_is_fetched() -> None:
         "the upcoming track is published after the poll loop, which can run "
         "for the whole budget before it ever gets there"
     )
-    # The handoff can take the entry while the poll is in flight, and writing
-    # to it then resurrects a cache for the track that is already playing.
+    # Writing after the handoff took the entry would resurrect a cache for the playing track.
     assert "if (upcomingTrack?.id !== id) return;" in body[published:], (
         "the post-publish writes don't re-check that the entry is still ours"
     )
 
 
 def test_a_press_that_has_to_ask_the_server_says_so_immediately() -> None:
-    """With nothing prefetched, openPlayer awaits a round trip (and possibly a
-    live song-version search) before it writes a single thing to the DOM, so
-    the card went on showing the previous track the whole time and the press
-    read as ignored.
-
-    Gated on a track already being open, and undone when the fetch fails —
-    otherwise a cold open surfaces an empty card, and a failed one leaves the
-    transport disabled with the outgoing track still playing and no way to
-    pause it."""
+    """Gated on a track already being open, and undone if the fetch fails."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
     body = source[source.index("export async function openPlayer(") :]
@@ -1286,14 +871,10 @@ def test_a_press_that_has_to_ask_the_server_says_so_immediately() -> None:
 
 
 def test_the_handoff_beacon_says_whether_the_bytes_were_in_memory() -> None:
-    """`prepared` only covers the next track's metadata; whether the src swap
-    ran against a blob or against the network was invisible, and the
-    2026-08-23 stall had to be settled from the *absence* of a /stream line
-    in the server's access log. `buffered` states it outright."""
+    """`buffered` says whether the handoff ran from a blob or the network."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
-    # rindex: the repeat-"one" branch has its own, earlier track-ended call
-    # (with `repeat: "one"` instead of a handoff), and the handoff's is last.
+    # rindex: the repeat-"one" branch has its own earlier track-ended call.
     ended = source[source.rindex('reportPlayback("track-ended"') :]
     ended = ended[: ended.index(");")]
     assert "buffered: Boolean(upcomingTrack?.objectUrl)" in ended, (
@@ -1302,11 +883,7 @@ def test_the_handoff_beacon_says_whether_the_bytes_were_in_memory() -> None:
 
 
 def test_lock_screen_taps_leave_a_trace() -> None:
-    """A lock-screen control that "did nothing" has two very different causes:
-    our handler ran and its play() was refused, or iOS had already frozen the
-    page and the handler never ran at all. Only a beacon *from inside the
-    handler* can tell them apart — a tap with no beacon is the frozen-page
-    case. Every transport action the OS can send must therefore report."""
+    """A beacon from inside the handler separates a refused play() from a frozen page."""
     player = (JS_DIR / "player.js").read_text()
     overlay = (JS_DIR / "home" / "overlay.js").read_text()
 
@@ -1326,10 +903,7 @@ def test_lock_screen_taps_leave_a_trace() -> None:
 
 
 def test_every_beacon_stamps_the_audio_session_state() -> None:
-    """Whether this device has the Audio Session API, and whether the session
-    was "interrupted" at the moment something went wrong, both matter exactly
-    when a beacon fires — and a field costs no extra beacons. `visibility`
-    rides along the same way and for the same reason."""
+    """Audio Session state and visibility ride along on every beacon at no extra cost."""
     source = (JS_DIR / "player.js").read_text()
 
     body = source[source.index("export function reportPlayback(") :]
@@ -1343,12 +917,7 @@ def test_every_beacon_stamps_the_audio_session_state() -> None:
 
 
 def test_position_state_is_published_only_while_audio_renders() -> None:
-    """The spec makes a playbackRate of zero a TypeError — paused is
-    playbackState's job — so the old `playbackRate: rendering ? 1 : 0` always
-    threw for a non-rendering element and the catch swallowed it. The shipped
-    behaviour ("no update at all while silent") was right; the code now states
-    it instead of stumbling into it, and a finite-duration guard covers the
-    other input setPositionState throws on."""
+    """A playbackRate of zero throws, so position state is only set while rendering with a finite duration."""
     source = (JS_DIR / "player.js").read_text()
 
     assert "playbackRate: rendering" not in source, (
@@ -1370,11 +939,7 @@ def test_position_state_is_published_only_while_audio_renders() -> None:
 
 
 def test_the_page_declares_itself_a_media_player_to_the_os() -> None:
-    """WebKit's Audio Session API is the one channel a web page has to tell
-    iOS "I am a music app" — the category kept running with the screen locked
-    and not muted by the silent switch — rather than leaving the OS to infer
-    it per play(). Safari-only and experimental, so feature-detected and
-    allowed to fail."""
+    """WebKit's Audio Session API; Safari-only and experimental, so feature-detected."""
     source = (JS_DIR / "player.js").read_text()
 
     assert '"audioSession" in navigator' in source
@@ -1384,14 +949,7 @@ def test_the_page_declares_itself_a_media_player_to_the_os() -> None:
 
 
 def test_unchanged_metadata_is_republished_until_a_held_publish_lands() -> None:
-    """Two competing needs. A track change publishes its metadata during the
-    silent gap before playback, which iOS may silently drop — so the publish
-    on `playing` (the one moment iOS provably holds the session) must NOT be
-    skipped just because the values look identical; a Dynamic Island stuck on
-    the previous track is the bug that re-publish fixed. But `playing` also
-    fires after every buffering hitch and resume, and re-publishing identical
-    values then makes iOS rebuild the Now Playing card for nothing. The cache
-    therefore only short-circuits once a held-session publish has landed."""
+    """iOS may drop a publish in the silent gap, so the cache only short-circuits after a held-session one."""
     source = (JS_DIR / "player.js").read_text()
 
     assert "if (key === publishedNowPlaying && publishedWhileHeld) return;" in source, (
@@ -1405,18 +963,13 @@ def test_unchanged_metadata_is_republished_until_a_held_publish_lands() -> None:
 
 
 def test_a_finished_queue_leaves_the_os_now_playing_surface() -> None:
-    """When the last track runs out there is nothing left to control, and iOS
-    freezes the page shortly after the audio stops — a Now Playing card left
-    up is dead weight, and the thing that lingers on the Dynamic Island after
-    the app is closed. Replaying in-app re-publishes on `playing`."""
+    """A Now Playing card left up after the queue ends is dead weight on the Dynamic Island."""
     overlay = (JS_DIR / "home" / "overlay.js").read_text()
 
     assert "if (next == null) clearNowPlayingMetadata();" in overlay, (
         "a queue running out no longer clears the OS Now Playing surface"
     )
-    # closePlayer must clear through the same helper — a hand-rolled clear
-    # there would leave player.js's publish cache thinking the old metadata
-    # is still up, so re-opening the same track would publish nothing.
+    # closePlayer must clear through the same helper, or the publish cache goes stale.
     body = overlay[overlay.index("export function closePlayer(") :]
     body = body[: body.index("\n}")]
     assert "clearNowPlayingMetadata();" in body, (
@@ -1426,12 +979,7 @@ def test_a_finished_queue_leaves_the_os_now_playing_surface() -> None:
 
 
 def test_the_background_handoff_happens_before_the_cliff() -> None:
-    """`ended` is a cliff for a backgrounded page: the moment nothing renders,
-    iOS starts freezing it — measured 2026-08-23 18:14, a handoff with the
-    next track's bytes already in memory and play() already called still sat
-    at readyState 1 for 14 seconds until the screen woke. The only reliable
-    side of the cliff is the near one, so in the background the swap happens
-    while the outgoing track is still rendering."""
+    """A backgrounded page freezes at `ended`, so the swap happens while the track still renders."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
     handler = source[source.index("let earlyHandoffFor = null;") :]
@@ -1454,8 +1002,7 @@ def test_the_background_handoff_happens_before_the_cliff() -> None:
     )
     assert "EARLY_HANDOFF_SECONDS" in handler
 
-    # The `ended` path must survive as the fallback for everything the early
-    # handoff declines: foreground playback, a missing blob, a paused element.
+    # `ended` remains the fallback for foreground playback, a missing blob, or a paused element.
     ended = source[source.rindex('reportPlayback("track-ended"') :]
     assert "playFromQueue(next);" in ended, (
         "the ended handler no longer advances — the early handoff is now the "
@@ -1464,16 +1011,7 @@ def test_the_background_handoff_happens_before_the_cliff() -> None:
 
 
 def test_the_device_lookup_is_skipped_when_a_prefetch_already_holds_the_bytes() -> None:
-    """The auto-advance handoff runs inside the `ended` event while iOS may
-    have the page frozen, and everything from there to audio.play() has to be
-    reachable without awaiting anything the browser is free to defer — that
-    is what "it didn't move to the next song until I opened the app again"
-    was, and what cacheUpcomingAudio exists to prevent.
-
-    So openPlayer's offline lookup has to sit behind the prefetch miss. On a
-    hit the bytes are already in the page and the lookup could only ever
-    return the same audio, more slowly.
-    """
+    """On a prefetch hit, the handoff must not await the offline lookup (iOS may defer it)."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
     guard = source.index("if (!prefetchedAudio) {")
@@ -1486,15 +1024,7 @@ def test_the_device_lookup_is_skipped_when_a_prefetch_already_holds_the_bytes() 
 
 
 def test_a_track_played_off_the_device_ignores_what_the_server_says_about_it() -> None:
-    """Both of these refuse a track whose bytes are sitting on the phone.
-
-    `status` other than "ready" sends prepareAudio off to start a fresh
-    download — which is what a library cleared from the Downloads modal
-    leaves behind, so "Clear all" would strand every saved track. And an
-    `is_unavailable` row is skipped outright, a state a saved track really
-    can reach: YouTube pulling a video says nothing about a copy taken
-    before it did.
-    """
+    """A track played off the device ignores the server's status and is_unavailable."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
     assert 'root.dataset.status = playingFromDevice ? "ready" : data.status;' in source, (
@@ -1508,14 +1038,7 @@ def test_a_track_played_off_the_device_ignores_what_the_server_says_about_it() -
 
 
 def test_the_offline_cover_is_fetched_through_the_same_origin_proxy() -> None:
-    """A cross-origin image fetch is opaque, and an opaque Blob cannot be
-    read back — storing one would save bytes that could never be displayed,
-    and would do it silently.
-
-    The URL saved with the row is already the proxied one (see
-    storage.StoredItem.thumbnail_url), so this is a guard on nobody
-    "optimising" the proxy back out of the path.
-    """
+    """A cross-origin image fetch is opaque and unreadable, so covers go through the proxy."""
     source = (JS_DIR / "offline.js").read_text()
 
     assert "ytimg.com" not in source and "ggpht.com" not in source, (
@@ -1525,11 +1048,7 @@ def test_the_offline_cover_is_fetched_through_the_same_origin_proxy() -> None:
 
 
 def test_offline_metadata_and_audio_live_in_separate_stores() -> None:
-    """Listing what's saved must not pay for the audio. IndexedDB
-    materialises whole records, so one combined store would pull every saved
-    song's Blob into memory just to render the Downloads modal's ticks and a
-    size total.
-    """
+    """IndexedDB materialises whole records, so listing saved songs must not load their Blobs."""
     source = (JS_DIR / "offline.js").read_text()
 
     assert source.count("createObjectStore(") == 2, (
@@ -1544,14 +1063,7 @@ def test_offline_metadata_and_audio_live_in_separate_stores() -> None:
 
 
 def test_elements_js_hides_are_not_pinned_open_by_a_display_rule() -> None:
-    """An explicit `display` beats the [hidden] attribute, so anything the JS
-    hides by setting `.hidden = true` needs a [hidden] rule of its own or it
-    simply stays on screen.
-
-    This has bitten three separate elements now (the offline banner, the
-    Downloads modal's old per-row toggle, Settings' "Remove all"), which is
-    why it is a test rather than a comment.
-    """
+    """An explicit `display` beats [hidden], so each JS-hidden element needs its own [hidden] rule."""
     css = (JS_DIR.parent / "css" / "style.css").read_text()
 
     assert ".offline-banner[hidden]" in css, (
@@ -1568,15 +1080,7 @@ def test_elements_js_hides_are_not_pinned_open_by_a_display_rule() -> None:
 
 
 def test_the_installed_app_can_actually_pick_up_a_new_worker() -> None:
-    """register() alone is enough for a browser tab and not for the PWA.
-
-    An installed app is opened, suspended and resumed for days without a
-    navigation, which is the only thing that makes a browser re-check
-    /sw.js on its own — so the worker it was installed with stays in charge,
-    serving the release it was installed with. That happened on the real
-    install: a v5 cache kept answering long after the server had shipped v6,
-    and nothing in the new release could reach the device to say so.
-    """
+    """An installed PWA rarely navigates, so it must check for a new worker itself."""
     body = _function_body((JS_DIR / "resume.js").read_text(), "registerServiceWorker")
 
     assert ".update()" in body, (
@@ -1591,8 +1095,7 @@ def test_the_installed_app_can_actually_pick_up_a_new_worker() -> None:
         "a new worker takes over without the page it is now driving ever "
         "being re-rendered from it"
     )
-    # A first-ever install claims this very page, which fires controllerchange
-    # too — reloading for that is a reload on every first visit.
+    # A first-ever install also fires controllerchange; reloading then would reload every first visit.
     assert "hadController" in body, (
         "the controllerchange reload is unguarded, so a first install reloads "
         "the page it just claimed"
@@ -1600,16 +1103,7 @@ def test_the_installed_app_can_actually_pick_up_a_new_worker() -> None:
 
 
 def test_every_js_module_is_in_the_service_worker_precache() -> None:
-    """An ES module that 404s takes its whole import graph down with it, so a
-    shell precache missing one file is not a degraded offline app — it is a
-    blank page. This is the guard that makes adding a module fail here rather
-    than in a browser with no signal, which is the one place nobody can debug
-    it.
-
-    sw.js itself is excluded on purpose: the browser fetches the worker, and
-    a worker serving its own bytes from the cache it controls is how an
-    update stops being able to land.
-    """
+    """A missing module blanks the offline app; sw.js itself is excluded on purpose."""
     source = (JS_DIR / "sw.js").read_text()
     listed = set(re.findall(r'"(/static/[^"]+)"', source))
 
@@ -1628,11 +1122,7 @@ def test_every_js_module_is_in_the_service_worker_precache() -> None:
 
 
 def test_the_precache_never_stores_a_redirect_or_an_error() -> None:
-    """"/" answers 200 with the login page once a session has expired, so a
-    bare response.ok would happily pin the login screen as the offline home
-    page — and it would keep serving it after the user logged back in, since
-    the shell is only written on install.
-    """
+    """"/" answers 200 with the login page after session expiry, so response.ok is not enough."""
     source = (JS_DIR / "sw.js").read_text()
 
     install = source[source.index('addEventListener("install"') :]
@@ -1649,12 +1139,7 @@ def test_the_precache_never_stores_a_redirect_or_an_error() -> None:
 
 
 def test_an_offline_open_does_not_overwrite_the_metadata_it_just_recovered() -> None:
-    """openPlayer's offline fallback builds `data` from what was stored with
-    the audio. The assignment that follows it (`data = res.data`) is null on
-    that path, and songVersionOf behind it is a live YouTube lookup — the one
-    call certain to fail when the reason we are here is that nothing can
-    reach the network.
-    """
+    """On the offline path, the metadata must not be overwritten by a null response or a live lookup."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
     body = source[source.index("const res = await api(`/content/${contentId}`);") :]
@@ -1666,11 +1151,7 @@ def test_an_offline_open_does_not_overwrite_the_metadata_it_just_recovered() -> 
 
 
 def test_only_an_unreachable_server_falls_back_to_the_device() -> None:
-    """A 404 or a 409 is the server *answering* — that this track is gone, or
-    not ready. That is a real answer and it has to win over a local copy's
-    memory of it. Only status 0, which api() uses for "the request never
-    arrived", means there was no answer to defer to.
-    """
+    """A 404/409 is a real answer; only status 0 (never arrived) falls back to the device."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
     assert "res.status === 0 && playingFromDevice" in source, (
@@ -1680,14 +1161,7 @@ def test_only_an_unreachable_server_falls_back_to_the_device() -> None:
 
 
 def test_the_offline_banner_does_not_run_on_navigator_online_alone() -> None:
-    """Measured in Chromium on 2026-08-25: with the browser genuinely
-    offline, navigator.onLine reads false — then reload, and the document the
-    service worker serves out of its cache reads it back as **true**. That
-    reload *is* the offline app opening, so a banner driven by onLine alone
-    is hidden at exactly the moment it exists for.
-
-    api() reporting whether each request arrived is what actually raises it.
-    """
+    """navigator.onLine reads true in a SW-served offline reload, so api() drives the banner."""
     source = CORE_JS.read_text()
 
     watch = _function_body(source, "watchConnection")
@@ -1696,9 +1170,7 @@ def test_the_offline_banner_does_not_run_on_navigator_online_alone() -> None:
         "cached page that is genuinely offline"
     )
 
-    # Sliced to the next top-level export rather than brace-matched:
-    # _function_body starts at the first "{" after the name, which for api()
-    # is its destructured options parameter, not its body.
+    # Sliced to the next export: _function_body would find api()'s destructured parameter.
     api_body = source[source.index("export async function api(") :]
     api_body = api_body[: api_body.index("\nexport ")]
     assert "noteConnection(false)" in api_body, (
@@ -1712,25 +1184,9 @@ def test_the_offline_banner_does_not_run_on_navigator_online_alone() -> None:
 
 
 def test_an_unreachable_server_raises_the_banner_even_with_a_working_connection() -> None:
-    """"Offline" is not the same question as "has this phone got internet".
-
-    The app is served over Tailscale, and its hostname resolves publicly to a
-    100.x CGNAT address — so with the VPN off the phone has a perfectly good
-    connection, resolves the name, and then opens a socket to an address with
-    no route to it. navigator.onLine is true, and api()'s requests hang rather
-    than failing, so `requestsFailing` never flips either. Measured before
-    this: 60s of an app with no banner, no is-offline, and every search
-    spinning forever, on a server that answered nothing at all.
-
-    Closing that needs both halves. The probe has to be able to conclude
-    "unreachable" from silence, which means a clock of its own — a bare await
-    on a hanging fetch concludes nothing, ever. And it has to run on the way
-    in, because every other thing that starts it only fires once something
-    else has already decided the app is offline.
-    """
+    """An unreachable host can hang rather than fail, so the probe needs its own timeout and runs on start."""
     source = CORE_JS.read_text()
-    # Sliced by hand: probeConnection is module-private, so it is not one of
-    # the `export function` forms _function_body knows how to find.
+    # Sliced by hand: probeConnection is module-private.
     probe = source[source.index("async function probeConnection(") :]
     probe = probe[: probe.index("\n}\n")]
 
@@ -1751,15 +1207,7 @@ def test_an_unreachable_server_raises_the_banner_even_with_a_working_connection(
 
 
 def test_a_reachable_server_is_the_only_thing_that_lowers_the_banner() -> None:
-    """The `online` event fires with the same untrustworthy value the guard
-    above is about, so it must not clear the state by itself — it may only
-    ask for the banner to be re-derived from what is actually known.
-
-    It used to call noteConnection(true), which set `requestsFailing = false`
-    outright: an event whose value is wrong precisely when the page is served
-    from the service worker's cache was allowed to declare the connection
-    good.
-    """
+    """`online` is untrustworthy, so it may only ask for the banner to be re-derived."""
     source = CORE_JS.read_text()
     watch = _function_body(source, "watchConnection")
 
@@ -1776,14 +1224,7 @@ def test_a_reachable_server_is_the_only_thing_that_lowers_the_banner() -> None:
 
 
 def test_the_banner_is_re_derived_on_every_connection_report() -> None:
-    """noteConnection used to return early whenever the call did not change
-    `requestsFailing`, which quietly made the banner unlowerable in the one
-    case that has nothing to do with that flag: raised by
-    `navigator.onLine === false` alone (a PWA cold launch reports that for a
-    moment), it left the flag false the whole time, so every later
-    noteConnection(true) hit the early return and the app showed "Offline"
-    for the rest of the session on a working connection.
-    """
+    """An early return left a banner raised by navigator.onLine alone stuck up."""
     body = _function_body(CORE_JS.read_text(), "noteConnection")
     # Comments explain the bug this guards, so they mention it by name.
     body = "\n".join(
@@ -1798,12 +1239,7 @@ def test_the_banner_is_re_derived_on_every_connection_report() -> None:
 
 
 def test_the_connection_probe_is_never_answered_from_the_cache() -> None:
-    """core.js polls /health to find out whether the connection is back. The
-    service worker caches every same-origin GET it is not told to leave
-    alone, and a probe answered out of the cache can only ever say "online" —
-    which pins the banner *down* while the app is offline, the exact
-    opposite failure of the one the probe exists to fix.
-    """
+    """A cached /health can only say "online", pinning the banner down while offline."""
     core = CORE_JS.read_text()
     worker = (JS_DIR / "sw.js").read_text()
 
@@ -1816,16 +1252,10 @@ def test_the_connection_probe_is_never_answered_from_the_cache() -> None:
 
 
 def test_a_hand_made_playlist_is_queued_by_id_not_by_kind() -> None:
-    """The pinned three are a fixed vocabulary and *are* the path
-    (/content/queue/playlist/favorites). A hand-made list is a row, so it has
-    its own route keyed by id — falling through to the pinned one would ask
-    for a playlist called "user-playlist" and get a 404, leaving "Play all"
-    with an empty queue and no error anyone can see.
-    """
+    """A hand-made list has its own id-keyed route; the pinned route would 404."""
     source = (JS_DIR / "home" / "queue.js").read_text()
 
-    # queueUrl is module-private, so it is sliced rather than read through
-    # _function_body (which looks for an export).
+    # queueUrl is module-private, so it is sliced rather than read through _function_body.
     body = source[source.index("function queueUrl(") :]
     body = body[: body.index("\n}") + 2]
     assert "/content/queue/user-playlist/${source.id}" in body, (
@@ -1835,11 +1265,7 @@ def test_a_hand_made_playlist_is_queued_by_id_not_by_kind() -> None:
 
 
 def test_a_hand_made_playlist_carries_its_id_in_the_detail_url() -> None:
-    """detailUrl builds /partials/detail/{kind}/{id} for kinds with an id and
-    /partials/detail/playlist/{kind} for those without. Left out of hasId, a
-    user playlist takes the second form and asks for a pinned playlist called
-    "user-playlist".
-    """
+    """Without hasId, a user playlist would ask for a pinned playlist called "user-playlist"."""
     source = (JS_DIR / "home" / "detail.js").read_text()
 
     assert 'kind === "user-playlist"' in source, (
@@ -1855,11 +1281,7 @@ def test_a_hand_made_playlist_carries_its_id_in_the_detail_url() -> None:
 
 
 def test_the_playlist_module_does_not_import_the_panel_it_talks_to() -> None:
-    """home/detail.js imports playlists.js for its two event names, so an
-    import the other way is a cycle — which is exactly why removing a track
-    and deleting a list are announced as events rather than calling openDetail
-    and closeDetail directly.
-    """
+    """home/detail.js imports playlists.js, so this direction would be a cycle."""
     source = (JS_DIR / "home" / "playlists.js").read_text()
 
     assert "./detail.js" not in source, (
@@ -1871,12 +1293,7 @@ def test_the_playlist_module_does_not_import_the_panel_it_talks_to() -> None:
 
 
 def test_a_library_card_with_nothing_to_open_is_not_a_navigation() -> None:
-    """Library's grid delegates every .channel-card click to openDetail. The
-    "New playlist" tile wears that class for its shape and carries no
-    data-detail-kind, so an unguarded handler called openDetail(undefined) —
-    which swapped an empty detail panel in over Library and left every tab
-    panel at display: none behind it, with the tile itself measuring 0x0.
-    """
+    """The "New playlist" tile has .channel-card but no data-detail-kind."""
     source = (JS_DIR / "home" / "library.js").read_text()
 
     assert "card?.dataset.detailKind" in source, (
@@ -1886,21 +1303,7 @@ def test_a_library_card_with_nothing_to_open_is_not_a_navigation() -> None:
 
 
 def test_a_superseded_prefetch_stops_pulling_the_track_down() -> None:
-    """A prefetch nobody is going to read must not keep using the connection.
-
-    The prefetch downloads the whole of the next track. When the handoff
-    arrives before those bytes do, openPlayer reads a null objectUrl, hands
-    the element the stream URL instead, and drops the entry — but the fetch
-    behind it used to run on to completion, and its Blob was revoked on
-    arrival. So on every prefetch miss the page spent the buffer-up pulling
-    down a second full copy of the exact file the <audio> element had just
-    started fetching for itself.
-
-    Measured on a real device on 2026-08-27: five range requests from the
-    element over six seconds, two concurrent full-file transfers of the same
-    track beside them, and `playback-stalled` at readyState 0 — the track
-    sitting at 0:00.
-    """
+    """A superseded prefetch must be aborted, not left downloading a second copy of the track."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
     assert "let upcomingAbort = null;" in source
@@ -1909,8 +1312,7 @@ def test_a_superseded_prefetch_stops_pulling_the_track_down() -> None:
         "nothing can call it off once it has been superseded"
     )
 
-    # Both places that supersede a prefetch: the handoff taking (or missing)
-    # it, and the queue naming a different successor.
+    # Both places that supersede a prefetch: the handoff, and the queue naming a different successor.
     handoff = source[source.index("export async function openPlayer") : source.index("async function cacheUpcoming(")]
     assert "abortUpcomingFetch();" in handoff, (
         "openPlayer drops upcomingTrack without stopping the transfer behind "
@@ -1922,10 +1324,7 @@ def test_a_superseded_prefetch_stops_pulling_the_track_down() -> None:
         "tracks can be in flight at once"
     )
 
-    # The subtle half. An abort rejects the fetch, and by the time that
-    # rejection reaches the finally the *next* prefetch has usually published
-    # its controller — clearing unconditionally strands it, which leaves the
-    # transfer that is actually running impossible to stop.
+    # Clear only its own controller: by the time the abort rejects, the next prefetch may have published one.
     audio = source[source.index("async function cacheUpcomingAudio(") :]
     assert "if (upcomingAbort === controller) upcomingAbort = null;" in audio, (
         "cacheUpcomingAudio clears upcomingAbort without checking it is still "
@@ -1934,23 +1333,11 @@ def test_a_superseded_prefetch_stops_pulling_the_track_down() -> None:
 
 
 def test_the_device_sync_gives_way_to_a_track_that_is_still_buffering() -> None:
-    """The offline sync must not be what stops a track from starting.
-
-    It is scheduled by a fragment refresh; a fragment refresh is what happens
-    when you play something; and the one track missing from the device at
-    that moment is the one the server has just downloaded for you — the one
-    playing. So the top-up reliably fetched the current track's whole file
-    over the network, eight seconds in, while the element was still buffering
-    those same bytes.
-
-    Two things hold it off. It will not *start* a save while the player is
-    trying to play and has not buffered enough to survive it, and it drops
-    one already in flight the moment the element says it has run out.
-    """
+    """The offline sync must not start or keep a save while the player is still buffering."""
     source = (JS_DIR / "home" / "device.js").read_text()
 
     check = source[
-        source.index("function playbackNeedsTheConnection() {") : source.index("// One sync at a time.")
+        source.index("function playbackNeedsTheConnection() {") : source.index("let syncing = false;")
     ]
     assert "audio.paused" in check and "HAVE_FUTURE_DATA" in check, (
         "the gate no longer asks whether the element is starving — anything "
@@ -1978,18 +1365,7 @@ def test_the_device_sync_gives_way_to_a_track_that_is_still_buffering() -> None:
 
 
 def test_a_prefetched_track_is_kept_rather_than_fetched_a_second_time() -> None:
-    """With offline playback on, the prefetch already holds what the sync
-    would go and get.
-
-    Both pull the same file over the same connection, and the sync's pass is
-    scheduled by the fragment refresh that playing the track triggers — so
-    the second transfer landed squarely on top of the first. Storing the
-    Blob the prefetch is holding removes it entirely.
-
-    The metadata has to be read *before* the transfer: by the time the bytes
-    land, upcomingTrack may name a different song, and a record saved under
-    the wrong title is invisible to every listing that could delete it.
-    """
+    """The sync stores the prefetch's Blob rather than refetching; metadata is read before the transfer."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
     body = source[source.index("async function cacheUpcomingAudio(") :]
@@ -2005,8 +1381,7 @@ def test_a_prefetched_track_is_kept_rather_than_fetched_a_second_time() -> None:
         "keeping every track played is what the switch is for, not the default"
     )
 
-    # It must not become something the handoff waits on: a full device would
-    # otherwise cost the listener a track that is already in the page.
+    # Not awaited by the handoff: a full device must not cost the listener a track.
     assert "storeTrack(id, blob, {" in body and "await storeTrack" not in body, (
         "the device write is awaited into the prefetch's path, where a slow "
         "or failing IndexedDB delays the handoff it exists to make instant"
@@ -2014,19 +1389,7 @@ def test_a_prefetched_track_is_kept_rather_than_fetched_a_second_time() -> None:
 
 
 def test_the_prefetch_follows_its_download_on_the_shared_poll_ladder() -> None:
-    """Both status polls in this app watch the same thing — a yt-dlp run that
-    takes two to three seconds — so they have no business using different
-    cadences.
-
-    player.js measured this and moved to an elapsed-time ladder (200ms for the
-    first four seconds, then 500ms, then 2s), because a coarse grid means the
-    file is on the server's disk and the client simply has not asked yet. The
-    prefetch never got that fix and stayed on a flat 1.5s. On a real device on
-    2026-08-27 that cost 0.95s, 0.99s and 1.69s of dead air on three
-    consecutive tracks, against 0.09s for the one track of the same session
-    that came through player.js's own poll — and one of the three then missed
-    its handoff by 1.4s.
-    """
+    """The prefetch uses player.js's elapsed-time poll ladder rather than a flat interval."""
     overlay = (JS_DIR / "home" / "overlay.js").read_text()
     player = (JS_DIR / "player.js").read_text()
 
@@ -2039,8 +1402,7 @@ def test_the_prefetch_follows_its_download_on_the_shared_poll_ladder() -> None:
         "the prefetch is back on a fixed poll interval — the exact arrangement "
         "player.js's own comment says it measured and abandoned"
     )
-    # Elapsed-driven rather than counted, for the reason player.js gives: a
-    # slow response must not shift the schedule out from under the window.
+    # Elapsed-driven, so a slow response doesn't shift the schedule.
     assert "UPCOMING_POLL_BUDGET_MS" in body and "attempt < UPCOMING_POLL_LIMIT" not in body, (
         "the poll is bounded by a step count again, so a variable delay changes "
         "how long it watches for rather than how often it asks"
@@ -2048,26 +1410,13 @@ def test_the_prefetch_follows_its_download_on_the_shared_poll_ladder() -> None:
 
 
 def test_the_prefetch_asks_for_the_download_and_nothing_else() -> None:
-    """The queue's one-track-ahead prefetch used to make three serial requests
-    before yt-dlp could start: fetch the row, POST the song swap, POST the
-    download. The order mattered and was this module's to keep — the download
-    fetches whatever video_id the row names at the time — which is exactly the
-    kind of ordering a server can guarantee instead.
-
-    Measured on a device on 2026-08-27, per track: ~0.5s for the metadata and
-    0.62-3.42s for the swap, ahead of a 2.0-2.5s download. Folding the swap
-    into the download (see routers/content.py's start_download) takes two legs
-    off that chain, and its answer carries the row the server ended up with.
-    """
+    """The download request swaps server-side and returns the row, replacing three serial requests."""
     overlay = (JS_DIR / "home" / "overlay.js").read_text()
     body = overlay[overlay.index("async function cacheUpcoming(") : overlay.index("async function cacheUpcomingAudio(")]
 
     assert "songVersionOf" not in body, "the prefetch is making its own swap request again"
 
-    # The download goes first and is the only request on the common path. The
-    # row fetch survives as the fallback for the answer that carries no row — a
-    # 409 from another tab already downloading it — and being *after* the
-    # download is what keeps it off the path that matters.
+    # The row fetch only survives as the fallback for a 409 without a row, after the download.
     posted = body.index('await api(`/content/${id}/download`, { method: "POST" })')
     assert posted < body.index("api(`/content/${id}`)"), (
         "the prefetch is fetching the row ahead of the download again — the "
@@ -2078,11 +1427,7 @@ def test_the_prefetch_asks_for_the_download_and_nothing_else() -> None:
         "the fallback fetch is the only path left and nothing was saved"
     )
 
-    # The row published for the handoff has to be the one the swap produced.
-    # Publishing the pre-swap row early would put the music video's title and
-    # its 16:9 still on screen for a track about to play the song — which is
-    # also why the fallback re-reads the row rather than reusing whatever the
-    # caller had: by then the swap has landed on the server either way.
+    # The published row must be the post-swap one, never the music video's.
     assert "data = { ...download.data.content };" in body, (
         "upcomingTrack is being built from something other than the download's "
         "own answer, which is the only post-swap row this path ever sees"
@@ -2091,8 +1436,7 @@ def test_the_prefetch_asks_for_the_download_and_nothing_else() -> None:
     assert body.index("data = { ...download.data.content };") < published
     assert posted < published, "the row is published before the swap that produced it has landed"
 
-    # The cold open keeps its separate call, and must: it renders from the row
-    # before anything asks for a download.
+    # The cold open renders from the row before any download, so it keeps its separate call.
     assert "await songVersionOf(data);" in overlay, (
         "the cold open lost its swap, so a first play shows the music video's "
         "title and cover under the song it actually plays"
@@ -2100,21 +1444,7 @@ def test_the_prefetch_asks_for_the_download_and_nothing_else() -> None:
 
 
 def test_the_next_track_is_sent_for_when_this_one_opens() -> None:
-    """A stalled element emits no timeupdate, so hanging the prefetch off
-    timeupdate alone made every stall cost the *next* track as well.
-
-    Measured on a device on 2026-08-27. A track that started normally sent for
-    its successor 1.0s and 1.8s in; the two tracks that stalled sent for
-    theirs 7.4s and 7.9s in — and both of those successors then stalled in
-    turn, one of them still `downloading` when the handoff came for it. Three
-    consecutive misses at the end of a session that began with three
-    consecutive hits.
-
-    So the open is the trigger. The other two registrations stay as the
-    catch-ups for an open that had nothing to send for yet: "Play all" builds
-    its queue after opening the first track, so that open finds peekNextId()
-    null and the queue's own event is what starts it.
-    """
+    """A stalled element emits no timeupdate, so the open itself sends for the next track."""
     source = (JS_DIR / "home" / "overlay.js").read_text()
 
     opened = source.index("export async function openPlayer(")
@@ -2124,8 +1454,7 @@ def test_the_next_track_is_sent_for_when_this_one_opens() -> None:
         "opening a track no longer sends for the next one, so a track that "
         "stalls holds up its successor's preparation too"
     )
-    # Before the current track's own preparation, which is the whole point:
-    # this track may be about to spend seconds downloading.
+    # Before the current track's own preparation, which may take seconds.
     assert body.index("prefetchUpcoming();") < body.index("prepareAudio("), (
         "the next track is sent for only after this one's own download has "
         "been arranged, which is the wait it exists to run alongside"

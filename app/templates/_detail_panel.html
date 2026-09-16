@@ -1,21 +1,4 @@
-{# One track list, four sources — swapped into index.html's #detail-panel by
-   home/detail.js:
-
-     GET /partials/detail/playlist/{kind}    a pinned playlist
-     GET /partials/detail/playlist/{kind}    a pinned playlist    (artist None)
-     GET /partials/detail/yt-playlist/{id}   a YouTube playlist   (remote)
-     GET /partials/detail/yt-artist/{id}     a YouTube Music artist (remote)
-
-   The last three are Explore drilling into something the library doesn't have
-   yet (see services/remote_detail.py). They deliberately render through this
-   same template rather than getting a page of their own — the only real
-   differences are that their rows have no Content row behind them yet (so
-   `_remote_track_row.html` instead of `_content_row.html`), that the hero
-   offers Follow instead of Unfollow, and that there's nothing to paginate.
-
-   No <main class="layout"> wrapper here since #tab-detail already sits
-   inside index.html's one shared <main class="layout">.
-#}
+{# One track list for pinned playlists, artists and remote YouTube lists. Already inside index.html's <main class="layout">. #}
 <button type="button" class="back-link" id="detail-back-btn">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-arrow-left" /></svg>
   {{ back_label | default("Library") }}
@@ -39,10 +22,6 @@
 {% include "_pagination.html" %}
 
 {% else %}
-{# An empty playlist is the one moment the app can explain how that playlist
-   fills up, so it says what belongs here, how to put something in it, and
-   offers the way out. A remote list (services/remote_detail.py) has nothing
-   to explain and passes only the message. #}
 <div class="empty-state">
   <p class="empty-state-title">{{ empty_message }}</p>
   {% if empty_help %}<p class="empty-state-help">{{ empty_help }}</p>{% endif %}

@@ -1,11 +1,4 @@
-"""POST /debug/playback (app/routers/debug.py) — a write-only breadcrumb sink.
-
-Two absences this file exists to close: `await request.json()` reads the
-whole body into memory with no ceiling regardless of what Content-Length
-claims, and `logger.info("playback: %s", event)` put a client-controlled
-string straight into the log with no defense against a newline or an ANSI
-escape sequence forging a second, fake log line.
-"""
+"""POST /debug/playback: body size cap and log-injection defences."""
 
 import json
 import logging
@@ -38,8 +31,7 @@ def test_a_single_object_is_accepted_same_as_a_one_item_list(client, caplog):
 
 
 def test_malformed_json_is_dropped_not_raised(client):
-    """sendBeacon can neither see nor act on an error response, so a bad body
-    has to fail silently rather than surface a 400 nothing will read."""
+    """sendBeacon can't act on an error response, so a bad body fails silently."""
     res = client.post(
         "/debug/playback", content=b"not json", headers={"Content-Type": "application/json"}
     )
@@ -57,8 +49,7 @@ def test_more_than_the_cap_is_truncated_not_rejected(client, caplog):
 
 
 def test_an_oversized_body_is_dropped_before_it_is_parsed(client, caplog):
-    """The finding: request.json() has no ceiling of its own. A body over the
-    cap must never reach json.loads, let alone the log."""
+    """request.json() has no size ceiling of its own."""
     huge = json.dumps([{"event": "x" * (MAX_BODY_BYTES + 1024)}]).encode()
     assert len(huge) > MAX_BODY_BYTES
 
@@ -72,9 +63,6 @@ def test_an_oversized_body_is_dropped_before_it_is_parsed(client, caplog):
 
 
 def test_a_newline_in_an_event_cannot_forge_a_second_log_line(client, caplog):
-    """The log-injection finding: without sanitizing, a string field holding
-    "\\nERROR: fake incident" would render in the log as if it were its own,
-    unrelated line."""
     payload = [{"event": "play-rejected", "detail": "line one\nERROR: totally fake incident"}]
     with caplog.at_level(logging.INFO, logger="app.routers.debug"):
         res = client.post("/debug/playback", json=payload)

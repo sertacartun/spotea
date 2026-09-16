@@ -1,13 +1,4 @@
-"""Counts that have to agree with the list they describe (app/page_context.py).
-
-Several call sites used to hand-roll their own `func.count(Content.id))`
-query instead of going through content_query's shared filter logic — each one
-drifted from the list next to it the moment is_preview needed excluding.
-Measured live on the real library: a tile read 156 while its own page listed
-154 (Travis Scott), 365/362 (Young Thug), 465/463 (Future). These pin the
-fix: an is_preview=True row (an Explore result never favorited/saved) must
-not inflate a count whose matching list excludes it.
-"""
+"""Counts must agree with the list they describe: previews never inflate them."""
 
 import json
 
@@ -46,9 +37,7 @@ def test_count_content_excludes_previews_like_the_page_it_describes(db_session):
 
 
 def test_count_content_played_filter_keeps_previews_like_the_page_it_describes(db_session):
-    """The one exception: a preview that's actually been listened to still
-    belongs on Recently Played (see content_query._content_query's __played__
-    carve-out) — the count has to keep matching that, not just the exclusion."""
+    """A preview that has been played still belongs on Recently Played, so its count keeps it."""
     artist = _artist(db_session, "https://example.com/count-played-preview")
     db_session.add(_content(artist, "playedpreview01", is_preview=True, last_played_at=utcnow()))
     db_session.commit()
@@ -57,10 +46,6 @@ def test_count_content_played_filter_keeps_previews_like_the_page_it_describes(d
 
 
 def test_the_library_tile_count_excludes_previews(db_session):
-    """The tile says how many of this artist's tracks the library actually
-    holds. A preview — an Explore result never favorited or saved — is not
-    one of them, and counting it is what made a tile read 156 next to a list
-    of 154 (measured live on Travis Scott)."""
     artist = _artist(db_session, "https://example.com/library-tile-count")
     db_session.add_all(
         [
@@ -74,11 +59,7 @@ def test_the_library_tile_count_excludes_previews(db_session):
 
 
 def test_the_library_tile_falls_back_to_the_release_count(db_session):
-    """artist_track_counts reads 0 for almost every followed artist most of
-    the time — following only starts recording releases from here on (see
-    services/artist_sync.py), it doesn't import the back catalogue. The
-    release snapshot every followed artist already carries is what the
-    template falls back to instead of a card that always says "0"."""
+    """Following doesn't import the back catalogue, so the tile falls back to the release snapshot."""
     artist = _artist(
         db_session,
         "https://example.com/release-count-fallback",
@@ -92,18 +73,12 @@ def test_the_library_tile_falls_back_to_the_release_count(db_session):
 
 
 def test_the_library_tile_release_count_survives_no_snapshot_yet(db_session):
-    """A freshly-followed artist whose first sync hasn't landed a snapshot
-    yet — distinct from a malformed one below, and from the "still syncing"
-    card state, which page_context reads off a separate in-memory registry
-    rather than this column."""
     artist = _artist(db_session, "https://example.com/no-snapshot-yet")
 
     assert library_context(db_session, USER_ID)["artist_release_counts"][artist.id] == 0
 
 
 def test_the_library_tile_release_count_survives_a_malformed_snapshot(db_session):
-    """Defensive: nothing writes anything but a JSON list here, but a card
-    render is the wrong place to 500 over it either way."""
     artist = _artist(
         db_session, "https://example.com/bad-snapshot", release_snapshot="not json"
     )
@@ -112,10 +87,6 @@ def test_the_library_tile_release_count_survives_a_malformed_snapshot(db_session
 
 
 def test_favorites_playlist_count_excludes_previews(db_session):
-    """Favoriting/saving already clears is_preview as a side effect in
-    practice, so this is a defensive guard against that invariant ever
-    breaking rather than a bug reproduction — but the count and the list it
-    describes still have to agree either way."""
     artist = _artist(db_session, "https://example.com/favorites-preview-count")
     db_session.add_all(
         [
@@ -131,11 +102,7 @@ def test_favorites_playlist_count_excludes_previews(db_session):
     assert context["video_count"] == len(context["content"])
 
 
-
-
-# --------------------------------------------------------------------------
 # Home's "New releases" shelf, read off Artist.release_snapshot.
-# --------------------------------------------------------------------------
 
 
 THIS_YEAR = str(utcnow().year)
@@ -166,8 +133,6 @@ def _followed_with_releases(db_session, name, *entries, user_id=USER_ID):
 
 
 def test_the_shelf_reads_releases_off_the_snapshot(db_session):
-    """No network: the sync already stored these — see
-    services/artist_sync.snapshot_releases."""
     _followed_with_releases(db_session, "Alpha", _release_entry("MPREb_a1", "Alpha Single"))
 
     shelf = home_context(db_session, USER_ID)["home_new_releases"]
@@ -177,10 +142,7 @@ def test_the_shelf_reads_releases_off_the_snapshot(db_session):
 
 
 def test_only_this_years_releases_are_shown(db_session):
-    """The year is the only date YouTube Music publishes anywhere — measured
-    on both surfaces that could carry one — so "new" can mean nothing finer.
-    Without the filter the pool is each artist's last ~20 releases going back
-    a decade."""
+    """YouTube Music only publishes a release year, so "new" means this year."""
     _followed_with_releases(
         db_session,
         "Alpha",
@@ -200,8 +162,6 @@ def test_a_release_with_no_year_is_not_guessed_at(db_session):
 
 
 def test_one_prolific_artist_does_not_fill_the_shelf(db_session):
-    """Same lesson as Explore's shelves — an artist with a long catalogue
-    would otherwise take every slot."""
     _followed_with_releases(
         db_session, "Alpha", *[_release_entry(f"MPREb_a{i}", f"Alpha {i}") for i in range(20)]
     )
@@ -223,8 +183,7 @@ def test_an_unfollowed_artists_releases_are_not_shown(db_session):
 
 
 def test_an_old_bare_id_snapshot_renders_nothing_rather_than_crashing(db_session):
-    """It has no title to show. One refresh rewrites it in full — see
-    test_artists.py's snapshot tests."""
+    """An old bare-id snapshot has no title to show."""
     artist = _followed_with_releases(db_session, "Alpha")
     artist.release_snapshot = '["MPREb_a1", "MPREb_a2"]'
     db_session.commit()

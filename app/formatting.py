@@ -5,10 +5,6 @@ _WHITESPACE_RE = re.compile(r"\s+")
 
 
 def safe_filename(name: str) -> str:
-    """A title as a filesystem-safe base filename (no extension) — strips
-    characters illegal on Windows/Linux/macOS, so exported downloads can use
-    the same title shown on screen instead of the video ID files are stored
-    under on disk."""
     cleaned = _UNSAFE_FILENAME_CHARS_RE.sub("", name)
     cleaned = _WHITESPACE_RE.sub(" ", cleaned).strip(" .")
     return cleaned[:150] or "download"

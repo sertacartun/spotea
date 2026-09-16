@@ -23,16 +23,10 @@ from app.youtube.urls import VIDEO_ID_RE
 
 router = APIRouter(prefix="/content", tags=["content"], dependencies=[Depends(require_login)])
 
-# In-memory only: fine for a single-process app, and progress ticks too
-# frequently to justify a DB write on every hook call. Entries are dropped
-# as soon as the download settles (see _run_download's finally), so the
-# registry's expiry never actually comes into play here — it's the same
-# type the backfill/import trackers use (see app/progress.py) rather than a
-# fourth hand-rolled dict.
+# In-memory: progress ticks too often to justify a DB write per hook call.
 _download_progress: ProgressRegistry[int, tuple[str, int | None]] = ProgressRegistry()
 
-# Keyed by extension rather than the configured AUDIO_FORMAT so files
-# downloaded under a previous format setting still get a correct Content-Type.
+# Keyed by extension, not AUDIO_FORMAT, so files from a previous format setting still get the right type.
 AUDIO_MEDIA_TYPES = {
     ".mp3": "audio/mpeg",
     ".m4a": "audio/mp4",
@@ -51,17 +45,10 @@ def _get_content_or_404(db: Session, content_id: int, user_id: int) -> Content:
 
 
 def _set_download_outcome(content_id: int, **fields) -> None:
-    """Write a finished download's result on a session of this task's own.
+    """Write a finished download's result on the task's own session.
 
-    Deliberately NOT the request's `Depends(get_db)` session: since FastAPI
-    0.106 a yield-dependency's exit code (get_db's `db.close()`) runs before
-    the response is sent, i.e. before any BackgroundTask starts — so the
-    session handed to a background task is already closed. SQLAlchemy
-    happens to re-acquire a connection on next use, which is the only reason
-    passing it here ever appeared to work; nothing guarantees that keeps
-    being true. Opening a session inside the task is also what makes it safe
-    to run for minutes on a worker thread, independent of the request that
-    scheduled it."""
+    The request's get_db session is already closed by the time a BackgroundTask runs.
+    """
     with SessionLocal() as db:
         content = db.get(Content, content_id)
         if content is None:
@@ -80,8 +67,7 @@ def _run_download(content_id: int, video_id: str, quality: str, user_id: int) ->
             video_id, quality=quality, on_progress=on_progress, user_id=user_id
         )
     except VideoUnavailableError as exc:
-        # Settled, not provisional — start_download won't attempt it again
-        # and the player skips it without waiting. See Content.is_unavailable.
+        # Settled: start_download won't retry it and the player skips it without waiting.
         _set_download_outcome(
             content_id, status="error", error_message=str(exc)[:1000], is_unavailable=True
         )
@@ -92,11 +78,7 @@ def _run_download(content_id: int, video_id: str, quality: str, user_id: int) ->
     finally:
         _download_progress.discard(content_id)
 
-    # Measured here, once, rather than on every render that wants a storage
-    # total — see Content.file_size_bytes. The file is guaranteed to exist
-    # at this point (download_audio raises otherwise), but a stat failure
-    # still shouldn't lose the download itself, so it falls back to
-    # "unmeasured" and lets collect_usage's lazy backfill retry later.
+        # A stat failure shouldn't lose the download; collect_usage backfills the size later.
     try:
         size_bytes = file_path.stat().st_size
     except OSError:
@@ -108,24 +90,18 @@ def _run_download(content_id: int, video_id: str, quality: str, user_id: int) ->
         file_path=str(file_path),
         file_size_bytes=size_bytes,
         downloaded_at=utcnow(),
-        # A row can only reach here after being playable, so whatever made it
-        # unavailable before (a licence that has since landed in this
-        # country, a re-upload) no longer holds.
+        # It has been playable, so whatever made it unavailable no longer holds.
         is_unavailable=False,
     )
 
 
-# Both registered ahead of /{content_id} for the same reason
-# /recently-played is (see its comment below) — three path segments can't
-# collide with a one-segment route, but keeping every literal-prefixed route
-# above the catch-all is what stops the next one from being subtly shadowed.
+# Literal-prefixed routes stay above the /{content_id} catch-all so they aren't shadowed.
 @router.get("/queue/playlist/{kind}", response_model=QueueOut)
 def playlist_queue(
     kind: str,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> QueueOut:
-    """Same, for one of the four pinned virtual playlists."""
     filter_value = playlist_filter(kind)
     if filter_value is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown playlist")
@@ -138,13 +114,7 @@ def user_playlist_queue(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> QueueOut:
-    """Same, for a hand-made playlist.
-
-    Its own route rather than a `kind` on the one above, because a hand-made
-    list is not a filter: playlist_filter can only answer for the three pinned
-    kinds, and the order here is stored rather than derived (see
-    page_context.user_playlist_ids).
-    """
+    """Separate from /queue/playlist: a hand-made list's order is stored, not a filter."""
     ids = user_playlist_ids(db, user.id, playlist_id)
     if ids is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such playlist")
@@ -158,10 +128,7 @@ def get_content(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ContentOut:
-    """Single-item fetch — used by the Home player overlay (see home/overlay.js's
-    openPlayer) to populate itself for a track without a full page
-    navigation. joinedload's needed here (unlike _get_content_or_404, whose
-    other callers never touch .artist) since channel_title comes from it."""
+    """joinedload because channel_title comes from .artist."""
     content = (
         db.query(Content)
         .options(joinedload(Content.artist))
@@ -171,8 +138,6 @@ def get_content(
     if content is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content not found")
 
-    # Caches for next time only, same as pages.py's _queue_thumbnail_caching
-    # — this response still carries whatever thumbnail_url is on file now.
     if needs_thumbnail_caching(content.thumbnail_url):
         background_tasks.add_task(cache_thumbnail, content.video_id, content.thumbnail_url)
 
@@ -180,18 +145,9 @@ def get_content(
 
 
 def _credited_artist_id(db: Session, content: Content, song, user_id: int) -> int | None:
-    """The artist a swapped-in song should hang off, or None to keep the one
-    the row already has.
+    """The real artist a swapped-in song should hang off, or None to keep the current one.
 
-    A music video uploaded by a label arrives attributed to the *label* —
-    "HYBE LABELS" owns the channel the chart entry came from, so that is what
-    the row records, and the player's artist line links there rather than to
-    KATSEYE. The song version names the real artist, and the swap is the
-    moment we find out who that is.
-
-    Only ever moves a row off a **placeholder**. An artist the user actually
-    followed is their own decision about where this track belongs, and
-    re-pointing it would take the track off that artist's Library page.
+    Only moves a row off a placeholder (e.g. a label channel), never off an artist the user followed.
     """
     artist = content.artist
     if not song.channel_id or artist is None or artist.followed:
@@ -207,24 +163,10 @@ def swap_in_song_version(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ContentOut:
-    """Turns a music-video row into the song it is a video of.
+    """Turn a music-video row into its song version, in place.
 
-    Explore's playlists are video playlists almost end to end (see
-    music.find_song_version for the measurements), and a video entry is the
-    worse copy of the track in every way that shows: a 16:9 still where the
-    rest of the app draws square album art, no lyrics, and a recording with
-    an intro on it. The song version has all three.
-
-    Updated **in place** rather than inserted alongside. The client is
-    holding this row's id — it is in the queue, it is what the player is
-    opening — so a second row would mean the id being played and the id in
-    the queue disagreeing, and queue.js drops a queue the playing track
-    isn't in. Rewriting the row keeps every id valid and fixes the cover
-    everywhere it is already rendered, not just in the player.
-
-    Answers with the row either way: no match, an unresolvable title, or a
-    row that isn't a video at all are all "nothing to do here", not errors.
-    The caller plays what it gets back.
+    Updated in place because the client holds this id in its queue; a new row would
+    make queue.js drop the queue. No match is not an error: the row is returned as is.
     """
     content = (
         db.query(Content)
@@ -240,20 +182,8 @@ def swap_in_song_version(
 
 
 def _apply_song_version(db: Session, content: Content, user_id: int) -> None:
-    """Rewrites `content` into the song it is a music video of, in place.
-
-    Split out of the endpoint above so POST /{id}/download can do it too. The
-    prefetch used to call both in turn — one round trip to swap, another to
-    start the fetch — and the ordering between them was the client's to get
-    right. Now the download owns it: the swap happens on the way in, so the
-    file that comes down is the one the row ends up naming, and the client's
-    three-call chain (metadata, swap, download) loses a leg. See
-    home/overlay.js's cacheUpcoming.
-    """
     if not is_music_video(content) or content.status != "not_downloaded":
-        # Already the song, or already downloaded — rewriting video_id under
-        # a file that has been fetched would orphan it and leave the row
-        # pointing at audio it no longer names.
+        # Rewriting video_id under an already-downloaded file would orphan it.
         return
 
     song = find_song_version(
@@ -264,10 +194,7 @@ def _apply_song_version(db: Session, content: Content, user_id: int) -> None:
     if song is None:
         return
 
-    # The unique constraint is on (user_id, video_id): this same song may
-    # already be in the library from a search. Left alone in that case —
-    # swapping would collide, and handing back the *other* row's id would
-    # take the playing track out of the queue it came from.
+        # Unique on (user_id, video_id): if the song is already a row, leave this one alone.
     taken = (
         db.query(Content.id)
         .filter(Content.user_id == user_id, Content.video_id == song.video_id)
@@ -276,33 +203,20 @@ def _apply_song_version(db: Session, content: Content, user_id: int) -> None:
     if taken is not None:
         return
 
-    # Resolved before anything is written: get_or_create_placeholder commits,
-    # and calling it mid-mutation would land half of this swap.
+    # Resolved before any mutation: get_or_create_placeholder commits.
     artist_id = _credited_artist_id(db, content, song, user_id)
 
-    # Recorded before it's overwritten. The playlist this row came from still
-    # lists the video's id, and POST /explore/tracks/batch looks rows up by
-    # exactly that — so without this the next tap on the same row finds
-    # nothing, creates a second row, and plays the music video's audio from
-    # the start. See SwappedVideo for the measurements.
+    # The source playlist still lists the video id, which /explore/tracks/batch looks up;
+    # without this record the next tap would create a duplicate row.
     db.add(SwappedVideo(user_id=user_id, video_id=content.video_id, content_id=content.id))
 
     if artist_id is not None:
         content.artist_id = artist_id
     content.video_id = song.video_id
-    # The song's own title, not the uploader's. A chart entry arrives named
-    # for the video file ("KATSEYE (캣츠아이) 'Hootie Frutti' Official MV"),
-    # and once the row *is* the song, leaving that in place means every list
-    # in the app still announces a music video the player is no longer
-    # playing. Where the two already agree — which is most of a playlist —
-    # this writes the same string back.
+    # The song's own title: chart entries arrive named for the video file.
     content.title = song.title
     content.thumbnail_url = song.thumbnail_url
-    # The song's credit, for the same reason as its title: this row *is* the
-    # song now, and the video's row was named for whoever uploaded it. Written
-    # unconditionally, None included — a song credited to one artist has no
-    # credit of its own, and leaving a stale one from the video behind would
-    # be worse than falling back to the artist row.
+    # Written unconditionally, None included: a stale video credit is worse than falling back to the artist row.
     content.artist_credit = song.artist_credit
     if song.duration_seconds:
         content.duration_seconds = song.duration_seconds
@@ -310,19 +224,12 @@ def _apply_song_version(db: Session, content: Content, user_id: int) -> None:
     db.refresh(content)
 
 
-# Registered ahead of the /{content_id}/... routes below — a literal segment
-# placed after them would otherwise be swallowed by /{content_id} (Starlette
-# matches path structure first and only fails int conversion once the
-# request is already committed to that route), and no request would ever
-# reach this one.
+# Must be registered above /{content_id}/... routes, or /{content_id} swallows it.
 @router.delete("/recently-played")
 def clear_recently_played(
     user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> dict[str, int]:
-    # Deliberately leaves play_count alone — this clears the *history* shown
-    # on the Recently Played shelf, not the play-frequency signal play_count
-    # tracks (see models.py). Resetting both would make clearing your
-    # history also erase what you actually listen to a lot.
+    # Leaves play_count alone: clearing history must not erase the listen-frequency signal.
     cleared = (
         db.query(Content)
         .filter(Content.user_id == user.id, Content.last_played_at.isnot(None))
@@ -344,14 +251,7 @@ def start_download(
     if content.status == "downloading":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Already downloading")
 
-    # Already on disk — say so instead of fetching it a second time. The
-    # player never asks for a ready track (prepareAudio checks its own
-    # dataset first), but the queue's one-track-ahead prefetch
-    # (home/overlay.js) fires without knowing the next track's status, and
-    # re-downloading everything it looks at would be the opposite of what
-    # it's for. Still re-downloads when the row says ready but the file is
-    # gone (storage cleared out from under us), which is the one case where
-    # taking "ready" at face value would strand playback.
+    # The queue prefetch fires without knowing the status; re-download only if the file is gone.
     if content.status == "ready" and content.file_path and Path(content.file_path).exists():
         return StatusOut(
             id=content.id,
@@ -360,13 +260,8 @@ def start_download(
             content=ContentOut.from_content(content),
         )
 
-    # YouTube has already told us, on every client, that it won't serve this
-    # one (see Content.is_unavailable). Answering from the row costs nothing
-    # and keeps the queue's prefetch — which fires for whatever is next
-    # without knowing anything about it — from re-running the whole ladder
-    # against YouTube on every pass over a track that can't work. DELETE
-    # /content/{id} clears the flag, which is the way back if this ever
-    # becomes wrong.
+    # Answer from the row instead of re-running every client against YouTube;
+    # DELETE /content/{id} clears the flag.
     if content.is_unavailable:
         return StatusOut(
             id=content.id,
@@ -376,12 +271,7 @@ def start_download(
             content=ContentOut.from_content(content),
         )
 
-    # Before the id is validated and before the fetch is scheduled, so what
-    # comes down is the song rather than the music video it was listed as.
-    # This used to be the caller's job, in a separate request placed just so
-    # (see home/overlay.js's cacheUpcoming) — a whole round trip, on the one
-    # path where seconds are the entire point, to enforce an ordering the
-    # server can simply guarantee.
+    # Before the id check and scheduling, so the file fetched is the song, not the music video.
     _apply_song_version(db, content, user.id)
 
     if not VIDEO_ID_RE.match(content.video_id):
@@ -394,10 +284,7 @@ def start_download(
     background_tasks.add_task(
         _run_download, content.id, content.video_id, user.audio_quality, user.id
     )
-    # Was GET /{id}'s job, and moved here with the call the prefetch dropped
-    # (see get_content). This is the better place for it anyway: the swap
-    # above can have just replaced the thumbnail, and caching the one the row
-    # ends up with beats caching the music video's still it no longer uses.
+    # After the swap, so the thumbnail cached is the one the row ends up with.
     if needs_thumbnail_caching(content.thumbnail_url):
         background_tasks.add_task(cache_thumbnail, content.video_id, content.thumbnail_url)
 
@@ -431,8 +318,7 @@ def add_favorite(
 ) -> FavoriteOut:
     content = _get_content_or_404(db, content_id, user.id)
     content.is_favorite = True
-    # Favoriting an Explore preview is a strong enough "keep this" signal on
-    # its own to promote it out of preview status.
+    # Favoriting is a strong enough signal to promote an Explore preview.
     content.is_preview = False
     db.commit()
     return FavoriteOut(id=content.id, is_favorite=content.is_favorite)
@@ -452,13 +338,9 @@ def remove_favorite(
 def track_lyrics(
     content_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> LyricsOut:
-    """This track's timed lyrics, for the player panel's Lyrics tab.
+    """Timed lyrics for the Lyrics tab; `lines: null` means the track has none.
 
-    Only ever reached by opening that tab. Nothing calls this when a track
-    starts playing, because a cache miss costs two live YouTube requests and
-    most tracks turn out to have no lyrics — see services/lyrics.py.
-
-    `lines: null` is a normal answer ("this track has none"), not an error.
+    Only called when the tab opens: a cache miss costs two live YouTube requests.
     """
     content = _get_content_or_404(db, content_id, user.id)
     return LyricsOut(**lyrics_for(db, content.video_id))
@@ -471,21 +353,9 @@ def stream_content(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> FileResponse:
-    """Serves the audio file. Asking for it is no longer what records a play.
+    """Serve the audio file. Does not record a play: the prefetch requests this early.
 
-    It used to be, and the two really were the same event: the <audio>
-    element requested this the moment its src was assigned, so nothing else
-    had to say a track had started. That stopped being true when the player
-    began pulling the next track's bytes down while the current one is still
-    going (see home/overlay.js's cacheUpcoming). This route now fires a whole
-    track early, for a prefetch nobody may ever listen to, and then not at
-    all for the track actually being played — the element is handed bytes
-    that are already in the page. POST /{id}/played is the signal instead.
-
-    `?download=1` is the export link in _downloads.html rather than playback.
-    It is what puts a filename on the response, and a filename is what makes
-    it an attachment (Starlette derives Content-Disposition from it) — right
-    for something being saved to disk, wrong for something being played.
+    `?download=1` sets a filename, which makes Starlette send it as an attachment.
     """
     content = _get_content_or_404(db, content_id, user.id)
 
@@ -510,14 +380,9 @@ def record_played(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> None:
-    """Marks a track as played, at the moment the player actually starts it.
+    """Record a play when the player actually starts the track.
 
-    Split out of GET /{id}/stream, which can no longer answer the question —
-    see the note there. Called once per track start from home/overlay.js's
-    openPlayer, so `last_played_at` keeps meaning "the user started playing
-    this" rather than "some request touched the file", which is what
-    Recently Played, the played filter and ContentOut.is_played all read it
-    as (see content_query.py and page_context.py).
+    Not done in /stream, which fires for prefetches of tracks nobody may play.
     """
     content = _get_content_or_404(db, content_id, user.id)
     content.last_played_at = utcnow()
@@ -538,11 +403,7 @@ def delete_content(
     content.file_size_bytes = None
     content.error_message = None
     content.downloaded_at = None
-    # Removing a download is the app's only "start over on this track"
-    # action, so it doubles as the way to re-attempt one that was written off
-    # as unavailable — YouTube licensing does change, and a flag with no way
-    # back would make that permanent on our side even after it stopped being
-    # true on theirs.
+    # Removing a download is the only way to re-attempt a track written off as unavailable.
     content.is_unavailable = False
     db.commit()
 

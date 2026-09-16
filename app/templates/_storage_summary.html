@@ -1,6 +1,2 @@
-{#- The Settings "Storage used" line. Included from index.html's initial
-   render (usage: a full storage.StorageUsage, from downloads_context) and
-   from _fragment_storage_summary.html (usage: the cheaper
-   storage.UsageSummary, from storage_summary_context) — both duck-type the
-   same total_bytes/count pair, so one template covers both. -#}
+{#- `usage` is a StorageUsage or UsageSummary; both expose total_bytes/count. -#}
 {{ usage.total_bytes | filesize }} across {{ usage.count }} item{{ '' if usage.count == 1 else 's' }}
