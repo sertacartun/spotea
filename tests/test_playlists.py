@@ -1,11 +1,4 @@
-"""Hand-made playlists: the API, and the two places their rows can be
-orphaned from underneath them.
-
-Library's other three lists are filters over `content` (see
-page_context.PLAYLIST_KINDS) and so cannot be wrong about what they hold —
-they recompute it. These have rows, which is what makes ownership, ordering
-and cleanup worth pinning down.
-"""
+"""Hand-made playlists: the API, and cleanup of rows orphaned underneath them."""
 
 from app.models import Artist, Content, Playlist, PlaylistItem, User
 from app.page_context import user_playlist_detail_context, user_playlist_ids
@@ -53,9 +46,7 @@ def _second_user(db_session):
 def test_creating_and_listing(client):
     res = client.post("/playlists", json={"name": "  Road trip  "})
     assert res.status_code == 201
-    # Trimmed at the router — a name with edge whitespace would otherwise be
-    # a different name than the one the user believes they typed, and the
-    # duplicate check below would never catch its twin.
+    # Trimmed so the duplicate check catches an edge-whitespace twin.
     assert res.json()["name"] == "Road trip"
     assert res.json()["track_count"] == 0
 
@@ -96,8 +87,7 @@ def test_adding_the_same_track_twice_is_reported_not_duplicated(client, db_sessi
 
     client.post(f"/playlists/{playlist_id}/tracks", json={"content_id": track.id})
     res = client.post(f"/playlists/{playlist_id}/tracks", json={"content_id": track.id})
-    # 200 rather than 409: "it is in the list" is the outcome the press asked
-    # for either way, and only the wording of the confirmation differs.
+    # 200, not 409: the track being in the list is the outcome either way.
     assert res.status_code == 200
     assert res.json()["status"] == "duplicate"
     assert client.get("/playlists").json()[0]["track_count"] == 1
@@ -120,8 +110,7 @@ def test_a_removal_does_not_renumber_the_rest(client, db_session):
 
     client.delete(f"/playlists/{playlist_id}/tracks/{tracks[1].id}")
 
-    # The gap in `position` is deliberate — nothing reads the numbers, only
-    # their order — but a later append must not land on one already taken.
+    # Gaps in position are fine, but a later append must not reuse a taken one.
     remaining = user_playlist_ids(db_session, USER_ID, playlist_id)
     assert remaining == [tracks[0].id, tracks[2].id]
 
@@ -153,13 +142,7 @@ def test_deleting_a_playlist_keeps_the_songs(client, db_session):
 
 
 def test_purging_a_track_takes_it_out_of_every_playlist(client, db_session):
-    """Unfollowing an artist deletes their Content rows outright (see
-    storage.purge_content). SQLite does not enforce the foreign key unless
-    PRAGMA foreign_keys is on, and the ORM cascade runs from Playlist down
-    rather than from Content sideways — so without an explicit sweep the row
-    goes and its playlist_items stay, pointing at nothing. The list then
-    renders a gap and "Play all" queues an id that 404s.
-    """
+    """Content rows are deleted outright and SQLite doesn't cascade sideways, so items need a sweep."""
     track = _track(db_session, "eee")
     playlist_id = client.post("/playlists", json={"name": "Holder"}).json()["id"]
     client.post(f"/playlists/{playlist_id}/tracks", json={"content_id": track.id})
@@ -197,9 +180,7 @@ def test_another_users_track_cannot_be_added(client, db_session):
 
 
 def test_the_detail_context_matches_the_pinned_lists_shape(client, db_session):
-    """It renders through the same _detail_panel.html, so it has to supply the
-    same keys — a missing one is a silently empty region rather than an
-    error."""
+    """Rendered through _detail_panel.html, so it must supply the same keys."""
     track = _track(db_session, "ggg")
     playlist_id = client.post("/playlists", json={"name": "Shaped"}).json()["id"]
     client.post(f"/playlists/{playlist_id}/tracks", json={"content_id": track.id})
@@ -224,8 +205,7 @@ def test_the_detail_context_matches_the_pinned_lists_shape(client, db_session):
     assert context["kind"] == "user-playlist"
     assert context["video_count"] == 1
     assert context["base_url"] == f"/#user-playlist/{playlist_id}"
-    # Only this kind carries these, and the panel's two extra controls read
-    # them (see _detail_hero.html and _content_row.html).
+    # Only this kind carries these (see _detail_hero.html and _content_row.html).
     assert context["playlist_id"] == playlist_id
 
 
@@ -246,7 +226,6 @@ def test_the_detail_fragment_renders_the_rows(client, db_session):
     assert res.status_code == 200
     assert 'data-target="detail-panel"' in res.text
     assert "Track hhh" in res.text
-    # The two controls only this kind gets.
     assert "delete-playlist-btn" in res.text
     assert 'class="track-remove"' in res.text
 
@@ -271,8 +250,7 @@ def test_play_all_404s_for_an_unknown_playlist(client):
 
 
 def test_library_renders_a_tile_per_playlist(client, db_session):
-    # The grid only renders at all once the user follows someone (see
-    # _library_grid.html's `{% if artists %}`), so there has to be one.
+    # The grid only renders once the user follows someone.
     _artist(db_session)
     track = _track(db_session, "tile")
     playlist_id = client.post("/playlists", json={"name": "On the tile"}).json()["id"]
@@ -282,10 +260,7 @@ def test_library_renders_a_tile_per_playlist(client, db_session):
     assert res.status_code == 200
     assert "On the tile" in res.text
     assert f'href="/#user-playlist/{playlist_id}"' in res.text
-    # The count comes off one grouped query, and a tile that disagreed with
-    # the list it opens is the bug that made the artist counts a single query.
     assert "1 song" in res.text
-    # And the way to make another one sits with them.
     assert 'id="new-playlist-btn"' in res.text
 
 

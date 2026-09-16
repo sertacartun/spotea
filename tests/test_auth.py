@@ -4,23 +4,13 @@ import app.routers.auth as auth_router
 from app.auth import DUMMY_PASSWORD_HASH
 from app.main import app
 
-# Must match conftest.py's own DEFAULT_USERNAME/DEFAULT_USER_PASSWORD
-# (the bootstrap account _init_schema seeds) — duplicated rather than
-# imported since tests/ isn't a real package (no __init__.py) and importing
-# conftest as `tests.conftest` re-executes its module-level setup as a
-# second, different module instance.
+# Duplicated from conftest.py: importing it as tests.conftest re-runs its module-level setup.
 DEFAULT_ACCOUNT_USERNAME = "test-user"
 DEFAULT_ACCOUNT_PASSWORD = "test-password"
 
 
 def _client_at(ip: str) -> TestClient:
-    """A TestClient with its own fake source IP, distinct from the default
-    ("testclient", 50000) every plain `TestClient(app)` shares — the failed-
-    login counter in routers/auth.py is keyed by client IP and lives in a
-    module-level registry for the whole test session, so a rate-limit test
-    reusing the default address would trip (or reset) the counter every other
-    login test in this file relies on. Each test below picks its own address
-    so none of them can see each other's attempts."""
+    """Own source IP: the failed-login counter is keyed by IP and shared across the whole session."""
     return TestClient(app, client=(ip, 12345))
 
 
@@ -49,10 +39,7 @@ def test_login_with_unknown_username_is_rejected():
 
 
 def test_an_unknown_username_still_runs_a_real_bcrypt_check(monkeypatch):
-    """The actual timing bug: login_submit used to short-circuit on `account
-    is None` and skip verify_password entirely, which measured 6.0ms against
-    419.8ms for a real mismatch — a 70x gap that told an attacker whether a
-    name was registered even though the error message doesn't."""
+    """Timing leak: skipping verify_password for unknown names revealed which ones were registered."""
     calls = []
     real_verify = auth_router.verify_password
 
@@ -70,10 +57,7 @@ def test_an_unknown_username_still_runs_a_real_bcrypt_check(monkeypatch):
 
 
 def test_repeated_failed_logins_from_one_client_are_rate_limited(monkeypatch):
-    """Past the cap, the response comes back without a bcrypt check at all —
-    that's the point, not just a different status code. A saturated 40-slot
-    threadpool from concurrent 420ms bcrypt calls is what an unthrottled sync
-    login_submit allowed."""
+    """Past the cap no bcrypt check runs at all, not just a different status code."""
     calls = []
     monkeypatch.setattr(
         auth_router, "verify_password", lambda password, password_hash: calls.append(1) or False
@@ -88,8 +72,7 @@ def test_repeated_failed_logins_from_one_client_are_rate_limited(monkeypatch):
 
         assert len(calls) == auth_router.MAX_FAILED_LOGIN_ATTEMPTS
 
-        # One more, this time with the *correct* password — still blocked,
-        # because the lockout is per client IP, not per outcome.
+        # The correct password is still blocked: the lockout is per client IP, not per outcome.
         res = anon.post(
             "/login", data={"username": DEFAULT_ACCOUNT_USERNAME, "password": DEFAULT_ACCOUNT_PASSWORD}
         )
@@ -129,10 +112,7 @@ def test_a_successful_login_resets_the_failure_count():
             == 200
         )
 
-        # Two more failed attempts, both still under the cap — if the
-        # successful login hadn't cleared the count left over from the
-        # MAX_FAILED_LOGIN_ATTEMPTS - 1 failures above, the second of these
-        # would already be blocked with 429 instead of answering 401.
+        # Without the reset, the second of these would already be 429.
         statuses = [
             c.post("/login", data={"username": DEFAULT_ACCOUNT_USERNAME, "password": "wrong"}).status_code
             for _ in range(2)
@@ -142,9 +122,6 @@ def test_a_successful_login_resets_the_failure_count():
 
 
 def test_login_with_correct_password_grants_access(client):
-    # `client` (from conftest) has already logged in for real — confirm a
-    # protected route is actually reachable now, not just that login itself
-    # returned 200.
     res = client.get("/")
     assert res.status_code == 200
 
@@ -178,8 +155,6 @@ def test_register_creates_account_and_logs_in():
 
 
 def test_register_rejects_duplicate_username():
-    # DEFAULT_ACCOUNT_USERNAME is the bootstrap account seeded in conftest,
-    # always present.
     with TestClient(app) as anon:
         res = anon.post(
             "/register",
@@ -219,9 +194,6 @@ def test_register_rejects_short_password():
 
 
 def test_register_rejects_a_username_with_an_at_sign():
-    """The field used to be an email address, so this is the shape someone
-    upgrading will type first. It has to fail loudly rather than quietly
-    creating an account whose name nobody would guess again."""
     with TestClient(app) as anon:
         res = anon.post(
             "/register",
@@ -247,9 +219,7 @@ def test_register_rejects_a_too_short_username():
 
 
 def test_a_username_is_stored_and_matched_lowercased(db_session):
-    """Registered in mixed case, logged in in another — the column carries a
-    plain unique constraint rather than a case-insensitive collation, so the
-    normalization at the router is the only thing making that safe."""
+    """The column has no case-insensitive collation; the router's normalization is what matches."""
     from app.models import User
 
     with TestClient(app) as anon:

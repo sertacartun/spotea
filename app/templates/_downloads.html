@@ -1,16 +1,4 @@
-{# The Downloads modal's body: storage total, per-item list, empty state.
-
-   Rendered inside index.html and on its own by GET /partials/downloads. This
-   used to be built twice — once here in Jinja and once as a JS template
-   literal in refreshStorageUsage, which had to be kept in step by hand.
-
-   Everything here is the *instance's* disk — what the server downloaded,
-   which it knows. What the phone itself is holding is a different question
-   with a different answer, and it is asked in Settings now (see index.html's
-   "Songs on this device" row): each row used to carry its own keep-on-device
-   toggle, which made saving a library a per-row chore and put the device's
-   story in the one modal that is about the server's.
-#}
+{# Downloads modal body (server disk only). #}
 <div class="storage-summary">
       <div>
         <span class="storage-total" id="storage-total">{{ usage.total_bytes | filesize }}</span>

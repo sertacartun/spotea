@@ -1,21 +1,13 @@
-// The Library tab's channel grid and search, Home's channel chips, the
-// drag-to-scroll shelves, the collapsed mobile menu, and the manual feed
-// refresh those last two both trigger.
-
 import { api, setupSearchClear, showToast } from "../core.js";
 import { onFragmentsSwapped, refreshFragments } from "../fragments.js";
 import { wireScrollers } from "./scrollers.js";
 import { openDetail } from "./detail.js";
 
-// How often a Library card that says "Fetching releases…" checks whether
-// that is still true. A history scan is minutes long, so this is about
-// noticing it *ended*, not about tracking its progress — and it only runs at
-// all while such a card is on the page.
+// A history scan takes minutes, so this only notices it ending; runs only while such a card exists.
 const PREPARING_POLL_MS = 5000;
 
 let preparingTimer = null;
 
-/** The feed ids Library is currently showing as still being fetched. */
 function preparingArtistIds() {
   return [...document.querySelectorAll("#library-grid [data-preparing]")].map(
     (card) => card.dataset.detailId
@@ -30,10 +22,7 @@ async function checkPreparing() {
   const { ok, data } = await api("/artists/syncing");
   if (ok) {
     const stillRunning = new Set(data.map(String));
-    // Only when the grid and the server disagree — a card claiming to be
-    // preparing for a scan that has finished. Re-rendering on every tick
-    // regardless would be a needless swap of the whole grid every five
-    // seconds, most of them changing nothing.
+    // Swap the grid only when a card's scan has actually finished.
     if (showing.some((artistId) => !stillRunning.has(artistId))) await refreshFragments();
   }
   schedulePreparingCheck();
@@ -44,44 +33,17 @@ function schedulePreparingCheck() {
   preparingTimer = setTimeout(checkPreparing, PREPARING_POLL_MS);
 }
 
-/**
- * Keeps Library's "Fetching releases…" cards honest.
- *
- * A newly followed channel gets a card as soon as its feed row exists —
- * POST /feeds answers there and leaves the rest to a background job (see
- * services/initial_sync.py): the catalogue snapshot, then
- * the full upload history, minutes on a large channel. That wait used to be
- * held in front of whoever added it (the onboarding wizard sat on a loading
- * screen for it); now it lives on the card of the channel it belongs to,
- * where it can be ignored, and this is what takes it back off again — the
- * refresh below is also what puts the channel's videos onto Home, since the
- * card can now appear before there are any.
- */
+/** Clears Library's "Fetching releases…" cards once their background sync ends. */
 export function setupPreparingArtists() {
   schedulePreparingCheck();
-  // A fragment swap can bring in cards that weren't preparing before (the
-  // onboarding wizard's own refresh, on the way out, is the usual one).
   onFragmentsSwapped(schedulePreparingCheck);
 }
 
-// How long the boot splash stays up at minimum, so a load that resolves
-// almost instantly (a warm cache, a fast connection) doesn't read as a
-// flicker — and the ceiling that forces it off regardless, so one stalled
-// image (a dead thumbnail proxy, a slow avatar) can't trap the app behind it
-// for the rest of the session.
+// The minimum stops a fast load flickering; the maximum stops one stalled image trapping the app.
 const SPLASH_MIN_VISIBLE_MS = 400;
 const SPLASH_MAX_WAIT_MS = 4000;
 
-/**
- * Dismisses the full-viewport boot cover in index.html — see there for why
- * it exists.
- *
- * Waits for the window's `load` event, not DOMContentLoaded: that fires the
- * instant this module starts running (module scripts execute after parsing,
- * same as DOMContentLoaded), which is long before Home's shelf images have
- * actually painted in. `load` is what says the stylesheet, the module graph
- * and whatever images the initial viewport asked for are all really in.
- */
+/** Dismisses the boot splash on `load`, not DOMContentLoaded, which fires before images paint. */
 export function setupSplash() {
   const splash = document.getElementById("app-splash");
   if (!splash) return;
@@ -92,19 +54,11 @@ export function setupSplash() {
   const dismiss = () => {
     if (dismissed) return;
     dismissed = true;
-    // Fade starts once the splash has been up for at least the minimum, not
-    // the instant `load` fires — otherwise a fast load fades the splash out
-    // the moment it finished fading in.
     const wait = Math.max(0, SPLASH_MIN_VISIBLE_MS - (performance.now() - shownAt));
     setTimeout(() => {
       splash.classList.add("app-splash-hide");
-      // [hidden] is what actually takes it out of the layout and tab order;
-      // the class only drives the fade. Bound after adding the class rather
-      // than relying on a fixed timeout so a slower device's transition
-      // (or one a browser extension has stretched) doesn't get cut off
-      // early — and if it never fires, app-splash-hide's own
-      // `pointer-events: none` already keeps an invisible leftover div out
-      // of everyone's way.
+      // [hidden] removes it from layout and tab order; the class only fades. If transitionend
+      // never fires, app-splash-hide's pointer-events: none keeps it out of the way.
       splash.addEventListener("transitionend", () => { splash.hidden = true; }, { once: true });
     }, wait);
   };
@@ -114,9 +68,7 @@ export function setupSplash() {
   setTimeout(dismiss, SPLASH_MAX_WAIT_MS);
 }
 
-// Delegated from the panel rather than the chip row/see-more links
-// themselves: both live inside the Home fragment and are replaced wholesale
-// on every refresh, which would take a directly-bound listener with them.
+// Delegated: the chips and see-more links are replaced on every fragment refresh.
 export function setupHomeArtists() {
   document.getElementById("tab-home")?.addEventListener("click", (event) => {
     if (event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0) return;
@@ -135,31 +87,19 @@ export function setupHomeArtists() {
   });
 }
 
-// Same idea for the Library grid's pinned playlist tiles and per-channel
-// cards — delegated from the panel (rather than bound per-card) because
-// #library-grid's contents are replaced wholesale on every fragment refresh.
+// Delegated: #library-grid's contents are replaced on every fragment refresh.
 export function setupLibraryArtistGrid() {
   document.getElementById("tab-library")?.addEventListener("click", (event) => {
     if (event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0) return;
     const card = event.target.closest(".channel-card");
-    // A card with no kind has nothing to open — it wears this class for the
-    // shape, not to navigate. "New playlist" is the first of those (see
-    // _library_grid.html); without this it called openDetail(undefined),
-    // which swapped in an empty detail panel *over* Library and left every
-    // tab panel display: none behind it.
+    // Some cards (e.g. "New playlist") wear the class only for shape; openDetail(undefined) blanks the tabs.
     if (!card?.dataset.detailKind) return;
     event.preventDefault();
     openDetail(card.dataset.detailKind, card.dataset.detailId || null);
   });
 }
 
-// Every card is already server-rendered in the DOM, so filtering is just a
-// show/hide over what's there — no round trip needed.
-//
-// The cards are looked up on each keystroke rather than captured once: the
-// grid is inside the Library fragment and is replaced on every refresh, so a
-// captured list would go stale (and the grid is a handful of nodes, so
-// re-querying costs nothing).
+// Cards are re-queried each keystroke: the grid is replaced on every fragment refresh.
 function applyLibraryFilter() {
   const input = document.getElementById("library-search-input");
   const grid = document.querySelector("#library-grid .channel-grid");
@@ -184,26 +124,16 @@ export function setupLibrarySearch() {
   if (!input) return;
   input.addEventListener("input", applyLibraryFilter);
   setupSearchClear("library-search-input", "library-search-clear");
-  // A refreshed grid comes back unfiltered, so whatever is in the box has to
-  // be applied again.
   onFragmentsSwapped(applyLibraryFilter);
 }
 
 export function setupHorizontalScrollers() {
   wireScrollers();
-  // Rows inside the Home fragment are replaced on every refresh, so newly
-  // swapped-in ones need wiring too. Registered here, once, rather than from
-  // inside wireScrollers — doing it there would add another callback on every
-  // swap.
+  // Registered here, not inside wireScrollers, which would add a callback on every swap.
   onFragmentsSwapped(wireScrollers);
 }
 
-
-// Feeds are also kept fresh by a server-side background job on a schedule set
-// in Settings (see routers/settings.py) — this is just for "I want it now".
-// The overlay (rather than just the button's own spin state) is the feedback
-// here because refresh-artists-btn itself is hidden under the mobile-menu
-// breakpoint (see style.css); the overlay covers that entry point too.
+// The overlay is the feedback because refresh-artists-btn is hidden under the mobile-menu breakpoint.
 async function refreshArtists(alsoRefresh) {
   const overlay = document.getElementById("refresh-overlay");
   const btn = document.getElementById("refresh-artists-btn");
@@ -213,21 +143,13 @@ async function refreshArtists(alsoRefresh) {
     btn.classList.add("is-spinning");
   }
 
-  // Explore's recommendations are rebuilt alongside the feeds rather than
-  // having a refresh control of their own — one button means "go and look at
-  // everything again". Run together, since both are slow and independent.
   const [{ ok }] = await Promise.all([
     api("/artists/refresh", { method: "POST" }),
     alsoRefresh ? alsoRefresh() : Promise.resolve(),
   ]);
 
-  // Always re-render, regardless of new_content_count: that figure only
-  // counts rows this exact call inserted, not the release snapshots the same
-  // sync rewrote (which is what both "New releases" surfaces read), nor
-  // content some other trigger (the background refresh job, another tab,
-  // another device) had already added since this page was rendered. This used to be a full page reload, which meant saving and
-  // restoring playback around it; re-rendering the shelves in place leaves
-  // the player alone entirely.
+  // Always re-render: new_content_count misses rewritten release snapshots and
+  // content other triggers (background job, other tabs) added since page load.
   if (ok) await refreshFragments();
   else showToast("Could not refresh feeds");
 
@@ -238,21 +160,13 @@ async function refreshArtists(alsoRefresh) {
   }
 }
 
-// `alsoRefresh` is injected rather than imported (pages/index.js passes
-// home/explore.js's refreshRecommendations) — importing it here would make
-// library.js and explore.js import each other. Same arrangement as
-// setupMobileMenu's
-// openProfileSwitcher below.
+// `alsoRefresh` is injected to avoid a library.js <-> explore.js import cycle.
 export function setupRefreshButton(alsoRefresh) {
   document
     .getElementById("refresh-artists-btn")
     ?.addEventListener("click", () => refreshArtists(alsoRefresh));
 }
 
-// Below the mobile-menu-btn breakpoint (see style.css), the refresh/logout
-// row collapses into this single hamburger dropdown instead — same
-// underlying actions, just consolidated so the topbar doesn't have to fit
-// several separate controls on one narrow line.
 export function setupMobileMenu(alsoRefresh) {
   const btn = document.getElementById("mobile-menu-btn");
   const menu = document.getElementById("mobile-menu");

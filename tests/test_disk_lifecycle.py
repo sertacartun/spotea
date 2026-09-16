@@ -1,12 +1,4 @@
-"""Disk cleanup (app/storage.py's sweep_orphans, sweep_startup_leftovers,
-sweep_stale_previews).
-
-Measured live before any of this existed: thumbnails 1237 files/22MB with 22
-orphans; avatars 1060 files/25MB with 977 orphans (92%, 16.4MB); one orphaned
-.part file at 40.6MB; 491 stale preview rows; 217 followed=0 artists (75% of
-all artists) with nothing ever cleaning any of it up. Every test here pins one
-piece of that down.
-"""
+"""Disk cleanup: storage.py's sweep_orphans, sweep_startup_leftovers and sweep_stale_previews."""
 
 import os
 from datetime import timedelta
@@ -37,22 +29,13 @@ def _feed(db_session, channel_id, **kwargs):
 
 
 def _feed_row_exists(db_session, artist_id) -> bool:
-    """Not db_session.get(Artist, artist_id): a prior sweep_stale_previews commit
-    in the same session expires every loaded object, and a bulk `.delete()`
-    is synchronize_session=False (it never marks the in-memory Artist as
-    gone) — so .get() tries to refresh an object whose row is already gone
-    and raises ObjectDeletedError instead of just returning None. A fresh
-    query sidesteps the identity map entirely."""
+    """A fresh query: .get() raises ObjectDeletedError after a bulk delete in an expired session."""
     return db_session.query(Artist).filter(Artist.id == artist_id).first() is not None
 
 
 @pytest.fixture(autouse=True)
 def _isolated_dirs(tmp_path, monkeypatch):
-    """settings.storage_dir/thumbnails_dir/avatars_dir point at one directory
-    shared by the whole test session (see conftest.py) — fine for tests that
-    only check a specific file, but these ones glob and count *everything* in
-    each directory, so a previous test's leftovers would silently inflate the
-    numbers. Redirected to a fresh tmp_path per test instead."""
+    """These tests count everything in each directory, so each test gets fresh ones."""
     storage_dir = tmp_path / "storage"
     thumbnails_dir = tmp_path / "thumbnails"
     avatars_dir = tmp_path / "avatars"
@@ -61,9 +44,6 @@ def _isolated_dirs(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "storage_dir", storage_dir)
     monkeypatch.setattr(settings, "thumbnails_dir", thumbnails_dir)
     monkeypatch.setattr(settings, "avatars_dir", avatars_dir)
-
-
-# ---------------------------------------------------------------- sweep_orphans
 
 
 def test_sweep_orphans_removes_audio_no_row_points_at(db_session):
@@ -93,10 +73,7 @@ def test_sweep_orphans_keeps_audio_a_row_still_references(db_session):
 
 
 def test_sweep_orphans_keeps_audio_inside_a_user_directory(db_session):
-    """The one that would hurt: audio now lives one level down, so a sweep
-    that only globbed the top level would see a referenced file as invisible
-    — and, worse, a sweep that recursed without checking references would
-    delete the whole library on the next scheduler tick."""
+    """Audio lives one level down; recursing without checking references would delete the library."""
     artist = _feed(db_session, "https://example.com/orphan-per-user-kept")
     user_dir = settings.storage_dir / str(USER_ID)
     user_dir.mkdir(parents=True, exist_ok=True)
@@ -116,8 +93,6 @@ def test_sweep_orphans_keeps_audio_inside_a_user_directory(db_session):
 
 
 def test_sweep_orphans_removes_a_stray_inside_a_user_directory(db_session):
-    """And it does still reach in there — a download whose row went away
-    leaves a file one level down like any other."""
     user_dir = settings.storage_dir / "42"
     user_dir.mkdir(parents=True, exist_ok=True)
     stray = user_dir / "strayfile1.m4a"
@@ -130,16 +105,7 @@ def test_sweep_orphans_removes_a_stray_inside_a_user_directory(db_session):
 
 
 def test_sweep_orphans_keeps_audio_a_row_spells_differently(db_session):
-    """The same file, named two ways.
-
-    Content.file_path is written from settings.storage_dir as it was
-    configured when the download happened, so a database written under
-    STORAGE_DIR="./data/storage" holds relative paths while a later run with
-    STORAGE_DIR="/app/data/storage" globs absolute ones. Comparing those as
-    strings finds nothing referenced — and this sweep, which runs on every
-    scheduler tick, then deletes the whole audio library. Reproduced against
-    the real code, and it is what emptied a live storage directory once.
-    """
+    """A relative file_path must still match an absolute storage_dir, or the sweep deletes the library."""
     artist = _feed(db_session, "https://example.com/orphan-audio-relative")
     referenced = settings.storage_dir / "spelled0001.m4a"
     referenced.write_bytes(b"x")
@@ -166,9 +132,7 @@ def test_sweep_orphans_removes_thumbnails_no_row_points_at(db_session):
 
 
 def test_sweep_orphans_keeps_a_thumbnail_any_row_still_references(db_session):
-    """Keyed by video_id alone (see unlink_thumbnail_if_unshared) — a row
-    doesn't need to be downloaded, favorited, or anything else to keep its
-    thumbnail; just existing is enough."""
+    """Keyed by video_id alone: a row just existing keeps its thumbnail."""
     artist = _feed(db_session, "https://example.com/orphan-thumb-kept")
     kept = settings.thumbnails_dir / "keptthumb01.jpg"
     kept.write_bytes(b"x")
@@ -183,7 +147,6 @@ def test_sweep_orphans_keeps_a_thumbnail_any_row_still_references(db_session):
 
 
 def test_sweep_orphans_removes_avatars_no_feed_points_at(db_session):
-    """The actual bug: 977 of 1060 avatar files (92%) were exactly this."""
     orphan = settings.avatars_dir / "UCorphanavatar00000000.jpg"
     orphan.write_bytes(b"x")
 
@@ -207,8 +170,7 @@ def test_sweep_orphans_keeps_an_avatar_a_followed_feed_references(db_session):
 
 
 def test_sweep_orphans_leaves_a_fresh_export_temp_file_alone(db_session):
-    """A live export could be mid-write at the exact moment this runs — see
-    STALE_EXPORT_AGE. A fresh file must survive."""
+    """A live export could be mid-write (see STALE_EXPORT_AGE)."""
     fresh = settings.storage_dir / "abc123.export.tmp"
     fresh.write_bytes(b"x")
 
@@ -218,9 +180,6 @@ def test_sweep_orphans_leaves_a_fresh_export_temp_file_alone(db_session):
 
 
 def test_sweep_orphans_removes_an_abandoned_export_temp_file(db_session):
-    """Older than STALE_EXPORT_AGE means the request that made it can only
-    have been interrupted (a container killed mid-export) — nothing else
-    leaves one behind that long."""
     stale = settings.storage_dir / "abandoned1.export.tmp"
     stale.write_bytes(b"x")
     old_time = (utcnow() - STALE_EXPORT_AGE - timedelta(minutes=5)).timestamp()
@@ -232,17 +191,13 @@ def test_sweep_orphans_removes_an_abandoned_export_temp_file(db_session):
 
 
 def test_sweep_orphans_never_touches_part_files(db_session):
-    """A .part sweep here would risk deleting a real, in-progress download —
-    see the module docstring on why that cleanup lives at startup instead."""
+    """A .part here may be an in-progress download; that cleanup runs at startup instead."""
     part = settings.storage_dir / "inprogress1.part"
     part.write_bytes(b"x")
 
     sweep_orphans(db_session)
 
     assert part.exists()
-
-
-# ------------------------------------------------------- sweep_startup_leftovers
 
 
 def test_sweep_startup_leftovers_removes_every_part_file(db_session):
@@ -259,9 +214,6 @@ def test_sweep_startup_leftovers_removes_every_part_file(db_session):
     assert not part_one.exists()
     assert not part_two.exists()
     assert unrelated.exists()
-
-
-# ------------------------------------------------------------ sweep_stale_previews
 
 
 def _preview(db_session, artist, video_id, *, age_days, **kwargs):
@@ -333,8 +285,6 @@ def test_an_old_but_downloaded_preview_is_kept(db_session, tmp_path):
 
 
 def test_a_placeholder_feed_left_empty_by_the_sweep_is_also_removed(db_session):
-    """The other half: 217 followed=0 artists (75% of all artists) accumulated
-    forever with nothing cleaning them up either."""
     artist = _feed(db_session, "https://example.com/emptied-placeholder", followed=False)
     artist_id = artist.id  # captured before the sweep — see _feed_row_exists' docstring
     _preview(db_session, artist, "emptyplaceh1", age_days=PREVIEW_RETENTION.days + 1)
@@ -345,9 +295,7 @@ def test_a_placeholder_feed_left_empty_by_the_sweep_is_also_removed(db_session):
 
 
 def test_a_followed_feed_is_never_removed_even_if_emptied(db_session):
-    """followed=True is a real subscription, not a placeholder — emptying its
-    content (a followed channel whose only content was an old preview,
-    unlikely but possible) must not delete the artist itself."""
+    """followed=True is a real subscription, not a placeholder."""
     artist = _feed(db_session, "https://example.com/followed-not-removed", followed=True)
     artist_id = artist.id
     _preview(db_session, artist, "followedpre1", age_days=PREVIEW_RETENTION.days + 1)
@@ -371,15 +319,8 @@ def test_a_placeholder_feed_with_other_content_left_is_not_removed(db_session):
     assert _feed_row_exists(db_session, artist_id)
 
 
-# ------------------------------------------------------------------ wired at startup
-
-
 def test_sweep_startup_leftovers_runs_during_app_startup(monkeypatch):
-    """Not just that the function works (see above) — that it's actually
-    called, exactly once, as part of main.py's lifespan. A fresh TestClient
-    re-runs ASGI startup/shutdown independent of any other TestClient
-    already used this session (see conftest.py's own `with TestClient(app):
-    pass`), so this doesn't need its own app instance to prove it."""
+    """A fresh TestClient re-runs the lifespan, so no separate app instance is needed."""
     from fastapi.testclient import TestClient
 
     import app.main as main_module
@@ -393,15 +334,8 @@ def test_sweep_startup_leftovers_runs_during_app_startup(monkeypatch):
     assert calls == [1]
 
 
-# --- One directory per listener --------------------------------------------
-
-
 def test_audio_is_written_into_the_listeners_own_directory(monkeypatch, tmp_path):
-    """The file name is the video id and nothing else, so two accounts with
-    the same track used to be two rows over one file — and either of them
-    deleting it took the other's copy. Found on the live library: one
-    account's cleanup left another's row saying "ready" with nothing behind
-    it."""
+    """A shared file let one account's delete remove the other's audio."""
     from app import downloader
     from app.config import settings
 
@@ -422,7 +356,7 @@ def test_two_listeners_do_not_share_a_file(monkeypatch, tmp_path):
 
 
 def test_the_startup_part_sweep_reaches_the_user_directories(monkeypatch, tmp_path):
-    """.part files land beside the download, which is now one level down."""
+    """.part files land beside the download, one level down."""
     from app import storage
     from app.config import settings
 

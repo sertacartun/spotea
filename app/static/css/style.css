@@ -1,172 +1,84 @@
-/* Design tokens — every color in this file is one of these variables, never
-   a literal hex/rgb again. Change the look (e.g. swap the accent color) by
-   editing a value here once, instead of hunting down every place it's used.
-   Values are unchanged from what they replaced — this block introduces the
-   tokens without altering how anything renders.
-
-   Shadow/overlay rgba() values (box-shadow depth, fullscreen overlay dimming)
-   are intentionally left as plain literals — those are one-off depth effects
-   rather than reusable palette colors, so a token would just add indirection
-   without giving anything a second caller. */
 :root {
-  /* Neutrals */
   --black: #000;
   --white: #fff;
 
-  /* Surfaces. A smoked, neutral grey with no blue in it, and exactly two
-     steps above the page: --bg-surface for anything that holds content
-     (cards, library rows, the login card, search results, modals, the mini
-     player and tab bar) and --bg-control for anything you press or type into
-     (buttons, chips, fields, selects, the switch, placeholder art, toasts).
-
-     There used to be eight of these, from a generated cool-toned
-     ramp — base, raised, elevated, input, toast, hover-strong, control,
-     field — each a few units apart. Too close to tell apart on a phone, so
-     all they added was the blue-grey cast. Two steps is the most a dark
-     screen can carry and still have each one read as a different thing.
-
-     A control can sit on the page or on a surface, and --bg-control is above
-     both, so it stays visible in a modal or on the login card. What it
-     cannot do is sit on another control; nothing does. */
+  /* Two steps only: --bg-surface holds content, --bg-control is what you press
+     or type into. A control never sits on another control. */
   --bg-page: #030303;
-  --bg-surface: #101010; /* 1.08:1 on --bg-page */
-  --bg-control: #212121; /* 1.28:1 on --bg-page, 1.18:1 on --bg-surface */
+  --bg-surface: #101010;
+  --bg-control: #212121;
 
-  /* Hover is not a third colour. It is a thin white layer over whatever fill
-     the element already has, set as background-image so it composes with the
-     background-color underneath instead of replacing it. */
+  /* Hover is a white layer set as background-image, so it composes with the
+     element's own background-color instead of replacing it. */
   --hover-lift: linear-gradient(rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.07));
 
-  /* The ambient field. Set per track by home/ambient.js from the cover art
-     currently in the hero, and deliberately defaulted to the page color so
-     every surface still renders correctly with JS off, with no cover, or
-     before the first sample lands. Only the tint changes with the music —
-     no text or control color is derived from artwork.
-
-     Stored as bare `R G B` channels rather than a hex so the gradients can
-     fade a tint to `rgb(... / 0)`. Fading to the `transparent` keyword
-     instead interpolates through transparent *black*, which prints a dirty
-     band across the middle of the wash on exactly the light covers this
-     treatment is meant to handle. */
+  /* Set per track by home/ambient.js; defaults to the page colour for JS-off.
+     Bare `R G B` so gradients fade to rgb(.. / 0) — `transparent` bands via black. */
   --ambient-tint: 16 16 16;
   --ambient-tint-soft: 10 10 10;
 
-  /* Borders */
   --border-subtle: #1a1a1a;
   --border-default: #2c2c2c;
-  --border-strong: #474747; /* ghost/icon button hover */
+  --border-strong: #474747;
 
-  /* Controls — chips, buttons, selects, switches, text fields — are a fill,
-     not an outline. They used to be a near-page fill inside a bright 1px
-     border (#697684), which read as a wireframe of a form rather than as
-     the controls themselves. The label already says a button is a button;
-     an empty text field has its placeholder, and focus still draws the
-     accent edge. The border stays as `1px solid transparent` so that edge
-     can appear without moving anything. */
-
-  /* Text — roughly high to low emphasis, neutral like the surfaces. Measured
-     against --bg-page and --bg-control; the lowest of the set (--text-muted
-     as placeholder text on --bg-control) is 6.6:1, so every step clears
-     WCAG AA's 4.5:1 for normal text on every surface above. */
-  --text-primary: #f2f2f2; /* 18.4:1 on --bg-page */
-  --text-secondary: #c8c8c8; /* 12.3:1 */
-  --text-hover: #e0e0e0; /* tab label hover, between secondary and bright */
-  --text-muted: #a6a6a6; /* 8.5:1 */
+  /* Every text step clears WCAG AA 4.5:1 on every surface (lowest: --text-muted
+     on --bg-control, 6.6:1). */
+  --text-primary: #f2f2f2;
+  --text-secondary: #c8c8c8;
+  --text-hover: #e0e0e0;
+  --text-muted: #a6a6a6;
   --text-faint-alt: #b8b8b8;
   --text-disabled: #4d4d4d;
 
-  /* Accent. Red is the brand's colour and the palette's primary role: it
-     marks the one action a screen is asking for, and nothing else. A violet
-     took this slot for one release and was not kept. --accent-hover lifts
-     rather than deepens — a hover that darkens reads as the control
-     switching off on a near-black page. */
-  --accent: #ff4343; /* 6.02:1 on --bg-page */
+  /* --accent marks the one primary action per screen. --accent-hover lifts rather
+     than darkens: a darkening hover reads as switching off on a near-black page. */
+  --accent: #ff4343;
   --accent-hover: #ff6161;
   --accent-tint: rgba(255, 67, 67, 0.1);
 
-  /* Danger / destructive actions.
-     A pale coral rather than a second saturated red. With the accent red
-     again these two are neighbours on the wheel, and the thing that has to
-     stay obvious is which one is *this screen's action* and which one
-     destroys something — so they are separated by lightness instead of by
-     hue: 9.76:1 here against the accent's 6.02:1, on top of the accent
-     being a fill and this being text. The pairing the old red palette used
-     (#f15e6c) matched the accent in both hue and lightness and read as a
-     weaker accent rather than as a different meaning. */
+  /* Separated from --accent by lightness, not hue, so a destructive action never
+     reads as the screen's primary one. */
   --danger: #ff968a;
   --danger-hover: #ffb3aa;
 
-  /* The library tiles used to carry five different fills, one per kind. That
-     read as rainbow categories — destinations coloured as if they were
-     statuses — so every one of them now shares a neutral fill and they are
-     told apart by their glyph. Nothing in this block is left but the one
-     note below, because no tile has a hue of its own any more.
-
-     The "new list" tile keeps a colour, but it takes --accent rather than one
-     of its own: it is the only *action* on this screen, as against five
-     destinations, and the accent is what an action is drawn in here. That
-     also gives Library the one identifiable primary action it was missing. */
-
-  /* Seek/volume slider's unfilled track */
   --track-empty: #2c2c2c;
 
-  /* Type scale. The colors above were tokenized long before this block
-     existed, and the gap showed: an audit of this file found 20 distinct
-     font-size values, 11 of them packed between 0.7rem and 0.95rem — sizes
-     too close to read as deliberate, but different enough to keep baselines
-     from lining up. These eight steps cover every one of those cases.
+  /* Type, spacing and radius scales: use the nearest step, add no raw values. */
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.875rem;
+  --text-lg: 1rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 2rem;
 
-     Nothing is rewritten wholesale to use them; the rule going forward is
-     that a component being touched moves to the nearest step, and no new
-     raw value gets added. */
-  --text-2xs: 0.6875rem; /* 11px — duration/count badges */
-  --text-xs: 0.75rem; /* 12px — tertiary text, help lines */
-  --text-sm: 0.8125rem; /* 13px — secondary text, artist names */
-  --text-md: 0.875rem; /* 14px — body, card titles, tab labels */
-  --text-lg: 1rem; /* 16px — row titles, buttons */
-  --text-xl: 1.25rem; /* 20px — shelf headings */
-  --text-2xl: 1.5rem; /* 24px — panel headings */
-  --text-3xl: 2rem; /* 32px — hero titles (desktop) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
 
-  /* Spacing, on a 4px base. Same story as the type scale: 25 distinct rem
-     values were in use, 10 of them between 0.3rem and 0.75rem. */
-  --space-1: 0.25rem; /* 4px */
-  --space-2: 0.5rem; /* 8px */
-  --space-3: 0.75rem; /* 12px */
-  --space-4: 1rem; /* 16px */
-  --space-5: 1.5rem; /* 24px */
-  --space-6: 2rem; /* 32px */
-  --space-7: 3rem; /* 48px */
-
-  /* Radius. 6px used to be the dominant value and it was applied to rows,
-     cards and inputs alike, so the radius carried no hierarchy. Small chrome
-     gets a tight corner, cards get a soft one. */
-  --radius-sm: 4px; /* row thumbnails, badges */
-  --radius-md: 8px; /* cards, cover art, modals, buttons, text fields */
-  --radius-pill: 999px; /* chips, follow button */
-  --radius-circle: 50%; /* artist avatars, play FAB */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-pill: 999px;
+  --radius-circle: 50%;
 }
 
-/* Keyboard focus. Every focusable element used to fall through to the UA
-   default, which Chromium resolves to `outline: auto 1px rgb(16, 16, 16)` —
-   a near-black ring on a near-black page, about 1.05:1 against the
-   current --bg-page, i.e. no
-   visible focus anywhere in the app. The accent is used rather than white
-   because the mini player's play button is itself white and swallowed a
-   white ring. */
+/* Accent rather than white: the UA ring is invisible on this page, and the white
+   mini-player play button swallowed a white ring. */
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* Mouse clicks shouldn't leave a ring behind. :focus-visible already handles
-   this in browsers that support it; this clears the UA's :focus fallback. */
 :focus:not(:focus-visible) {
   outline: none;
 }
 
-/* An accent ring on an accent-filled control is invisible, so the controls
-   painted with --accent take the light ring instead. */
+/* An accent ring on an accent-filled control is invisible. */
 .btn-primary:focus-visible,
 .btn-play-main:focus-visible,
 .mini-player-playpause:focus-visible,
@@ -176,55 +88,23 @@
 
 * {
   box-sizing: border-box;
-  /* No gray flash on tap, and no double-tap-to-zoom on buttons/links —
-     without these, every tap reads as "this is a webpage", not an app. */
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
 
 html {
-  /* Defensive backstop: a component miscalculating its width should clip,
-     not drag the whole page into horizontal scroll — which reads as fully
-     broken on mobile (the entire layout shifts sideways). Real fixes for
-     specific overflow culprits still belong at the source; this just caps
-     the blast radius of ones we haven't caught yet. */
+  /* Backstop: an overflowing component clips instead of scrolling the whole page
+     sideways on mobile. */
   overflow-x: hidden;
-  /* `contain` alone still lets the page rubber-band in place at the top/
-     bottom edge — visually dragging even the sticky header down with it,
-     since that bounce is a compositor-level shift of the whole viewport,
-     not an actual scroll offset sticky positioning reacts to. `none` drops
-     the bounce entirely (not just its chaining into the browser's own
-     pull-to-refresh UI), so the page just stops dead at its scroll limits,
-     like a native app. The page still scrolls normally in between. */
+  /* `contain` still rubber-bands the viewport (dragging the sticky header);
+     `none` stops dead at the scroll limits. */
   overscroll-behavior-y: none;
-  /* The band of screen an installed iOS app does not cover.
-     `apple-mobile-web-app-status-bar-style: black-translucent` plus
-     `viewport-fit=cover` (see _base.html) starts the web view at the very top
-     of the screen — which is why env(safe-area-inset-top) resolves to the
-     status bar's height rather than to 0 — while leaving its *height* at
-     screen minus status bar. What is left over is a strip at the bottom,
-     exactly as tall as the top inset, that the page never reaches; the
-     bottom navigation is `position: fixed; bottom: 0` against a viewport
-     that ends above it, so it sits that far up the screen with the strip
-     showing beneath.
-
-     Measured from the device that reported it: a 932pt screen, an 873pt
-     viewport, insets 59/0/34/0, and the bar's own box ending at 873 — right
-     where it was asked to, 59pt short of the glass.
-
-     Extending the document past the viewport by that much is the documented
-     fix, and it is also why the bug looked like it was about page height:
-     a tab with enough content to scroll (Explore, once its shelves load) was
-     already past it and rendered correctly, while a new account's empty Home
-     and Library came to exactly one viewport and did not. Nothing changes
-     anywhere the inset is 0, which is every browser and every desktop. */
+  /* Installed iOS app (black-translucent + viewport-fit=cover): the viewport is
+     short by the top inset, so extend the page by it or the fixed bottom nav floats. */
   min-height: calc(100% + env(safe-area-inset-top, 0px));
 }
 
 @media (max-width: 480px) {
-  /* The page still scrolls — this only hides the OS/browser scrollbar
-     chrome, which reads as a stray desktop-web artifact in an app-like
-     mobile layout (same reasoning as .shelf-row/.channel-row above). */
   html {
     scrollbar-width: none;
   }
@@ -239,38 +119,17 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: var(--bg-page);
   color: var(--text-primary);
-  /* Not overflow-x: hidden here (html above already has it) — that would
-     force this box's computed overflow-y to auto per spec, turning body
-     into a spurious scroll container. html is the element that actually
-     scrolls (its clientHeight is the viewport, scrollHeight is the page);
-     a sticky-positioned descendant sticks relative to the nearest such
-     scroll-container ancestor, so having one on body too breaks any
-     position: sticky child (e.g. .app-header-sticky) even though body never
-     actually scrolls itself. */
-  /* Flex column so .layout's full-viewport-height rule (below) can be
-     "the rest of the viewport after .app-header-sticky" instead of "a full
-     viewport on top of whatever .app-header-sticky already took" — without
-     this, every tab's document was header-height taller than the actual
-     viewport, which is invisible on tabs with enough real content to already
-     exceed one screen (Home/Library) but on a short one (Explore before
-     searching, Settings) left exactly that much unearned scroll room:
-     scrolling revealed nothing but background past the real content, and
-     dragged the fixed mini-player's docked position along with it visually
-     since the page could now scroll at all when it shouldn't have been able
-     to. */
+  /* Not overflow-x: hidden here — it would make body a scroll container and break
+     position: sticky descendants (html is the real scroller). */
+  /* Flex column so .layout's flex: 1 fills the viewport *minus* the sticky header,
+     instead of adding a header's height of unearned scroll. */
   display: flex;
   flex-direction: column;
   min-height: 100vh;
   min-height: 100dvh;
 }
 
-/* Form controls don't inherit font-size from the page by default — browsers
-   give them their own native "control font" (commonly ~13px) regardless of
-   body's font-size. Any input/textarea that doesn't override this ends up
-   under the 16px iOS needs to not auto-zoom on focus, even though nothing
-   here looks like it set a small font on purpose. This is the actual fix;
-   the explicit font-size on individual inputs below just documents intent
-   where it matters. */
+/* Form controls don't inherit font-size; below 16px iOS auto-zooms on focus. */
 input,
 textarea,
 select {
@@ -282,10 +141,7 @@ select {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  /* dvh accounts for the mobile browser chrome (address bar) actually on
-     screen, instead of the vh unit's fixed "as if it were hidden" value —
-     without it, this card can jump/resize as Safari's bar shows and hides.
-     Falls back to the vh line above on browsers without dvh support. */
+  /* dvh tracks Safari's showing/hiding bar; the vh line above is the fallback. */
   min-height: 100dvh;
 }
 
@@ -351,11 +207,6 @@ select {
   margin: 0 0 1rem;
 }
 
-/* Secondary navigation, not a second action. This line used to be drawn in
-   the accent, which put two elements of the same colour on a card whose whole
-   job is one decision — the filled button and a full sentence of link text
-   competing for it. The sentence is now ordinary secondary text and only the
-   word you can act on is underlined. */
 .login-alt-action {
   margin: 1rem 0 0;
   text-align: center;
@@ -373,23 +224,17 @@ select {
   color: var(--text-primary);
 }
 
-/* App shell */
-
 .topbar {
   border-bottom: 1px solid var(--border-subtle);
 }
 
-/* Above phone width the tab strip sits directly under this bar and draws its
-   own rule, so two hairlines ran parallel a tab-height apart. The strip's is
-   the one that marks where the page starts; this one goes. */
+/* The tab strip draws its own rule right below; avoid two parallel hairlines. */
 @media (min-width: 481px) {
   .topbar {
     border-bottom-color: transparent;
   }
 }
 
-/* Matches .layout's max-width/centering so the header and tabs line up with
-   the card grid below instead of spanning edge-to-edge on wide screens. */
 .topbar-inner {
   display: flex;
   align-items: center;
@@ -397,9 +242,6 @@ select {
   max-width: 1100px;
   margin: 0 auto;
   padding: 1rem;
-  /* Keeps the bar clear of a notch in landscape / a fullscreen PWA's status
-     area. env() resolves to 0 anywhere without a safe-area inset, so this
-     is a no-op on ordinary devices. */
   padding-top: calc(1rem + env(safe-area-inset-top, 0px));
   padding-left: calc(1rem + env(safe-area-inset-left, 0px));
   padding-right: calc(1rem + env(safe-area-inset-right, 0px));
@@ -434,12 +276,7 @@ select {
   gap: 0.75rem;
 }
 
-/* Shown only under the max-width: 480px breakpoint below, which flips this
-   and .topbar-actions-inline's visibility. The compound selector (not just
-   .mobile-menu-btn) is needed to outrank .btn-icon's own `display:
-   inline-flex` on specificity rather than source order — this rule and that
-   one are otherwise equally specific, and .btn-icon happens to be declared
-   later in the file. */
+/* Compound selector to outrank .btn-icon's later `display: inline-flex`. */
 .btn-icon.mobile-menu-btn {
   display: none;
 }
@@ -464,9 +301,6 @@ select {
   display: none;
 }
 
-/* display: contents so the <form> wrapping the Log out button doesn't
-   introduce an extra box in the menu's flex column — the button inside
-   still lays out as if it were a direct child of .mobile-menu. */
 .mobile-menu-form {
   display: contents;
 }
@@ -503,8 +337,6 @@ select {
   border: none;
   color: var(--text-secondary);
   border-radius: 6px;
-  /* 44px — the platform-recommended minimum touch target, not just enough
-     room for the 16px icon. */
   width: 44px;
   height: 44px;
   display: inline-flex;
@@ -518,18 +350,12 @@ select {
   height: 16px;
 }
 
-/* SVG isn't in scope for the UA stylesheet's [hidden] { display: none } rule
-   the way HTML elements are — same fix already applied to .btn-play-main
-   and .btn-quiet-icon's own icon-toggle buttons below. Needed here for the
-   mini-player's play/pause icon swap (see app.js's setupPlayerOverlay). */
+/* SVG isn't covered by the UA [hidden] rule. */
 .btn-icon svg[hidden] {
   display: none;
 }
 
-/* And the button itself: `display: inline-flex` above is an author rule, so
-   it beats the UA stylesheet's [hidden] { display: none } and a .btn-icon
-   marked hidden stayed on screen. Explore's recommendations-refresh button is
-   hidden until there are interests to refresh, which is where this surfaced. */
+/* `display: inline-flex` above beats the UA [hidden] rule. */
 .btn-icon[hidden] {
   display: none;
 }
@@ -555,9 +381,6 @@ select {
   border-radius: var(--radius-md);
   padding: 0.4rem 0.9rem;
   cursor: pointer;
-  /* Matches .btn-icon's 44px so "Log out" isn't the odd one out next to it
-     in the topbar — a plain text button's line-height alone renders a few
-     px shorter than the icon+text profile pill sitting next to it. */
   min-height: 44px;
   display: inline-flex;
   align-items: center;
@@ -579,14 +402,7 @@ select {
   color: var(--text-secondary);
 }
 
-/* Below this, "Spotea" + the refresh icon + "Log out" don't reliably fit
-   on one line — the exact tipping point depends on
-   the profile's name length and the platform font's actual glyph widths,
-   which easily land under the ~390px a phone-sized viewport gives us.
-   Collapsing them into a single hamburger menu sidesteps that entirely
-   (a fixed, small width) instead of trying to out-guess every name/font
-   combination — and leaves room to add more actions later without
-   reopening this problem. */
+/* Below this the topbar actions don't reliably fit; collapse into a menu. */
 @media (max-width: 480px) {
   .topbar-actions-inline {
     display: none;
@@ -598,20 +414,8 @@ select {
 
 }
 
-/* Keeps the header + tabs pinned while the page scrolls, instead of scrolling
-   away with the content below them. One sticky wrapper around both (rather
-   than stickying .topbar and .tabs separately) avoids having to hardcode
-   .tabs' top offset to .topbar's rendered height. z-index just needs to clear
-   ordinary page content — .mobile-menu (1050) and the modal layers above it
-   still stack correctly since they're descendants of this wrapper, not
-   siblings.
-
-   Every width, not only the phone one it started at. On a phone the tab strip
-   moves to the bottom bar and only the logo row rides along up here, so
-   losing the header to a scroll cost nothing you couldn't reach anyway —
-   but at every width above that breakpoint the tab strip *is* this element,
-   and scrolling any list far enough took the app's primary navigation off
-   screen with it. */
+/* One sticky wrapper for header + tabs, so .tabs' offset needn't hardcode the
+   topbar height. Menus/modals stack above as descendants. */
 .app-header-sticky {
   position: sticky;
   top: 0;
@@ -619,26 +423,16 @@ select {
   background: var(--bg-page);
 }
 
-/* See index.html for what this is for. 1px rather than 0 because an
-   IntersectionObserver does not reliably report a zero-area rect as
-   intersecting, and pulled back by the same 1px so it costs no layout in
-   body's flex column. */
+/* 1px, not 0: IntersectionObserver doesn't reliably report a zero-area rect;
+   the negative margin cancels its layout cost. */
 .page-top-probe {
   display: block;
   height: 1px;
   margin-bottom: -1px;
 }
 
-/* Home's hero, and an open artist or playlist's, runs under this bar. At rest
-   the bar carries no fill and no rule, so the light appears to come from one
-   place instead of being cut off by a band across the top of the screen; the
-   moment the page is scrolled at all, the fill comes back and the logo is over
-   an ordinary page again. home/ambient.js owns data-hero-lit, which only says
-   the page is at the top; whether the panel on screen has a hero is asked
-   here.
-
-   Scoped to those two panels on purpose. The same element is the tab strip at
-   wider widths and on every other panel, and it has to stay opaque there. */
+/* Transparent over a hero only at the top of the page (data-hero-lit from
+   home/ambient.js). Scoped to these panels; the bar must stay opaque elsewhere. */
 html[data-active-tab="home"][data-hero-lit]:has(#tab-home .home-hero) .app-header-sticky,
 html[data-active-tab="detail"][data-hero-lit]:has(#detail-panel .channel-hero) .app-header-sticky {
   background: transparent;
@@ -649,9 +443,6 @@ html[data-active-tab="detail"][data-hero-lit]:has(#detail-panel .channel-hero) .
   border-bottom-color: transparent;
 }
 
-/* Short enough that the bar is never caught looking half-applied, long
-   enough that the fill does not appear as a snap while the page is already
-   moving under it. Only the fill is eased; nothing about the bar moves. */
 .app-header-sticky {
   transition: background 200ms ease;
 }
@@ -679,7 +470,6 @@ html[data-active-tab="detail"][data-hero-lit]:has(#detail-panel .channel-hero) .
   cursor: pointer;
 }
 
-/* Text-only up here; the icon is for the mobile bottom bar below. */
 .tab-icon {
   display: none;
 }
@@ -693,12 +483,8 @@ html[data-active-tab="detail"][data-hero-lit]:has(#detail-panel .channel-hero) .
   border-bottom-color: var(--accent);
 }
 
-/* Same data-active-tab trick as the panels: the JS-toggled .active class
-   above only lands after DOMContentLoaded, but none of the buttons are
-   marked active in the server-rendered HTML (there's no server-side way to
-   know which tab was last used) — without this, Library's button would
-   otherwise need a hardcoded default and flash as selected on every reload
-   that lands on a different tab. */
+/* The .active class lands only after DOMContentLoaded; this avoids a flash of
+   the wrong tab selected on reload. */
 html[data-active-tab="home"] .tab-btn[data-tab="home"],
 html[data-active-tab="library"] .tab-btn[data-tab="library"],
 html[data-active-tab="explore"] .tab-btn[data-tab="explore"],
@@ -707,31 +493,15 @@ html[data-active-tab="settings"] .tab-btn[data-tab="settings"] {
   border-bottom-color: var(--accent);
 }
 
-/* data-active-tab="detail" has no .tab-btn of its own, so the tab it was
-   opened from stays visually selected underneath it — which is also where
-   "Back" returns to. home/detail.js sets data-detail-home: Library for a
-   followed channel or pinned playlist, Explore for the two remote kinds. */
+/* The detail panel has no tab; keep the tab it was opened from selected. */
 html[data-active-tab="detail"][data-detail-home="library"] .tab-btn[data-tab="library"],
 html[data-active-tab="detail"][data-detail-home="explore"] .tab-btn[data-tab="explore"] {
   color: var(--white);
   border-bottom-color: var(--accent);
 }
 
-/* ---------------------------------------------------------------------------
-   Phone: the tab strip becomes a bottom bar.
-
-   Primary navigation belongs where the thumb already is. Sitting at the top
-   of an 844px-tall screen it was a reach away on every single tab switch,
-   and it put the app's two most-used controls — navigation and playback — at
-   opposite ends of the display.
-
-   .tabs is a child of .app-header-sticky, and `position: fixed` simply lifts
-   it out of that flow: the wrapper has no transform, filter or
-   backdrop-filter, so nothing between here and the viewport establishes a
-   containing block that would trap it. The mini player then stacks directly
-   above the bar rather than over it, the way it does in every player that
-   has both.
---------------------------------------------------------------------------- */
+/* Phone: the tab strip becomes a fixed bottom bar. Works because no ancestor has
+   a transform/filter/backdrop-filter to trap `position: fixed`. */
 @media (max-width: 480px) {
   :root {
     --bottom-nav-height: 3.5rem;
@@ -741,34 +511,15 @@ html[data-active-tab="detail"][data-detail-home="explore"] .tab-btn[data-tab="ex
     position: fixed;
     left: 0;
     right: 0;
-    /* The bottom of the layout viewport, which — measured on the device that
-       reported the gap — is the bottom of the screen: the installed app
-       reports a 932pt screen and an 873pt viewport, and the missing 59pt is
-       the status bar at the *top*, not anything at the bottom. A previous
-       attempt pushed this down by that difference and sent most of the bar
-       off the screen. */
+    /* Do not offset by the iOS viewport/screen difference — that gap is at the top. */
     bottom: 0;
     z-index: 900;
-    /* The page colour, not a surface, so this and the header read as one
-       frame around the content. Opaque: a see-through bar with a blur was
-       tried, and even at 92% a shelf's card titles stayed legible behind the
-       tab labels, two lines of text on top of each other. */
+    /* Opaque: a translucent bar left card titles legible behind the tab labels. */
     background: var(--bg-page);
     border-top: 1px solid var(--border-subtle);
     border-bottom: none;
-    /* Capped, not the raw inset. The bar still runs to the very bottom of the
-       screen — its background has to sit under the home indicator, or that
-       strip renders in the page colour and reads as a seam — but the amount
-       of *empty bar* left under the labels is this app's choice, not the
-       platform's. At the full 34pt inset the bar came to 91pt against iOS's
-       own 83pt tab bar, and the dead strip below the labels was the most
-       noticeable thing about it. 20px keeps the labels clear of the
-       indicator and takes the bar under native height.
-
-       min() also contains the case this was reported from, where the
-       reported inset was visibly larger than the 34pt a phone of that size
-       should give: whatever the platform claims, this is the most bar that
-       can be nothing. */
+    /* Capped: the background still reaches under the home indicator, but a raw
+       inset left a taller-than-native dead strip under the labels. */
     padding-bottom: min(env(safe-area-inset-bottom, 0px), 20px);
   }
 
@@ -778,7 +529,6 @@ html[data-active-tab="detail"][data-detail-home="explore"] .tab-btn[data-tab="ex
   }
 
   .tab-btn {
-    /* Equal quarters, so the target is the whole cell rather than the word. */
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -787,8 +537,6 @@ html[data-active-tab="detail"][data-detail-home="explore"] .tab-btn[data-tab="ex
     gap: 0.2rem;
     height: var(--bottom-nav-height);
     padding: 0;
-    /* The underline is a top-strip idiom; down here the icon and label carry
-       the state on their own. */
     border-bottom: none;
     font-size: var(--text-2xs);
     font-weight: 600;
@@ -800,9 +548,7 @@ html[data-active-tab="detail"][data-detail-home="explore"] .tab-btn[data-tab="ex
     height: 22px;
   }
 
-  /* Same two selector groups as the desktop rules above, minus the underline
-     they set — repeated rather than folded in because these have to win on
-     specificity inside the media query. */
+  /* Repeated inside the media query so they win on specificity. */
   .tab-btn.active,
   html[data-active-tab="home"] .tab-btn[data-tab="home"],
   html[data-active-tab="library"] .tab-btn[data-tab="library"],
@@ -816,41 +562,18 @@ html[data-active-tab="detail"][data-detail-home="explore"] .tab-btn[data-tab="ex
 
 }
 
-/* The bar's two knock-on effects — what the mini player sits on top of, and
-   how much room the page has to leave at its bottom — are set at the end of
-   this file instead of here. Both .mini-player and .layout are defined
-   further down, and a rule of equal specificity that comes first simply
-   loses; the first attempt at this silently did nothing. */
+/* The bottom bar's effects on .mini-player and .layout live at the end of the
+   file: those rules come later and would otherwise win. */
 
 .layout {
   padding: 1rem;
   max-width: 1100px;
   margin: 0 auto;
-  /* A flex item with auto cross-axis margins (margin: 0 auto, above, under
-     body's flex-direction: column) isn't stretched to fill the container by
-     default align-items: stretch — the auto margins opt it out, sizing it to
-     its own content/max-width instead and centering that. Block layout never
-     had this quirk (an auto-width block always fills its containing block
-     before max-width caps it), so without this explicit width, every tab
-     rendered at its content's natural width — up to the full 1100px
-     max-width — instead of the actual (usually much narrower, on mobile)
-     viewport, clipped by html's overflow-x: hidden. */
+  /* Auto margins on a flex item opt out of stretch; without this each tab sizes
+     to its content instead of the viewport. */
   width: 100%;
-  /* Explore (before/without search results) and Settings can be shorter
-     than the viewport, unlike Home/Library which are always long. On real
-     mobile browsers, a page that isn't tall enough to scroll behaves
-     differently from one that is — their dynamic address-bar/toolbar chrome
-     can show/hide based on scroll capability, which shifts what
-     `position: fixed; bottom: 0` (the mini-player) actually renders against
-     between tabs, even though nothing about its own CSS changed. Padding
-     every tab out to fill whatever's left of the viewport below
-     .app-header-sticky keeps that "is this page scrollable" condition
-     consistent across tabs instead of flipping specifically on the short
-     ones. flex: 1 on body's flex column (rather than min-height: 100vh/dvh
-     directly on this element) is what makes that "whatever's left" — a flat
-     100dvh here would stack on top of the header's own height instead of
-     including it, leaving every tab that much taller than the real
-     viewport. */
+  /* Fill the rest of the viewport so every tab is equally scrollable; mobile
+     browser chrome otherwise shifts fixed bottom elements between tabs. */
   flex: 1;
 }
 
@@ -858,10 +581,8 @@ html[data-active-tab="detail"][data-detail-home="explore"] .tab-btn[data-tab="ex
   display: none;
 }
 
-/* Once the inline head script has set data-active-tab (before first paint),
-   it becomes the single source of truth for which panel shows — overriding
-   whatever the server rendered as [hidden], so restoring a non-Library tab
-   never flashes Library's content first. */
+/* Set by the inline head script before first paint, so it overrides the
+   server's [hidden] and a restored tab never flashes Library. */
 html[data-active-tab] .tab-panel {
   display: none;
 }
@@ -879,20 +600,10 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   margin: 0 auto;
 }
 
-/* Settings drops the cap entirely, same as Explore below — Home and
-   Library aren't wrapped in .channels-panel-inner at all, so they already
-   render at .layout's full 1100px, and Settings should match their width
-   instead of looking narrower than its neighbors on the tab bar. */
 #tab-settings .channels-panel-inner {
   max-width: none;
 }
 
-/* Explore drops the cap entirely rather than getting a wider one: Home and
-   Library (its neighbors on the tab bar) are never wrapped in
-   .channels-panel-inner at all, so they already render at .layout's full
-   1100px. Explore should match them exactly — same default width as the
-   rest of the app — especially once the planned playlist shelves land,
-   which want that same full-width row to scroll in. */
 #tab-explore .channels-panel-inner {
   max-width: none;
 }
@@ -907,13 +618,7 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   margin-top: 0;
 }
 
-/* Settings has exactly two headings, one per .settings-group ("This
-   profile" / "Account"), each covering several rows. Kept as a quiet
-   uppercase label rather than the generic 1rem heading above because every
-   row underneath already carries its own bold label — a heavier group header
-   competes with them. Scoped to #tab-settings so Explore's "Songs"/"Channels"
-   headings keep their normal weight. Its own :first-child rule (rather than
-   relying on the generic one) because this ID-scoped selector outranks it. */
+/* Own :first-child rule because this ID-scoped selector outranks the generic one. */
 #tab-settings .settings-group h2 {
   font-size: 0.72rem;
   font-weight: 700;
@@ -923,28 +628,15 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   margin: 0 0 0.35rem;
 }
 
-/* The gap between the two groups is the only thing separating per-profile
-   settings from account-wide ones, so it's wider than the space between
-   rows inside a group — the last row of a group keeps its own hairline,
-   which reads as the group's floor. */
 #tab-settings .settings-group + .settings-group {
   margin-top: 2.25rem;
 }
 
-/* Whose settings the group holds — a profile name or the account's email.
-   Both opt out of the heading's uppercasing: these are real names, not
-   labels, and an address shouted at 0.72rem is harder to read than the
-   heading it trails. */
 .settings-group-who {
   text-transform: none;
   letter-spacing: 0;
 }
 
-/* Spotify-style settings row: label + one-line description on the left,
-   the actual control right-aligned — a plain native <select> rather than a
-   custom widget, since these are still just a handful of mutually
-   exclusive, self-explanatory choices. No card/border around the row
-   itself; a hairline separates rows, matching the reference. */
 .settings-row {
   display: flex;
   align-items: center;
@@ -966,23 +658,14 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   min-width: 0;
 }
 
-/* Same filled background as .settings-select below, not the bare
-   .btn-quiet look — sitting next to (or, stacked on mobile, below) a
-   description line, a text-only button with no fill reads as more paragraph
-   text rather than a control. Also flex-shrink/white-space: without them, a
-   long .settings-row-desc next to it could squeeze this into wrapping — a
-   button label breaking mid-word reads as broken, unlike a description
-   sentence wrapping. */
+/* Filled like .settings-select: a bare text button beside a description reads
+   as paragraph text. No wrap: a label breaking mid-word looks broken. */
 .settings-row > .btn-quiet {
   flex-shrink: 0;
   white-space: nowrap;
   background: var(--bg-control);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
-  /* .btn-quiet's own resting color (--text-secondary) is meant for a
-     borderless, blend-into-the-background label — wrong once this variant
-     gets its own filled pill background above, where it reads as a
-     real button and should look like one at rest, not just on hover. */
   color: var(--text-primary);
 }
 
@@ -1015,8 +698,6 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   background-image: var(--hover-lift);
 }
 
-/* A description sentence next to a dropdown is tight on a phone screen —
-   stack them instead of forcing a side-by-side row. */
 @media (max-width: 480px) {
   .settings-row {
     flex-direction: column;
@@ -1024,9 +705,7 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
     gap: 0.5rem;
   }
 
-  /* Otherwise these stretch to the row's full (now vertical) width like
-     .settings-row-info above them, and a button's centered label ends up
-     floating in the middle of that width instead of sitting left with it. */
+  /* Otherwise these stretch to the column's width and the label floats centred. */
   .settings-row > .settings-select,
   .settings-row > .btn-quiet,
   .settings-row > .btn-danger {
@@ -1051,10 +730,6 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   }
 }
 
-/* Shared shape for every text input in the app — search (library, channel
-   search), the interest field — so they all read as the same control.
-   Each selector below only adds what's actually different about it (width
-   behavior, margin, flex). */
 .channel-search input,
 .library-search-input {
   padding: 0.5rem 0.6rem;
@@ -1062,9 +737,7 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   border: 1px solid transparent;
   background: var(--bg-control);
   color: var(--text-primary);
-  /* 16px, not smaller — iOS Safari auto-zooms the page on focus for any
-     input with a smaller computed font-size, which reads as broken on
-     mobile. */
+  /* 16px, not smaller — iOS Safari auto-zooms on focus below that. */
   font-size: 1rem;
 }
 
@@ -1074,8 +747,6 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   color: var(--text-muted);
 }
 
-/* Accent border instead of the browser's default focus ring, on every
-   input above — no exceptions, so focus always reads the same way. */
 .channel-search input:focus,
 .library-search-input:focus {
   outline: none;
@@ -1086,16 +757,12 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   width: 100%;
 }
 
-/* Margin lives on the wrap, not the input: .search-clear-btn centers
-   itself at top:50% of .search-input-wrap's own box, and a margin on the
-   input would inflate that box past the input's actual height, pushing
-   the centered button up off-center. */
+/* Margin on the wrap: .search-clear-btn centres on the wrap's box, which an
+   input margin would inflate. */
 .channel-search {
   margin-bottom: 0.75rem;
 }
 
-/* Wraps a search input to position its clear button inside the field
-   rather than after it. */
 .search-input-wrap {
   position: relative;
 }
@@ -1132,10 +799,7 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   height: 14px;
 }
 
-/* `display: inline-flex` above is an author rule, so it beats the UA
-   stylesheet's [hidden] { display: none } on its own — same trap
-   .btn-icon[hidden] documents above. Without this, the button stayed on
-   screen with an empty input. */
+/* `display: inline-flex` above beats the UA [hidden] rule. */
 .search-clear-btn[hidden] {
   display: none;
 }
@@ -1153,10 +817,7 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   margin: 0;
 }
 
-/* `display: flex` above beats a bare [hidden], which is `display: none` from
-   the UA stylesheet and therefore loses to any rule that names display at
-   all. Explore's two result lists are shown one at a time (see index.html's
-   search tabs), and without this the hidden one simply stayed on screen. */
+/* `display: flex` above beats the UA [hidden] rule. */
 .search-results[hidden] {
   display: none;
 }
@@ -1199,10 +860,6 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   color: var(--text-muted);
 }
 
-/* Video results (Explore) reuse .search-result/.search-result-info/-title/
-   -subs as-is — only the thumbnail shape differs from a channel avatar
-   (rectangular, not circular), and the trailing control is a play icon
-   instead of an "Add" text button. */
 .video-search-thumb {
   width: 56px;
   height: 32px;
@@ -1259,36 +916,17 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   cursor: default;
 }
 
-/* Charts/charting-artists/mood shelves read a level down from a page
-   heading even though there's no "For you" heading above them any more —
-   same muted, smaller treatment a Home/Library shelf title would get
-   nested under something bigger. */
 #recommendations-body {
-  /* Level with .shelf's own between-shelf rhythm (used below, between
-     Charts and Charting artists, etc.) rather than the tighter gap
-     .channel-search's margin-bottom leaves above it — this is the first
-     heading on the page now that "For you" is gone, and it read glued to
-     the search box at that gap. */
   margin-top: 1.75rem;
 }
 
-/* A recommended song/playlist card carries no content id, so there's no save
-   button and no second meta line — the body is shorter than a Home card's
-   and shouldn't reserve the space for them. */
 .rec-card .card-title {
   min-height: 0;
-  /* One line, not the base .card-title's two — same reasoning as
-     .shelf-channel-card .card-title below: min-height:0 means nothing
-     reserves a second line's space up front, so a longer title (a mood
-     playlist's "End of the Road: Classic R&B Breakup") wrapped to two
-     lines and made its card taller than every shorter-titled one in the
-     same row. */
+  /* One line: nothing reserves a second line, so a wrapped title made its card
+     taller than the rest of the row. */
   -webkit-line-clamp: 1;
 }
 
-/* An artist card centres a round avatar instead of filling its top edge with
-   cover art, so the row stays even whatever the name length. Used by Explore's
-   charting-artist and similar-artist shelves. */
 .shelf-channel-card {
   align-items: center;
   text-align: center;
@@ -1297,16 +935,8 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
 
 .shelf-channel-card .card-title {
   min-height: 0;
-  /* The card body centres its children, and centring in a column flex means
-     they size to their content rather than stretching — so a long name
-     (YoungBoy Never Broke Again) made the heading wider than the card it was
-     in, and .card-title's ellipsis never applied: there was no overflow from
-     the heading's own point of view, only from the card's. Capping it at the
-     body's width is what gives the ellipsis something to measure against.
-
-     The line-clamp and overflow-wrap that used to sit here did nothing.
-     .card-title is `white-space: nowrap` now, which leaves nothing to wrap,
-     and a clamp needs a `display: -webkit-box` that was never set. */
+  /* Centred column children size to content; the cap gives the ellipsis a width
+     to overflow. */
   max-width: 100%;
 }
 
@@ -1314,8 +944,7 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   align-items: center;
   gap: 0.4rem;
   width: 100%;
-  /* Grow, so the Add buttons below line up across the row instead of each
-     one sitting wherever its card's name happened to stop wrapping. */
+  /* Grow, so the Add buttons line up across the row. */
   flex: 1;
 }
 
@@ -1333,19 +962,13 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   flex: 0 0 auto;
 }
 
-/* Song and playlist cards are clickable as a whole, a channel search result
-   previews the channel, and a song search result plays — the pointer has to
-   say so, since none of them is a link. */
+/* None of these is a link, so the pointer has to say they're clickable. */
 .rec-card,
 .search-result-channel,
 .video-search-result {
   cursor: pointer;
 }
 
-/* --- The detail panel showing something remote ------------------------- */
-
-/* A playlist's artwork is a video thumbnail, not an avatar — square-cropping
-   it into a circle the way a channel hero does cuts the middle out of it. */
 .channel-hero-avatar.is-artwork {
   border-radius: 10px;
 }
@@ -1355,9 +978,6 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   margin-top: 0.5rem;
 }
 
-/* A remote row's whole left side is a button rather than a link (there's no
-   /#player/{id} to point at until the row exists) — strip the button chrome
-   so it reads exactly like .track-link does everywhere else. */
 button.track-link {
   border: none;
   background: none;
@@ -1365,15 +985,9 @@ button.track-link {
   color: inherit;
   text-align: inherit;
   padding: 0;
-  /* The last piece of button chrome, and the one that was missed: a
-     button's default cursor is an arrow, a link's is a hand. Every track on
-     a chart, album, mood or artist-release page is one of these rows, so
-     they were the only tracks in the app that gave no sign of being
-     clickable — beside local rows that looked identical and did. */
+  /* A button's default cursor is an arrow, not a hand. */
   cursor: pointer;
 }
-
-/* Storage tab */
 
 .storage-summary {
   display: flex;
@@ -1398,10 +1012,6 @@ button.track-link {
   display: none;
 }
 
-/* Export sits next to .btn-danger's Clear all, so it takes the same filled
-   shape and size rather than .btn-quiet's bare label — a bare label beside a
-   button read as a mistake. It keeps the brighter text: exporting is the
-   harmless one, and Clear all stays the quieter of the two on purpose. */
 .storage-summary-actions .btn-quiet {
   background: var(--bg-control);
   border: 1px solid transparent;
@@ -1429,10 +1039,8 @@ button.track-link {
   flex-direction: column;
   flex: 1 1 auto;
   overflow-y: auto;
-  /* Lets the list shrink below its content height so overflow-y can kick in
-     — a flex child's default min-height is auto (its content size), which
-     would otherwise stop it from ever scrolling inside modal-downloads'
-     capped height. */
+  /* A flex child's min-height defaults to its content; 0 lets it scroll inside
+     the modal's capped height. */
   min-height: 0;
 }
 
@@ -1440,9 +1048,6 @@ button.track-link {
   display: none;
 }
 
-/* Divided by a rule rather than by gaps. The rows are the same colour as the
-   modal they sit in, so a gap between them was all that told one from the
-   next, and down a long list they ran together. */
 .storage-list li {
   display: flex;
   align-items: center;
@@ -1481,8 +1086,7 @@ button.track-link {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  /* min-width/height (not padding alone) guarantees a 44px touch target
-     regardless of the 16px icon's own box. */
+  /* min-width/height guarantee a 44px touch target regardless of the icon's box. */
   min-width: 44px;
   min-height: 44px;
   display: inline-flex;
@@ -1515,8 +1119,7 @@ button.track-link {
   flex-shrink: 0;
 }
 
-/* display: flex above beats the [hidden] attribute, so this is what actually
-   keeps the banner off screen for everyone with a connection. */
+/* `display: flex` above beats the UA [hidden] rule. */
 .offline-banner[hidden] {
   display: none;
 }
@@ -1548,11 +1151,6 @@ button.track-link {
   font-size: var(--text-md);
 }
 
-/* An empty list used to be one grey sentence in the middle of a black page,
-   which told you the list was empty — something you could already see — and
-   nothing about how it fills up. These three parts say what belongs here,
-   how to put something in it, and where to go. Left-aligned to sit under the
-   hero above it rather than floating on its own axis. */
 .empty-state {
   padding: var(--space-5) 0 var(--space-7);
   max-width: 46ch;
@@ -1573,8 +1171,7 @@ button.track-link {
   line-height: 1.55;
 }
 
-/* .btn-primary is written for <button>; an <a> needs the text treatment and
-   the box model spelled out. */
+/* .btn-primary is written for <button>; an <a> needs the box model spelled out. */
 .empty-state-cta {
   display: inline-block;
   text-decoration: none;
@@ -1583,58 +1180,24 @@ button.track-link {
   border-radius: var(--radius-pill);
 }
 
-/* ---------- Home hero -------------------------------------------------- */
-/* Cover as Canvas. One focal point at the top of Home, lit by the artwork of
-   the track you were last on. Markup in _home_shelves.html, colour in
-   home/ambient.js.
-
-   The rest of Home is shelves, and shelves are deliberately flat and quiet:
-   the wash stops here so the tinted zone never competes with the lists. */
-
 .home-hero {
   position: relative;
-  /* Cancels .layout's 1rem padding so the wash reaches both screen edges. A
-     wash that stops short reads as a card, and every other block on this
-     page is already a card. */
+  /* Cancels .layout's 1rem padding so the wash reaches both screen edges. */
   margin: -1rem -1rem var(--space-4);
   padding: var(--space-5) 1rem var(--space-5);
 }
 
-/* Two stacked layers rather than one. A custom property holding the tint
-   cannot be transitioned without registering it via @property, and a
-   `background` transition does not interpolate gradients at all — so the
-   cross-fade on track change is done the way it actually works: the incoming
-   tint is written to whichever layer is currently invisible, then the two
-   swap opacity. ambient.js owns the data-live attribute. */
-/* Deliberately larger than the hero it belongs to, and with no clipping: the
-   light has to start above the sticky header (which goes transparent for
-   exactly this) and finish its falloff below the hero, or the wash ends on a
-   straight horizontal edge and reads as a panel rather than as light.
-
-   z-index 0 and not -1. body carries an opaque background, and a negative
-   z-index paints in the root stacking context *before* the in-flow block
-   backgrounds above it — so the whole wash rendered underneath body and was
-   invisible on screen while being perfectly correct in the DOM. The hero's
-   own content is lifted to 1 instead.
-
-   No `isolation` on .home-hero for a related reason: an isolated stacking
-   context would trap this layer inside the hero box and it could never reach
-   up behind the header. */
+/* Two layers cross-faded by opacity: a custom-property tint can't transition
+   without @property and `background` doesn't interpolate gradients. */
+/* Unclipped and larger than the hero so the light reaches behind the header.
+   z-index 0, not -1: negative paints under body's opaque background. No
+   `isolation` on .home-hero, or this is trapped inside it. */
 .home-hero-ambient {
   position: absolute;
-  /* --wash-reach is the hero's distance from the top of the page, measured
-     by home/ambient.js so the light always starts at the top of the screen
-     whatever sits above the hero (the iPhone's safe-area inset included).
-     The extra 56px overshoots that edge so iOS's overscroll bounce doesn't
-     pull the top of the wash into view. The fallback is what this was
-     before it was measured: right on a phone with no inset. */
+  /* --wash-reach is measured by home/ambient.js; +56px covers iOS overscroll bounce. */
   top: calc(-1 * var(--wash-reach, 76px) - 56px);
   bottom: -64px;
-  /* Viewport-wide, not column-wide. .layout caps its children at 1100px, and
-     a wash that stops at that cap draws two hard vertical edges down a wide
-     screen — which is the panel look this whole treatment exists to avoid.
-     html already hides horizontal overflow, so 100vw including the scrollbar
-     gutter costs nothing. */
+  /* Viewport-wide, not .layout-wide, or a wide screen shows hard vertical edges. */
   left: 50%;
   width: 100vw;
   transform: translateX(-50%);
@@ -1680,8 +1243,6 @@ button.track-link {
   overflow: hidden;
   margin-bottom: var(--space-4);
   background: var(--bg-control);
-  /* The one shadow on this page. Tone is the separator everywhere else, but
-     tone cannot separate the cover from a wash the cover itself produced. */
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
 }
 
@@ -1709,8 +1270,7 @@ button.track-link {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  /* --text-secondary rather than --text-muted: this line sits on the brightest
-     part of the wash, where muted drops to about 4.2:1 and misses AA. */
+  /* --text-muted drops to ~4.2:1 on the brightest part of the wash and misses AA. */
   color: var(--text-secondary);
 }
 
@@ -1718,8 +1278,6 @@ button.track-link {
   margin: 0;
   font-size: var(--text-2xl);
   line-height: 1.25;
-  /* Two lines then ellipsis. The shelf cards clip at one line and break
-     mid-word, which reads as a bug at this size. */
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -1735,8 +1293,6 @@ button.track-link {
   text-overflow: ellipsis;
 }
 
-/* Same geometry and colour pairing as the player's main play button, so the
-   two read as one control rather than two similar circles. */
 .home-hero-play {
   flex: none;
   width: 56px;
@@ -1759,9 +1315,6 @@ button.track-link {
   height: 26px;
 }
 
-/* Above the phone breakpoint the cover sits beside the text instead of over
-   it — the wash has width to fill up here, and a 132px block stranded above
-   a short title leaves a hole in the middle of the page. */
 @media (min-width: 700px) {
   .home-hero {
     display: flex;
@@ -1775,12 +1328,6 @@ button.track-link {
     margin-bottom: 0;
   }
 
-  /* The play button goes under the title rather than beside it. Beside it,
-     the row had to be capped (620px) to keep the button from reaching the
-     right edge, and even capped a short title left the button floating in
-     the middle of the page with a gap between it and the thing it plays.
-     Stacked, it sits against the text whatever the title's length, and the
-     cover, text and button read as one block. */
   .home-hero-row {
     flex: 1;
     min-width: 0;
@@ -1798,8 +1345,6 @@ button.track-link {
   }
 }
 
-/* Reduced motion keeps the tint — it is information about what is playing,
-   not decoration — and drops only the cross-fade between two of them. */
 @media (prefers-reduced-motion: reduce) {
   .ambient-field::before,
   .ambient-field::after {
@@ -1819,11 +1364,6 @@ button.track-link {
   margin: 0 0 0.75rem;
 }
 
-/* One treatment for every shelf heading, on the type scale. Explore's shelves
-   used to be demoted to 0.95rem/--text-secondary by a #recommendations-body
-   override while Home's stayed 1.1rem/--text-primary, so the same class and
-   the same role rendered two different ways depending on which tab you were
-   on. The 1.1rem was off the scale as well. */
 .shelf-title {
   margin: 0;
   font-size: var(--text-xl);
@@ -1874,10 +1414,7 @@ button.track-link {
 
 .shelf-row > .card {
   -webkit-user-drag: none;
-  /* 150px, not 170px: at a 390px viewport minus page padding (358px usable),
-     two 170px cards + their 0.75rem gap ate the full width, leaving no
-     sliver of a third card to signal the row scrolls horizontally. At
-     150px, two cards + gap leave ~46px of a third card peeking in. */
+  /* 150px leaves a peek of a third card at a 390px viewport, signalling it scrolls. */
   flex: 0 0 150px;
 }
 
@@ -1885,15 +1422,6 @@ button.track-link {
   pointer-events: none;
 }
 
-/* Deliberate variation between shelves. Rendered at one width, Home read as
-   four copies of the same block and Explore as five — the repeated-identical-
-   section pattern the page rules call out by name, and the thing that made
-   both screens feel like a list of lists rather than a page.
-
-   The first content shelf on a panel is the one worth the extra room, so it
-   takes it and everything below stays standard. The peek that tells you the
-   row scrolls is preserved: at 224px one card and most of a second still fit
-   inside the 358px a phone leaves. */
 .shelf--lead .shelf-row > .card {
   flex-basis: 224px;
 }
@@ -1945,15 +1473,6 @@ button.track-link {
   background-image: var(--hover-lift);
 }
 
-/* An artist, wherever they appear, is a round picture with a name under it.
-   Home used to show them as horizontal pills instead — a third presentation
-   alongside Library's row card and Explore's shelf card, and the only one
-   that couldn't cope with a long name: `white-space: nowrap` meant "Bob
-   Marley & The Wailers" grew a pill wider than the phone. This matches
-   .shelf-channel-card, which Explore already used.
-
-   Scoped to .artist-chip rather than .channel-chip because Explore's mood
-   chips share that class and are genuinely pills. */
 .artist-chip {
   flex-direction: column;
   gap: var(--space-2);
@@ -1969,9 +1488,7 @@ button.track-link {
   width: 100%;
   font-size: var(--text-sm);
   line-height: 1.3;
-  /* A name is often one unbroken word (norahjonesVEVO); without this it
-     overflows sideways instead of ellipsising. Same fix as
-     .shelf-channel-card .card-title. */
+  /* A name is often one unbroken word; without this it overflows. */
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1994,13 +1511,8 @@ button.track-link {
   height: 88px;
 }
 
-/* Stands in when an artist has no picture. The placeholder used to be an
-   empty circle, which among real photographs reads as an image that failed
-   rather than one that was never there.
-
-   The letter is sized per circle rather than as a percentage: a percentage
-   font-size resolves against the *parent's* font-size, not the circle's
-   width, so it would have been the same small letter in all three places. */
+/* Letter sized per circle: a % font-size resolves against the parent's
+   font-size, not the circle's width. */
 .avatar-initial {
   display: flex;
   align-items: center;
@@ -2014,15 +1526,15 @@ button.track-link {
 }
 
 .artist-chip .avatar-initial {
-  font-size: 2.25rem; /* 88px circle */
+  font-size: 2.25rem;
 }
 
 .channel-card-avatar.avatar-initial {
-  font-size: 1.15rem; /* 44px circle */
+  font-size: 1.15rem;
 }
 
 .channel-hero-avatar.avatar-initial {
-  font-size: 2.5rem; /* 96px circle */
+  font-size: 2.5rem;
 }
 
 .pagination {
@@ -2042,7 +1554,6 @@ button.track-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* 44px touch target, same reasoning as .btn-icon. */
   width: 44px;
   height: 44px;
   border-radius: 6px;
@@ -2081,22 +1592,12 @@ button.track-link {
   color: var(--text-disabled);
 }
 
-/* One card per row on the narrowest phones. Two 160px-wide cards left an
-   artist's name truncated after about a dozen characters, which on a grid
-   whose whole job is "which of these is the one I want" is the one thing it
-   must not do. Above 420px (see below) there is room for the auto-fit grid
-   and the cards go back to sharing rows. */
 .channel-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 0.6rem;
 }
 
-/* Splits the grid into its two real kinds: the fixed places at the top, then
-   the artists you chose to follow. Without it Library is one undifferentiated
-   column where a destination and an artist are the same object, and the
-   screen has no hierarchy at all. Spans every column so the grid does not try
-   to seat it beside a card. */
 .channel-grid-heading {
   grid-column: 1 / -1;
   margin: var(--space-4) 0 var(--space-1);
@@ -2109,13 +1610,8 @@ button.track-link {
 
 @media (min-width: 420px) {
   .channel-grid {
-    /* auto-fit, not auto-fill: with fewer cards than fit the row (the
-       common case — four pinned tiles plus however many channels are
-       followed), auto-fill still reserves empty trailing tracks at their
-       200px minimum, which stops the populated ones from growing to fill
-       the row and leaves that reserved space visibly blank. auto-fit
-       collapses the empty tracks instead, so the real cards stretch to
-       use the full width. */
+    /* auto-fit, not auto-fill: auto-fill keeps empty tracks and stops the real
+       cards from stretching to the row width. */
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 0.75rem;
   }
@@ -2126,10 +1622,7 @@ button.track-link {
   flex-direction: row;
   align-items: center;
   gap: 0.6rem;
-  /* min-width: 0 stops the grid track from growing to fit an unbroken long
-     channel title (grid items default to min-width: auto) — without it a
-     long title blows the card past its column and the grid overflows the
-     viewport on mobile instead of the title truncating inside it. */
+  /* Grid items default to min-width: auto; a long title would overflow the grid. */
   min-width: 0;
   padding: 0.5rem 0.65rem;
   background: var(--bg-surface);
@@ -2160,10 +1653,6 @@ button.track-link {
   flex: 0 0 auto;
 }
 
-/* Favorites/Saved for later are pinned "virtual channels" — same tile shape
-   as a real channel's avatar, but a solid-color icon badge instead of an
-   image, so they read as a matched pair (Spotify's Liked Songs) rather than
-   channels with a missing avatar. */
 .channel-card-icon {
   display: flex;
   align-items: center;
@@ -2176,20 +1665,6 @@ button.track-link {
   color: var(--white);
 }
 
-/* One fill for every pinned tile, and the glyph tells them apart.
-   These are destinations, not statuses — "Favorites", "Recently played" and
-   "New releases" are places you go, and colouring each one differently put
-   five hues in a single vertical stack, which is the rainbow-categories
-   pattern this grammar rejects outright. Neutral also stops any tile from
-   reading as the accent and competing with a real primary action.
-
-   Downloads was held out of this for a while, on the argument that what the
-   device is holding is state rather than a category. It sat in the same
-   stack as the other five all the same, and being the only coloured one
-   there is what a reader actually saw: an odd tile out, not a different
-   kind of thing. Whether this device has the file is answered by the panel
-   the tile opens, and by the offline banner, neither of which needs the
-   tile itself to carry a second hue. */
 .channel-card-icon.is-downloads,
 .channel-card-icon.is-favorites,
 .channel-card-icon.is-new-uploads,
@@ -2198,9 +1673,7 @@ button.track-link {
   background: var(--bg-control);
 }
 
-/* A <button> in a grid of <a>s: it needs the anchors' box back, since a
-   button brings its own font, border, background and alignment. Everything
-   else about it is .channel-card. */
+/* A <button> among <a>s: reset the button's own font, border and background. */
 .channel-card.is-new-playlist {
   border: none;
   font: inherit;
@@ -2210,7 +1683,6 @@ button.track-link {
 }
 
 .channel-card.is-new-playlist .channel-card-icon.is-user-playlist {
-  /* Outlined rather than filled: this one makes a list, it isn't one. */
   background: transparent;
   border: 1px dashed var(--accent);
 }
@@ -2219,8 +1691,7 @@ button.track-link {
   color: var(--accent);
 }
 
-/* Removing a track from a hand-made list. Sits beside the duration, outside
-   the row's own link so a press here isn't also a press on "play this". */
+/* Outside the row's link, so a press here isn't also "play this". */
 .track-remove {
   background: none;
   border: none;
@@ -2243,9 +1714,6 @@ button.track-link {
   color: var(--danger);
 }
 
-/* The track being added is the subject of this sheet, not an aside — it came
-   in with the shared `muted` class and read as disabled text above a live
-   list. Secondary, on the type scale. */
 .playlist-picker-track {
   margin: 0 0 0.75rem;
   color: var(--text-secondary);
@@ -2286,9 +1754,6 @@ button.track-link {
   background-image: var(--hover-lift);
 }
 
-/* Already holds the open track. Pressing it again takes the track back out,
-   so the state has to be readable at a glance — the press is a toggle, not a
-   second add. */
 .playlist-picker-row.is-in {
   border-color: var(--accent);
 }
@@ -2309,9 +1774,6 @@ button.track-link {
   font-size: 0.85rem;
 }
 
-/* The accent, because Library's "New playlist" tile is the accent and this is
-   the same action reached another way. Left grey, the one create action in the
-   sheet was quieter than the list it sits under. */
 .playlist-picker-new {
   display: inline-flex;
   align-items: center;
@@ -2328,7 +1790,6 @@ button.track-link {
   height: 15px;
 }
 
-/* core.js's promptDialog — the confirm modal's sibling, with a field. */
 .prompt-input {
   width: 100%;
   padding: 0.6rem 0.7rem;
@@ -2345,18 +1806,6 @@ button.track-link {
   border-color: var(--accent);
 }
 
-/* The three pinned playlists' hero badge, smaller than the avatar an artist
-   gets in the same slot.
-
-   They started at the same size and it was the wrong comparison: an artist's
-   hero is a photograph, and a photograph at 96px is a portrait, while a
-   single white glyph on a saturated disc at 96px is the loudest thing on the
-   page — louder than the playlist's own name beside it. At 64 the disc reads
-   as a label for the title rather than competing with it.
-
-   Scoped to .channel-hero-avatar, so the library grid's own 44px badge
-   (_library_grid.html) — which *is* sized to match the avatars beside it,
-   deliberately — is untouched. */
 .channel-hero-avatar.channel-card-icon {
   width: 64px;
   height: 64px;
@@ -2382,12 +1831,7 @@ button.track-link {
   white-space: nowrap;
 }
 
-/* A channel whose one-time history scan is still running says so where its
-   video count would be — the count is about to change anyway, and this is
-   the only place in the app that waits for a backfill now. */
-/* Never allowed to wrap: this line replaces a one-line video count inside a
-   fixed-height card, and a second line pushes the title out of alignment
-   with every other card in the row. Clipped instead. */
+/* Never wraps: a second line misaligns this fixed-height card with its row. */
 .channel-card-preparing {
   display: flex;
   align-items: center;
@@ -2419,27 +1863,13 @@ button.track-link {
   align-items: center;
   gap: 1.25rem;
   margin-bottom: 1.75rem;
-  /* No cap: fills .layout's full width like the track list below it, with
-     .detail-actions' margin-left: auto (below) pinning Play/Shuffle to this
-     row's right edge regardless of title length — same tradeoff as
-     .track-link losing its own cap (see the track-row rules above). A short
-     title leaves a gap before the buttons rather than the whole row
-     stopping early. */
+  /* No cap: .detail-actions' margin-left: auto pins Play/Shuffle to the right edge. */
 }
 
-/* .btn-quiet.channel-hero-unfollow, not .channel-hero-unfollow: this button
-   carries both classes, .btn-quiet sets `border: none`, and it is declared
-   further down the file at equal specificity — so the border and the
-   red-on-hover written here had never rendered at all. Two classes settle it
-   regardless of source order. */
+/* Two classes: .btn-quiet (later, equal specificity) sets `border: none`. */
 .btn-quiet.channel-hero-unfollow {
   align-self: flex-start;
-  /* No negative margin. It used to be pulled left by .btn-quiet's own 1rem of
-     padding so the *label* would sit flush with the title above it — which
-     was right while the button had no visible box, and wrong the moment the
-     box below started rendering: it then hung a full rem into the artwork
-     beside it. A filled control aligns on its edge, and its edge is already
-     the column's edge. */
+  /* No negative margin: a filled control aligns on its edge. */
   margin-top: var(--space-2);
   flex-shrink: 0;
   background: var(--bg-control);
@@ -2451,16 +1881,12 @@ button.track-link {
   background-image: var(--hover-lift);
 }
 
-/* Positioned and z-lifted for the same reason Home's hero content is: the
-   ambient field behind it sits in normal flow, so the content has to be
-   above it rather than the field below body's background. */
+/* Lifted above the in-flow ambient field, like Home's hero content. */
 .channel-hero > *:not(.detail-hero-ambient) {
   position: relative;
   z-index: 1;
 }
 
-/* Viewport-wide and reaching up behind the header, exactly like Home's — the
-   two heroes are the same idea, so they must not be lit two different ways. */
 .detail-hero-ambient {
   position: absolute;
   /* Measured, as Home's is — see .home-hero-ambient. */
@@ -2482,13 +1908,8 @@ button.track-link {
   flex: 0 0 auto;
 }
 
-/* min-width: 0 lets this shrink below the title's intrinsic width instead
-   of forcing the hero row to wrap — the avatar/title/Unfollow row keeps the
-   same shape whether the channel name is "Zei" or a full sentence.
-   display: flex + gap (rather than the title/paragraph's own margins)
-   controls the title-to-count spacing directly, since flex items don't
-   margin-collapse and a bare <p> would otherwise keep its own ~1em of
-   default browser margin on top of any gap we set. */
+/* min-width: 0 lets this shrink so the hero row doesn't wrap on a long name;
+   gap instead of margins because the <p> keeps default margins. */
 .channel-hero-info {
   min-width: 0;
   flex: 1 1 auto;
@@ -2509,21 +1930,12 @@ button.track-link {
   white-space: nowrap;
 }
 
-/* _mood_panel.html reuses .channel-hero-title's type but skips
-   .channel-hero's own layout entirely (no avatar, no Play/Shuffle to pin
-   against) — so it needs its own bottom margin, matching .channel-hero's,
-   to keep the same gap above the playlist shelf below it. */
 .mood-panel-title {
   margin-bottom: 1.75rem;
 }
 
-/* A mood's playlists, stacking downward rather than scrolling sideways —
-   see _mood_panel.html for why this isn't a .shelf-row. Four across on a
-   wide screen, which is what the request was; auto-fill rather than a fixed
-   `repeat(4, …)` so the same rule gives two on a phone and three in
-   between, instead of four columns 80px wide.
-   minmax(0, 1fr) rather than minmax(0, auto): a grid track sized to its
-   content would let a long playlist title widen its own column. */
+/* auto-fill gives four columns wide, two on a phone. minmax(0, 1fr): a content-
+   sized track would let a long title widen its column. */
 .mood-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -2538,9 +1950,6 @@ button.track-link {
   }
 }
 
-/* Narrow phones: shrink the avatar and title so the row still has room for
-   the detail-actions (Play/Shuffle) column on the right. Title/count/
-   Unfollow already stack inside .channel-hero-info at every width. */
 @media (max-width: 480px) {
   .channel-hero {
     gap: 0.85rem;
@@ -2551,8 +1960,6 @@ button.track-link {
     height: 84px;
   }
 
-  /* Same reasoning as the 64px rule above, one step down with the 84px
-     avatar this sits beside. */
   .channel-hero-avatar.channel-card-icon {
     width: 56px;
     height: 56px;
@@ -2568,9 +1975,6 @@ button.track-link {
   }
 }
 
-/* Play/Shuffle sit inside .channel-hero, to the right of the avatar/info
-   column — .channel-hero-info's flex-grow fills the space between them, so
-   this stays pinned to the page's right edge at every width. */
 .detail-actions {
   display: flex;
   align-items: center;
@@ -2597,14 +2001,11 @@ button.track-link {
 .btn-play-all svg {
   width: 26px;
   height: 26px;
-  /* The play triangle carries its weight to the right, so its bounding box
-     being centred reads as off-centre inside a circle — same nudge
-     #mini-icon-play gets. */
+  /* Optical centring: the triangle's weight sits off its bounding box. */
   margin-left: 3px;
 }
 
-/* (hover: hover) excludes touch for the same reason .btn-play-main documents:
-   a tap would otherwise leave it stuck in its hover state. */
+/* Touch browsers apply :hover on tap and never clear it. */
 @media (hover: hover) {
   .btn-play-all:hover {
     transform: scale(1.06);
@@ -2617,10 +2018,6 @@ button.track-link {
   cursor: default;
 }
 
-/* A minimal, Spotify-playlist-style tracklist for the channel page — plain
-   rows rather than the thumbnail-grid .card layout Home/the old Library grid
-   use, since a channel can be thousands of videos long and a grid of big
-   thumbnails reads like browsing YouTube itself, not listening to a playlist. */
 .track-list {
   display: flex;
   flex-direction: column;
@@ -2687,10 +2084,6 @@ button.track-link {
   white-space: nowrap;
 }
 
-/* The row's second line. Named for the date it used to carry alongside the
-   artist; the date is gone (it was the day this app first saw the track, not
-   a release date) and the artist is all that's left. One line, because a
-   wrapped artist name made every row in a queue two lines tall. */
 .track-artist {
   color: var(--text-muted);
   font-size: var(--text-xs);
@@ -2701,11 +2094,7 @@ button.track-link {
 
 .track-duration {
   flex: 0 0 auto;
-  /* Pins the duration to the row's right edge regardless of
-     .track-link's own width — .track-link no longer caps itself to stop a
-     short title from leaving a dead gap here; this margin does that job
-     instead, so the row still fills .layout's full width on a wide
-     viewport. */
+  /* Pins the duration to the row's right edge. */
   margin-left: auto;
   display: flex;
   align-items: center;
@@ -2714,19 +2103,6 @@ button.track-link {
   font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
 }
-
-/* No mobile override for .track-row any more, and that is the fix for the
-   title running into the duration.
-
-   There used to be one: at ≤480px the row became a grid whose title spanned
-   both the title *and* the duration column ("title title" on the first
-   line, "meta duration" on the second), so a long title ran right across
-   the column the duration lives in. That existed because the duration plus
-   a save button ate ~150px of a ~358px row and left the title almost
-   nothing. The save button is gone with save-for-later, the duration alone
-   costs ~35px, and the flex rules above already give the title everything
-   left over and ellipsize it — so the grid bought nothing and cost the
-   collision. One layout at every width now. */
 
 .card {
   background: var(--bg-surface);
@@ -2740,13 +2116,7 @@ button.track-link {
   display: none;
 }
 
-/* A release card that has been clicked and is waiting to find out what it
-   is (see home/detail.js — a one-track release plays, a longer one opens a
-   panel). Only this card dims, not the shelf, because only this one is
-   busy; pointer-events stops a second click firing a second request while
-   the first is still in the air. No spinner: the wait is one request long
-   and a spinner appearing and vanishing inside a small card reads as a
-   flicker rather than as progress. */
+/* pointer-events: none stops a second click firing a second request. */
 .card.is-loading {
   opacity: 0.5;
   pointer-events: none;
@@ -2756,13 +2126,6 @@ button.track-link {
   position: relative;
   display: block;
   width: 100%;
-  /* Square, because every cover this app shows is square. The 16:9 this used
-     to be dated from when content could be a video still; after the
-     music-only rewrite nothing here is a video, and cropping a square cover
-     to 16:9 sliced the artwork — playlist covers lost the middle of their
-     own titles. The artist page already special-cased itself back to square
-     (see .release-card below, now removed) which is what gave the game
-     away. */
   aspect-ratio: 1;
   background: var(--bg-control);
   border: none;
@@ -2775,19 +2138,8 @@ button.track-link {
 }
 
 .card .thumb img {
-  /* Absolutely positioned (not width/height: 100% in normal flow) so the
-     image can never influence .thumb's own size. .thumb is a flex item
-     (.card is display:flex), and a flex item's height in a column flex
-     container is partly resolved from its content's intrinsic size before
-     the aspect-ratio above is applied — with a percentage-height replaced
-     child still in flow, that content-size pass picks up the *image's own*
-     natural aspect ratio instead, and the card renders taller or shorter
-     than its siblings. Sources don't agree on a ratio (YouTube's plain
-     hqdefault.jpg is 4:3, yt-dlp returns something wider, YouTube Music's
-     cover art is square), so this is not hypothetical. Taking the image out
-     of flow entirely sidesteps the whole interaction, whatever ratio .thumb
-     itself is set to.
-  */
+  /* Out of flow so the image's natural aspect ratio can't influence .thumb's
+     height in the column flex container (sources mix 4:3, 16:9 and square). */
   position: absolute;
   inset: 0;
   width: 100%;
@@ -2796,15 +2148,8 @@ button.track-link {
   display: block;
 }
 
-/* The play affordance on a card's artwork — the one gesture that most says
-   "this is a music library". .thumb is already the play control (an <a> on a
-   server-rendered card, a <button> on an Explore one), so this is purely a
-   visual layer on top of it rather than another focusable element in the tab
-   order, which is already four stops per card.
-
-   Hidden where there is no hover: on a phone it would be a permanent accent
-   disc covering the corner of every cover, and tapping the artwork plays the
-   track there anyway. */
+/* Purely visual on top of .thumb (already the play control) so it adds no tab
+   stop. Hidden without hover. */
 .card .thumb::before,
 .card .thumb::after {
   content: "";
@@ -2816,14 +2161,10 @@ button.track-link {
     transform 0.16s ease;
   /* .thumb itself is the play control; these must never eat its clicks. */
   pointer-events: none;
-  /* Above the artwork. .thumb's img is absolutely positioned with z-index
-     auto, so painting order is plain DOM order — ::before, img, ::after —
-     and without this the disc rendered *behind* the cover while the
-     triangle rendered in front of it. */
+  /* Above the absolutely positioned img, or the disc paints behind the cover. */
   z-index: 1;
 }
 
-/* The disc. */
 .card .thumb::before {
   right: var(--space-2);
   bottom: var(--space-2);
@@ -2834,15 +2175,8 @@ button.track-link {
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
 }
 
-/* The triangle, drawn rather than loaded: the app's CSP allows images only
-   from 'self' and YouTube's hosts, so an inline data: URI for the glyph —
-   background-image is governed by img-src — was blocked outright and left a
-   blank accent disc. clip-path has no such problem and keeps this to CSS,
-   which matters because Explore builds its cards in JS and would otherwise
-   need the same markup added by hand.
-
-   Nudged 1px right of true centre: a triangle's visual mass sits left of its
-   bounding box, so a mathematically centred one reads as too far left. */
+/* Drawn with clip-path, not a data: URI — CSP img-src blocks that. Nudged 1px
+   right: a centred triangle reads as too far left. */
 .card .thumb::after {
   right: calc(var(--space-2) + 12px);
   bottom: calc(var(--space-2) + 13px);
@@ -2860,8 +2194,6 @@ button.track-link {
   transform: none;
 }
 
-/* On a touch screen this would be a permanent accent disc over the corner of
-   every cover, and tapping the artwork already plays the track. */
 @media (hover: none) {
   .card .thumb::before,
   .card .thumb::after {
@@ -2889,17 +2221,8 @@ button.track-link {
   margin: 0;
   font-size: var(--text-md);
   line-height: 1.3;
-  /* One line, ellipsised — the same shape as .card-channel below it, so a
-     card is always exactly two lines of text and every card in a shelf is
-     the same height without anything having to reserve space.
-
-     This used to clamp to two lines with a min-height holding both open.
-     That made a one-line title leave a line of dead space under itself, and
-     removing just the min-height didn't help: cards stretch to the tallest
-     one in the row, so a single two-line title anywhere in the shelf —
-     including on a card scrolled out of view — padded out every other card.
-     The full title is still available: _content_card.html puts it in the
-     title attribute. */
+  /* One line: cards stretch to the tallest in the row, so one two-line title
+     pads every card. The full title is in the title attribute. */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2920,9 +2243,7 @@ button.track-link {
   margin: 0;
   font-size: var(--text-sm);
   color: var(--text-secondary);
-  /* One line, always. A 150px card on a phone wrapped "Bob Marley & The
-     Wailers" onto three lines, which stretched the card past half the
-     viewport and left the save button floating beside a ragged block. */
+  /* One line: a wrapped artist name stretched the card. */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2933,17 +2254,8 @@ button.track-link {
   text-decoration: none;
 }
 
-/* The artist's name inside a song card or search row, as a way into their
-   page. Used from both surfaces, hence the neutral name and the `inherit`s:
-   it sits in .card-channel on one and in .search-result-subs on the other,
-   which are different sizes and different greys, and it should look like
-   whichever line it's in rather than introduce a third.
-
-   Deliberately not styled as a link. It's one word in a line of metadata
-   ("Sezen Aksu · 5:17") directly under the title, and a permanently
-   underlined, differently coloured word there competes with the title for
-   the eye. The underline arrives on hover and on keyboard focus, which is
-   when it's needed. */
+/* Inherits so it matches whichever metadata line it sits in; underline only on
+   hover/focus so it doesn't compete with the title. */
 .artist-link {
   background: none;
   border: none;
@@ -2961,21 +2273,11 @@ button.track-link {
   text-decoration: underline;
 }
 
-/* Content cards dropped their date line — it printed the day we first saw the
-   track rather than a release date, so it repeated one meaningless value down
-   the whole shelf. This still styles the third line on the cards that do have
-   something real to put there: a release year on the artist page's album and
-   single cards, and a listener count on an artist card. */
 .card-date {
   margin: 0;
   font-size: var(--text-xs);
   color: var(--text-muted);
-  /* One line, for the same reason .card-channel is one line: a long credit
-     ("Cafe Jazz Music Relaxing Instrumental") wrapped here, and because cards
-     stretch to the tallest one in the row, that one release padded out every
-     other card in the shelf and broke the baseline the titles sit on. The
-     badge is inline, so nowrap ellipsises the credit after it rather than
-     clipping the badge. */
+  /* One line: cards stretch to the tallest in the row. */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3011,15 +2313,8 @@ button.track-link {
   display: none;
 }
 
-/* Boot splash — see index.html for why it exists. Sits above every other
-   overlay (.toast-container's 1200 is the next highest) because it is meant
-   to hide all of them coming up for the first time, not compete with one.
-   Faded out rather than swapped straight to [hidden] so the reveal reads as
-   one deliberate moment instead of a cut; [hidden] is still what ends up
-   removing it, once home/library.js's setupSplash hears the transition
-   finish — an explicit rule here because a class of ours setting `display`
-   otherwise beats the attribute (see .btn-icon[hidden] above for the same
-   trap). */
+/* Above every overlay (next highest: .toast-container 1200). The explicit
+   [hidden] rule is needed because `display` here beats the attribute. */
 .app-splash {
   position: fixed;
   inset: 0;
@@ -3093,34 +2388,23 @@ button.track-link {
   border-width: 4px;
 }
 
-/* Shown in #detail-panel while home/detail.js's fetch is in flight — unlike
-   .overlay, not fixed/full-screen: the topbar and tabs stay visible and
-   usable while a channel/playlist loads in. */
 .detail-loading {
   display: flex;
   justify-content: center;
   padding: 4rem 0;
 }
 
-/* Confirm dialog */
-
 .modal-overlay {
   position: fixed;
   top: var(--vvt, 0px);
   left: 0;
   width: 100%;
-  /* Not inset: 0 — height tracks the visual viewport (see core.js's
-     --vvh/--vvt sync) so the keyboard shrinking it re-centers the modal
-     instead of leaving it flush against a layout viewport that's now
-     partly hidden behind the keyboard. */
+  /* Tracks the visual viewport (core.js's --vvh/--vvt) so the keyboard re-centres
+     the modal. */
   height: var(--vvh, 100vh);
   background: rgba(0, 0, 0, 0.65);
   display: flex;
-  /* `safe`, not a bare `center`: a centred flex item taller than its
-     container overflows in *both* directions, and the part that goes off the
-     top cannot be scrolled back to. safe center lays out from the start
-     instead the moment that would happen, which is the only case top
-     alignment was ever needed for. */
+  /* `safe`: a centred item taller than its container loses its top off-screen. */
   align-items: safe center;
   justify-content: center;
   padding: 1rem;
@@ -3152,54 +2436,27 @@ button.track-link {
   gap: 0.5rem;
 }
 
-/* The interests picker lives in its own modal rather than inline in a
-   settings row: a wrapping grid of chips doesn't fit the
-   label-left/control-right shape every other row has.
-
-   Wider than .modal's 360px because there are ~28 chips to wrap, which a
-   narrow box turns into a long scrolling column. Still a centred card
-   though — the fullscreen treatment below is only for a first run.
-
-   Below .modal rather than up with the Settings rules where it used to sit,
-   and that move is a fix, not tidying: .modal-interests and .modal are both
-   one class, so neither out-specifies the other and the later one simply
-   wins. From up there its max-width lost to .modal's 360px silently — the
-   declaration was right there in the file, doing nothing. Anything added
-   here that .modal also sets has to stay below it. */
+/* Must stay below .modal: both are one class, so the later one wins and
+   .modal's max-width silently overrode this. */
 .modal-interests {
   max-width: 640px;
   display: flex;
   flex-direction: column;
-  /* The overlay bounds the height (100% of a fixed-position parent, so this
-     resolves — unlike a percentage against an auto-height one) and the chip
-     list inside is what scrolls, so the heading and the Continue row stay
-     put rather than scrolling away with it. */
+  /* The chip list scrolls, so the heading and Continue row stay put. */
   max-height: 100%;
   overflow: hidden;
 }
 
-/* All this adds to .interest-chips is the gap under the sentence above it. */
 .modal-interests #interests-picker {
   margin-top: 1rem;
   overflow-y: auto;
   overscroll-behavior: contain;
-  /* Without this a flex child refuses to shrink below its content, so the
-     modal grows past the max-height above instead of this scrolling. */
+  /* Without this the flex child won't shrink and the modal grows past max-height. */
   min-height: 0;
 }
 
-/* First run vs. every other time, on one element (see index.html). The
-   attribute is set by the server and removed by home/settings.js the moment
-   onboarding is done, so this is not a permanent property of the overlay —
-   which is why both controls are always in the markup and only their
-   visibility moves.
-
-   A first run is fullscreen: edge to edge, no corners, nothing of the app
-   showing round the side. It is not a dialog over the app, it is what the
-   app is showing. Applying that in both modes was tried first and looked
-   wrong in the other one — Settings' picker has no Continue row and about
-   half a screen of chips, so a full-height panel was mostly empty space
-   below them. */
+/* First run (attribute set by the server, removed by home/settings.js) is
+   fullscreen; the Settings picker stays a centred card. */
 #interests-overlay[data-required] {
   padding: 0;
 }
@@ -3208,17 +2465,9 @@ button.track-link {
   max-width: none;
   height: 100%;
   border-radius: 0;
-  /* Otherwise the heading, chips and Continue row sit against the top of a
-     full-height panel with half a screen of nothing under them.
-     `safe`, not a bare `center`: a centred flex item taller than its
-     container overflows in *both* directions, and the part that goes off the
-     top cannot be scrolled back to. safe center lays out from the start
-     instead the moment that would happen — which is a short window on a
-     phone, since the chip list is what has to fit. */
+  /* `safe`: a centred item taller than its container loses its top off-screen. */
   justify-content: safe center;
-  /* Centres the content without centring the panel: the chips would
-     otherwise run the full width of a desktop monitor, which reads as a
-     page that stretched rather than one laid out that way. */
+  /* Centres the content without centring the panel. */
   padding-inline: max(var(--space-5), calc((100% - 720px) / 2));
 }
 
@@ -3230,9 +2479,6 @@ button.track-link {
   display: none;
 }
 
-/* Left, not right like other modals' actions: this row is a prompt to finish
-   ("Pick 2 more") sitting next to the button that finishes, and reading it
-   right-aligned puts the explanation after the thing it explains. */
 #interests-actions {
   justify-content: flex-start;
   align-items: center;
@@ -3248,18 +2494,13 @@ button.track-link {
   flex-direction: column;
 }
 
-/* Plain block wrapper around the downloads fragment (rendered separately
-   at GET /partials/downloads, then reused here) — without display: flex it
-   has no min-height: 0 to shrink into, so .storage-list's own
-   flex/overflow-y: auto below never had a bounded height to actually
-   scroll inside: the whole modal just grew past its max-height instead. */
+/* Flex, so .storage-list has a bounded height to scroll inside. */
 #downloads-body {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
 }
-
 
 .modal-header {
   display: flex;
@@ -3301,9 +2542,6 @@ button.track-link {
   margin-bottom: var(--space-6);
 }
 
-/* Wraps rather than scrolling sideways, unlike .channel-chip's row: these
-   are a set to choose from, and one you have to scroll to see all of is one
-   you will not read to the end of. */
 .genre-chip {
   border: 1px solid transparent;
   background: var(--bg-control);
@@ -3314,8 +2552,7 @@ button.track-link {
   font-size: var(--text-md);
   font-weight: 600;
   cursor: pointer;
-  /* 44px minimum tap target — these are the first thing a new install is
-     asked to touch, and on a phone that is a thumb. */
+  /* 44px minimum tap target. */
   min-height: 44px;
 }
 
@@ -3347,18 +2584,12 @@ button.track-link {
   color: var(--white);
 }
 
-/* display: inline-block above beats the [hidden] attribute, so this is what
-   actually keeps a hidden .btn-quiet off screen — Settings' "Remove all",
-   which only exists once there is something on the device to remove. */
+/* `display: inline-block` above beats the UA [hidden] rule. */
 .btn-quiet[hidden] {
   display: none;
 }
 
-/* Quiet by default. This was a solid red fill, which made deleting every
-   downloaded file the loudest control on the panel — louder than the
-   harmless "Export all" beside it — so visual weight ran opposite to how
-   much the action costs. The red arrives on hover, once the pointer is
-   already on it. */
+/* Quiet by default; red only on hover, so the costliest action isn't the loudest. */
 .btn-danger {
   background: var(--bg-control);
   border: 1px solid transparent;
@@ -3395,11 +2626,6 @@ button.track-link {
   cursor: default;
 }
 
-/* Modal buttons used to be the one place in the app with a visible focus
-   ring. The global :focus-visible rule near the top covers them now. */
-
-/* Toasts */
-
 .toast-container {
   position: fixed;
   left: 50%;
@@ -3432,15 +2658,8 @@ button.track-link {
   transform: translateY(0);
 }
 
-/* A full-height column, not a block that happens to be centred, so that
-   opening the queue is a matter of how the card divides its own height —
-   the artwork gives space up, the queue takes it — rather than of scrolling
-   the card around inside the overlay. See .queue-panel.
-
-   `safe center` keeps the contents centred while they're shorter than the
-   card and falls back to the top once they aren't, which is the overflow
-   trap .player-overlay's note describes. A browser without `safe` drops the
-   declaration entirely and lands on flex-start, i.e. the same fallback. */
+/* A full-height column so opening the queue divides the card's height (artwork
+   shrinks, queue grows) instead of scrolling. `safe center`: see .player-overlay. */
 .player-card {
   width: 100%;
   max-width: 380px;
@@ -3477,33 +2696,17 @@ button.track-link {
 .player-art {
   border-radius: var(--radius-md);
   overflow: hidden;
-  /* Square like every other cover in the app. Capped and centred because a
-     square that tracks the card's full width is much taller than the 16:9
-     it replaces, and on a short viewport it pushed the transport controls
-     off-screen. */
+  /* Capped: a full-width square pushed the transport off short viewports. */
   aspect-ratio: 1;
   max-width: 340px;
   width: 100%;
   margin: 0 auto var(--space-5);
   background: var(--bg-control);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
-  /* The cap is what the queue opens against: it animates down to
-     ART_COMPACT_HEIGHT and the space it gives up is what the queue grows
-     into (see .queue-panel). Stated here as well as there because a
-     transition needs a length at both ends — from `none` there is nothing to
-     interpolate — and 340px is the width cap above, so it changes nothing
-     while the queue is shut. */
-  /* Shrinkable, and the only thing in the card that is. Everything else —
-     the title, the transport, the footer — is either a control or the label
-     for one, and there is no honest way to make those smaller; the artwork
-     is the one element that can give up height and still be itself, because
-     object-fit: cover already crops it from the centre. So on a phone too
-     short for the card at full size the cover quietly takes the difference
-     and the player fits, rather than the overlay growing a scrollbar and
-     putting the transport below the fold.
-     `min-height: 0` is what actually permits it: a flex item's automatic
-     minimum size is its content, and the square the aspect-ratio above
-     asks for counts as content. */
+  /* A transition needs a length at both ends (not `none`); 340px equals the width
+     cap, so it's a no-op while the queue is shut. */
+  /* The only shrinkable item, so a short phone gets a smaller cover instead of a
+     scrollbar. min-height: 0 is what permits it. */
   flex: 0 1 auto;
   min-height: 0;
   max-height: 340px;
@@ -3528,8 +2731,6 @@ button.track-link {
   margin: 0 0 0.35rem;
 }
 
-/* The paragraph the artist button sits in, so the line keeps the block-level
-   spacing it had while it was the paragraph itself. */
 .player-channel-line {
   margin: 0;
 }
@@ -3540,9 +2741,6 @@ button.track-link {
   margin: 0;
 }
 
-/* A track whose artist has no page to open (a placeholder row created from a
-   track and never resolved — see ContentOut.artist_page_id) keeps the button
-   as the plain line it was: no pointer, no underline on hover. */
 .player-channel:disabled {
   cursor: default;
 }
@@ -3556,16 +2754,8 @@ audio {
   display: none;
 }
 
-/* Range inputs (seek + volume) — the played portion is painted via --fill,
-   which player.js keeps in sync with the current value. */
-
-/* The element is finger-height and transparent; the 4px line you actually see
-   is painted on the track pseudo-element inside it.
-
-   It used to be the input itself that was 4px tall, which made it a 4px touch
-   target: hitting the bar at all was luck on a phone, and missing it does
-   nothing at all, so seeking read as a bar that "sometimes" works. Nothing
-   about the appearance changes here — only how much of the screen responds. */
+/* Finger-height transparent input; the visible 4px line is the track pseudo,
+   with the played portion painted via --fill (kept in sync by player.js). */
 .range {
   -webkit-appearance: none;
   appearance: none;
@@ -3574,11 +2764,8 @@ audio {
   background: none;
   cursor: pointer;
   outline: none;
-  /* The horizontal axis belongs to the slider, the vertical one still scrolls
-     the page. `manipulation` (inherited from the global * rule) leaves the
-     browser free to claim a sideways drag as a pan and abandon the scrub
-     mid-gesture; `none` would fix that by making a full-width bar a place
-     where the page can't be scrolled at all. */
+  /* `manipulation` lets the browser steal a sideways drag as a pan; `none` would
+     block page scroll over the bar. */
   touch-action: pan-y;
 }
 
@@ -3599,9 +2786,7 @@ audio {
   appearance: none;
   width: 12px;
   height: 12px;
-  /* Centres the thumb on the 4px track: half the track less half the thumb.
-     WebKit measures the thumb from the top of the track, not from the middle
-     of the input, so without this it hangs below the line. */
+  /* WebKit measures the thumb from the top of the track, not the input's middle. */
   margin-top: -4px;
   border-radius: var(--radius-circle);
   background: var(--white);
@@ -3616,9 +2801,7 @@ audio {
   opacity: 1;
 }
 
-/* Touch devices have no real :hover to reveal the thumb on — without this
-   the seek/volume bar looks like a bare line with nothing to grab until
-   you're already mid-drag. */
+/* No :hover on touch, so show the thumb always. */
 @media (hover: none) {
   .range::-webkit-slider-thumb {
     opacity: 1;
@@ -3641,8 +2824,7 @@ audio {
   background: linear-gradient(to right, var(--accent) var(--fill, 0%), var(--track-empty) var(--fill, 0%));
 }
 
-/* Removed outright where the browser won't honour a volume change at all —
-   see player.js's volumeIsSettable. */
+/* Removed where the browser won't honour volume — see player.js's volumeIsSettable. */
 .range[hidden] {
   display: none;
 }
@@ -3669,13 +2851,8 @@ audio {
   display: none;
 }
 
-/* Greys out the transport while a track is still downloading (or has failed)
-   — but deliberately not previous/next, which are the one pair of controls
-   that still mean something then. A track stuck on "Download failed" is
-   exactly when someone wants to skip past it, and disabling the whole row
-   left them with nothing but closing the player. Applied per-child rather
-   than to the row so those two can opt out: opacity on the parent isn't
-   something a child can undo. */
+/* Per child so prev/next can opt out (parent opacity can't be undone) — skipping
+   a failed track is exactly when they're needed. */
 .transport.is-disabled > :not(#prev-track):not(#next-track) {
   opacity: 0.35;
   pointer-events: none;
@@ -3694,12 +2871,8 @@ audio {
   font-variant-numeric: tabular-nums;
 }
 
-/* space-between rather than a fixed gap: five controls (±15s, prev/next and
-   play) at their 44px tap targets need 236px before any spacing at all, and
-   a 1.5rem gap between each pushed the row past the card's width on a narrow
-   phone. Distributing the leftover instead keeps the row symmetric at every
-   width and still leaves generous spacing on a wide one — the gap is only
-   the floor. */
+/* space-between, not a fixed gap: five 44px targets plus gaps overflowed a
+   narrow phone. */
 .transport {
   display: flex;
   align-items: center;
@@ -3725,10 +2898,6 @@ audio {
   color: var(--white);
 }
 
-/* Previous/next are the only transport buttons that can be genuinely
-   unavailable (nothing but a single track open). Dimmed rather than removed
-   so the row keeps its shape and the play button stays where the thumb
-   expects it. */
 .btn-transport:disabled {
   opacity: 0.3;
   cursor: default;
@@ -3743,28 +2912,14 @@ audio {
   height: 26px;
 }
 
-/* Shuffle and repeat sit at the ends of the same row as previous/next, but
-   they set a mode rather than move through the queue — smaller keeps the
-   three controls that actually move playback reading as the row's subject.
-   (.transport-num, which numbered the ±15s buttons that used to hold these
-   slots, went with them.) */
 .btn-transport.btn-shuffle svg,
 .btn-transport.btn-repeat svg {
   width: 20px;
   height: 20px;
 }
 
-/* Both are toggles on the same row and both mean "this is on".
-
-   Three classes deep, not two, and that is the whole point: a touch browser
-   applies :hover on tap and never sends the mouseleave that would clear it,
-   so the button stays hovered until something else is tapped. At two classes
-   this tied with .btn-transport:hover and lost outright to
-   .btn-quiet-icon:hover (which is further down the file) — so pressing
-   shuffle repainted it to the hover colour and the on-state was invisible on
-   a phone, on both of the buttons that carry it.
-
-   Any new hover rule on either button has to stay under this. */
+/* Three classes deep on purpose: touch keeps :hover stuck after tap, and at two
+   classes the later .btn-quiet-icon:hover hid the on-state. Keep hover rules below this. */
 .btn-transport.btn-shuffle.is-on,
 .btn-transport.btn-repeat.is-on,
 .btn-quiet-icon.btn-shuffle.is-on {
@@ -3775,11 +2930,6 @@ audio {
   display: none;
 }
 
-/* The one control the whole overlay is built around, so it carries the brand
-   colour. It used to be a white rounded square — the only white surface in
-   the app, and a filled square reads as "stop" next to a row of transport
-   icons. It also disagreed with the mini player's own play button, which was
-   already a circle; both are the same action and now look it. */
 .btn-play-main {
   width: 60px;
   height: 60px;
@@ -3796,16 +2946,12 @@ audio {
     background 0.12s ease;
 }
 
-/* Same optical correction as the mini player's: a play triangle carries its
-   weight to the left of its box, so a centred one looks off-centre. */
+/* Optical centring: the triangle's weight sits off its bounding box. */
 #icon-play {
   margin-left: 3px;
 }
 
-/* (hover: hover) excludes touch — without it, tapping this on mobile leaves
-   it visibly "stuck" on the hover color, because touch browsers apply :hover
-   on tap but never send the mouseleave that would normally clear it on
-   desktop. */
+/* Touch browsers apply :hover on tap and never clear it. */
 @media (hover: hover) {
   .btn-play-main:hover {
     transform: scale(1.06);
@@ -3829,29 +2975,8 @@ audio {
   gap: var(--space-4);
 }
 
-/* Opens under the transport rather than over it: what's playing stays on
-   screen and reachable while you look at what's next, which is the whole
-   reason to open a queue mid-track.
-
-   The panel takes a share of the card's own height rather than adding to it,
-   which is what keeps the player still. Two earlier versions both moved it:
-   capping the panel at 45vh with its own scroller put a scroll container
-   inside the overlay's, and on a touch screen the gesture gets handed from
-   one to the other the moment the inner one hits an end — a flick stops dead
-   partway and the last row can't be brought up. Letting the panel run to its
-   full height instead made the card taller than the screen, so reaching the
-   queue meant scrolling the player off the top of it.
-
-   Here the overlay stops scrolling altogether while the panel is open (see
-   .player-overlay.is-queue-open), so there is still only ever one scroller —
-   it's just this one rather than the overlay. The player cannot move,
-   because there is nowhere for it to move to.
-
-   The open/close animates flex-grow, 0 to 1: the panel's height is whatever
-   space the card has spare, and the artwork's max-height transition is
-   what's freeing that space over the same 260ms. Nothing here needs to know
-   how tall the queue is — `height: auto` isn't interpolable and a max-height
-   guess either clips a long queue or animates empty space. */
+/* Takes a share of the card's height via flex-grow (0 → 1) rather than adding
+   to it; the overlay stops scrolling while open, so there's only ever one scroller. */
 .queue-panel {
   display: flex;
   flex-direction: column;
@@ -3865,10 +2990,7 @@ audio {
   flex-grow: 1;
 }
 
-/* The clipper, and once open the scroller. visibility, not just overflow: a
-   collapsed panel still holds focusable rows, and tabbing into a list you
-   can't see is worse than not reaching it. Delayed on the way out so it
-   doesn't blink away before the collapse has finished. */
+/* visibility, not just overflow: a collapsed panel mustn't hold focusable rows. */
 .queue-panel-inner {
   flex: 1 1 auto;
   min-height: 0;
@@ -3880,22 +3002,12 @@ audio {
 .queue-panel.is-open .queue-panel-inner {
   visibility: visible;
   overflow-y: auto;
-  /* The overlay behind this can't scroll while the panel is open, but the
-     page behind *that* can — without this a flick that runs off the end of
-     the queue scrolls Home underneath the player. */
+  /* Stops a flick past the end from scrolling the page behind the overlay. */
   overscroll-behavior: contain;
   transition-delay: 0s;
 }
 
-/* The panel's header, above the scroller rather than inside it — a header
-   that scrolls away with its own contents isn't one. It carries the divider
-   that used to sit on #queue-panel-body, since it is the panel's first
-   element now.
-
-   Kept here, above the desktop block below, on purpose: a media query adds
-   no specificity, so the override in there only wins by coming later in the
-   file. Moved down past it and the desktop tabs silently get the drawer's
-   divider and 24px of space back. */
+/* Must stay above the desktop block below, whose override wins only by order. */
 .panel-tabs {
   display: flex;
   gap: var(--space-4);
@@ -3906,10 +3018,7 @@ audio {
   margin-bottom: var(--space-3);
 }
 
-/* A collapsed drawer has no height, so without this the tabs would be drawn
-   over the controls above while it opens and closes. .queue-panel-inner
-   solves the same problem for itself with visibility; the tabs sit outside
-   it, so this clip belongs to the panel. */
+/* A collapsed drawer has no height; clip the tabs during the animation. */
 .queue-panel {
   overflow: hidden;
 }
@@ -3926,38 +3035,16 @@ audio {
   }
 }
 
-/* Not a layout box on a phone: the card's children stay its own direct flex
-   items, so everything above — the artwork giving up height for the queue,
-   the drag-to-close — works exactly as it did. This wrapper exists only for
-   the desktop rule below. */
+/* Not a layout box on a phone; exists for the desktop rule below. */
 .player-main {
   display: contents;
 }
 
-/* Desktop: the queue is not something you open.
- *
- * On a phone the panel is a drawer because there is one column and the
- * artwork has to give up its height for it. A wide screen has a whole empty
- * half instead, so the panel simply lives there, already open, from the
- * moment the player does — and the toggle that opened it has nothing left
- * to do.
- *
- * 900px is where 380px of player plus a track list wide enough to read stop
- * competing for the same space. Below it, everything above still applies
- * unchanged.
- */
+/* Desktop: the queue lives permanently in the right half instead of a drawer. */
 @media (min-width: 900px) {
   .player-card {
     max-width: 980px;
-    /* Bounded to what .player-overlay actually has left (its content box,
-       inset: 0 against the viewport, so this is a definite height) rather
-       than left to hug its own content. Without this a track whose title
-       wraps to two lines, or just a modest-height browser window, made the
-       card taller than the viewport — the overlay's overflow-y: auto below
-       then let you scroll to the transport instead of the volume/seek
-       controls always being on screen. Bounding it here instead makes
-       .player-art give up height first (flex: 0 1 auto; min-height: 0,
-       above), the same trade a short phone already makes. */
+    /* Bounded height so .player-art shrinks instead of the card outgrowing the viewport. */
     max-height: 100%;
     flex-direction: row;
     align-items: stretch;
@@ -3969,63 +3056,25 @@ audio {
     display: flex;
     flex-direction: column;
     justify-content: safe center;
-    /* The width the whole card used to be, so the left half is the player
-       people already know rather than a stretched version of it. */
     flex: 0 0 380px;
     min-width: 0;
-    /* Stretched to .player-card's now-bounded height (align-items: stretch
-       above) rather than sized to its own content — min-height: 0 is what
-       lets that height be *less* than the content's natural size, so
-       .player-art's own shrink actually has room to happen instead of
-       overflowing the column. */
+    /* Lets the column be shorter than its content so .player-art can shrink. */
     min-height: 0;
   }
 
-  /* Open, and not animating: flex-grow is the drawer's mechanism and there
-     is no drawer here. */
   .queue-panel {
     flex: 1 1 auto;
     min-width: 0;
     max-width: 460px;
-    /* Full height of the card, not centred against it. The tab strip is the
-       panel's first element, so a panel sized to its own contents put Queue
-       and Lyrics halfway down the screen whenever the queue was empty or the
-       track had no lyrics — the two tabs drifted up and down as their
-       contents changed, which is exactly what a tab strip must not do.
-
-       Stretching is only half of it, and on its own it aimed at the wrong
-       box: the card used to fill the whole overlay, so the panel started
-       104px above Collapse instead of level with it. The other half is the
-       overlay centring the card (`align-items: safe center`, further down)
-       and the panel no longer contributing height of its own — see
-       .queue-panel-inner just below. */
+    /* Full card height so the tabs stay put as the panel's contents change. */
     align-self: stretch;
     transition: none;
   }
 
-  /* The panel stops deciding how tall the card is.
-   *
-   * The tab strip is its only in-flow content here; the list below is taken
-   * out of flow (see the rule after this one). So the card's height comes
-   * from the player column alone, and a panel stretched to that card is
-   * exactly as tall as the player beside it — which is what keeps Queue and
-   * Lyrics level with Collapse whether the queue holds nothing or forty
-   * tracks. Measured both ways: tab strip and Collapse both at 128.
-   *
-   * This replaced a `max-height: min(680px, 100%)` cap, which quietly stopped
-   * capping anything the moment the card stopped having a definite height —
-   * a percentage max-height against an auto-height parent computes to none.
-   * The panel then grew to its full 40-track length and dragged the card
-   * with it. */
-  /* Same selector as the mobile rule above (.queue-panel.is-open
-     .queue-panel-inner), not just .queue-panel-inner: is-open is always set
-     at this breakpoint (see home/overlay.js's setQueueOpen), so that rule's
-     three-class specificity was winning here regardless of source order and
-     leaving this overflow-y: auto — which made lyrics.js's active-line
-     scrollTo() a no-op on desktop, since with the tabpanel below sized to
-     fill this box exactly (inset: 0) there was nothing here to scroll in the
-     first place. Tied specificity is what lets being later in the file
-     actually win. */
+  /* The list is out of flow, so card height comes from the player column alone.
+     (A % max-height against an auto-height parent computes to none.) */
+  /* Same selector as the mobile rule: is-open is always set here, so a shorter
+     selector loses on specificity and breaks lyrics.js's scrollTo(). */
   .queue-panel.is-open .queue-panel-inner {
     visibility: visible;
     position: relative;
@@ -4033,22 +3082,15 @@ audio {
     transition: none;
   }
 
-  /* Both bodies, whichever is showing. `inset: 0` rather than a top offset
-     past the tabs: this sits inside .queue-panel-inner, which is already
-     below them. No display of its own, so [hidden] on the unselected one
-     still hides it (see the icon-toggle rules for where that has bitten). */
+  /* No display of its own, so [hidden] still hides the unselected tabpanel. */
   .queue-panel-inner > [role="tabpanel"] {
     position: absolute;
     inset: 0;
     overflow-y: auto;
-    /* The overlay behind this can't scroll while the panel is open, but the
-       page behind *that* can — without this a flick that runs off the end of
-       the queue scrolls Home underneath the player. */
+    /* Stops a flick past the end from scrolling the page behind the overlay. */
     overscroll-behavior: contain;
   }
 
-  /* Nothing above the tabs to separate them from — the border and the gap
-     were there to divide the panel from the controls it sat under. */
   .panel-tabs {
     margin-top: 0;
     border-top: none;
@@ -4060,8 +3102,6 @@ audio {
   }
 }
 
-/* Which row is playing. Set by the browser, not the server — see
-   _queue_panel.html. */
 .track-row.is-current {
   background: var(--bg-surface);
 }
@@ -4071,9 +3111,6 @@ audio {
   color: var(--accent);
 }
 
-/* The panel's two views. This replaced the queue's own <h2>: with a second
-   view to reach, the heading had to become a control, so it kept the
-   heading's size and letterspacing and gained a selected state. */
 .panel-tab {
   background: none;
   border: none;
@@ -4085,8 +3122,7 @@ audio {
   text-transform: uppercase;
   color: var(--text-muted);
   cursor: pointer;
-  /* Transparent rather than absent, so selecting a tab doesn't move the
-     rows underneath it by the height of a border. */
+  /* Transparent rather than absent, so selecting a tab doesn't shift the rows. */
   border-bottom: 2px solid transparent;
 }
 
@@ -4099,8 +3135,6 @@ audio {
   border-bottom-color: var(--accent);
 }
 
-/* How many results are behind a tab you aren't looking at — the one thing a
-   tab strip costs over two stacked headings, handed back. */
 .panel-tab-count {
   margin-left: 0.35rem;
   color: var(--text-muted);
@@ -4112,9 +3146,6 @@ audio {
   display: none;
 }
 
-/* Explore's search results carry the same tab strip as the player panel, but
-   none of the spacing that positions it inside a drawer: there is nothing
-   above it here to be divided from. */
 .search-tabs {
   margin-top: 0;
   padding-top: 0;
@@ -4125,29 +3156,8 @@ audio {
   display: none;
 }
 
-/* The search field and its tab strip, pinned while the results scroll under
-   them. What you typed and which half of the results you're reading are both
-   still the question while you're reading the answer — and on a phone a long
-   list scrolled the field away entirely, so clearing or changing a search
-   meant scrolling back to the top first.
-
-   One sticky block rather than two stacked ones: the strip's offset would
-   otherwise have to be hardcoded to the field's rendered height. The
-   background is what keeps rows from showing through as they pass beneath;
-   the negative top margin plus matching padding is what stops a row being
-   visible in the gap that .layout's own top padding leaves above it.
-
-   The bottom padding is the same gap, on the other side, and it lives here
-   rather than on .search-tabs because the strip is only present while there
-   are search results to divide. With the gap on the strip, the default state
-   of this tab — the browse shelves, no search typed — had the first row
-   sitting flush against the bottom of the field, and scrolling ran it under
-   an edge with nothing between the two. One rule owns the gap in both
-   states.
-
-   Half of what the strip used to carry: the field already sits inside its
-   own wrapper's spacing, so taking the strip's whole value on top of that
-   read as a hole rather than as a gap. */
+/* Field and tab strip in one sticky block, so the strip's offset needn't be
+   hardcoded. Negative margin + padding hide rows in .layout's top gap. */
 .explore-search-head {
   position: sticky;
   top: 0;
@@ -4165,9 +3175,6 @@ audio {
   line-height: 1.55;
 }
 
-/* Timed lyrics. Dim by default and bright on the current line, which is the
-   convention everywhere this exists — the whole point is being able to find
-   your place at a glance without reading. */
 .lyrics-body {
   padding-bottom: var(--space-6);
 }
@@ -4216,10 +3223,7 @@ audio {
   flex: 1;
 }
 
-/* With the slider removed (iOS — see player.js's volumeIsSettable) the group
-   would otherwise keep growing to hold a control that isn't there, leaving
-   the mute button alone against 160px of nothing in the middle of the
-   footer. */
+/* Without a slider (iOS), don't reserve width for it. */
 .volume-group:has(.range[hidden]) {
   flex: 0 0 auto;
   max-width: none;
@@ -4277,56 +3281,29 @@ audio {
   color: var(--accent);
 }
 
-/* The shuffle toggle appears twice — in the player's transport row and above
-   a channel/playlist's track list — and both drive the same preference, so
-   both have to look the same when it's on. The rule itself lives with the
-   transport styles above, alongside repeat's. */
-
 .btn-fav:disabled {
   opacity: 0.5;
   cursor: default;
 }
-
-/* Home/Library/Explore's in-page player — see
-   app/templates/_player_overlay.html. .player-card/.player-art/etc. above
-   are reused as-is for its contents; this is just the full-screen backdrop
-   and the persistent mini-bar that sits below it when collapsed. */
 
 .player-overlay {
   position: fixed;
   inset: 0;
   z-index: 1000;
   display: flex;
-  /* stretch, not `align-items: center`. A centred flex item taller than its
-     scroll container overflows in both directions and the top half becomes
-     unreachable — there is no scroll position that reveals it. Stretching
-     hands the card the full height and lets it centre its own contents
-     instead (see .player-card), which has a defined answer for the case
-     where they don't fit. */
+  /* stretch, not center: a centred item taller than the scroller loses its top. */
   align-items: stretch;
   justify-content: center;
-  /* The bottom inset matters now that a queue can run past the fold: without
-     it the last row ends under the home indicator. */
+  /* Keeps the last queue row clear of the home indicator. */
   padding: 1.5rem 1.5rem calc(1.5rem + env(safe-area-inset-bottom, 0px));
-  /* Not a scroller. The player is one screen and it stays one screen: the
-     artwork above shrinks to whatever height is left over, so there is
-     nothing below the fold to scroll to, and a phone short enough to have
-     cut the transport off now gets a smaller cover instead. Restored to
-     `auto` on a wide screen (see the min-width: 900px block below), where
-     the card hugs its contents and a genuinely short window can still leave
-     them taller than the viewport.
-     The overlay was the only scroller here even then (see .queue-panel), so
-     nothing else has to change with it. */
+  /* Not a scroller on a phone: the artwork shrinks instead. Restored to auto in
+     the min-width: 900px block below. */
   overflow: hidden;
-  /* Keeps a flick that runs off the end of the queue from scrolling the page
-     underneath the overlay. */
+  /* Stops a flick past the end from scrolling the page underneath. */
   overscroll-behavior: contain;
   background: radial-gradient(circle at 50% 0%, var(--bg-surface) 0%, var(--bg-page) 60%);
 }
 
-/* Covers the whole backdrop rather than reaching past it: this overlay is
-   already fixed to the viewport, so there is nothing above or below it to
-   spill into. */
 .player-overlay-ambient {
   position: absolute;
   inset: 0;
@@ -4343,24 +3320,12 @@ audio {
   display: none;
 }
 
-/* A strip of the cover, so the queue has somewhere to go. Cropped rather than
-   scaled — object-fit keeps the artwork's proportions and takes the crop off
-   both edges, so it reads as the cover closing rather than squashing.
-   80px, not the 150 this started at: measured on a 375x667 phone, the panel
-   was left about 77px once the card had taken what it needed, which is two
-   rows and no room to scroll them. What the cover gives up here goes
-   straight into the list — along with the tightened spacing below — and
-   takes it to roughly double that. Still a strip rather than nothing at all,
-   because what's playing is the reason the queue is open. */
+/* Cropped strip; 80px leaves the queue room for more than two rows on a
+   375x667 phone. */
 .player-overlay.is-queue-open .player-art {
   max-height: 80px;
 }
 
-/* The card's own spacing, closed up for the same reason. Every one of these
-   is comfortable on a player showing one track and pure overhead on a player
-   showing a list — and together they are worth more to the panel than
-   another 40px off the cover would be. Only while the queue is open: the
-   full-size player keeps its original proportions. */
 .player-overlay.is-queue-open .back-link,
 .player-overlay.is-queue-open .player-art,
 .player-overlay.is-queue-open .player-meta,
@@ -4372,60 +3337,20 @@ audio {
   margin-bottom: var(--space-3);
 }
 
-/* The drag handle for "pull the queue closed" (see home/overlay.js). Without
-   this the browser claims the downward swipe for the page behind the overlay
-   and cancels the gesture halfway through.
-
-   The tab strip, not the artwork. The gesture used to be taken from the
-   cover and the title — the two elements furthest from the panel it
-   dismisses — and reaching over a track list to drag a cover downwards is
-   not something anyone arrives at unprompted. This is the sheet's top edge,
-   which is where every other sheet takes it, and it sits directly above what
-   moves.
-
-   Scoped to the strip rather than to the card so the seek and volume sliders
-   keep their own touch behaviour — an ancestor saying `none` would override
-   theirs. */
+/* Drag handle for pulling the queue closed (home/overlay.js); without this the
+   browser claims the swipe. Scoped to the strip so sliders keep their touch-action. */
 .player-overlay.is-queue-open .panel-tabs {
   touch-action: none;
 }
 
-/* Undoing the three drawer rules above on a wide screen, where the panel is
-   not a drawer (see the min-width: 900px block by .player-main).
-   `is-queue-open` is always set there — it is what "this panel is showing"
-   means, and setQueueOpen forces it — so all three would otherwise apply:
-   the artwork would sit permanently half-closed with nothing gained by it,
-   a mouse drag on the cover would try to dismiss a panel that can't close,
-   and the overlay would refuse to scroll on a short window.
-
-   Deliberately here rather than in that block: these three selectors match
-   the ones directly above at equal specificity, so the override has to come
-   after them in the file to win. Moving it back up silently reinstates the
-   half-height cover — which is exactly how it was found. */
+/* Undoes the drawer rules on desktop, where is-queue-open is always set. Must
+   come after them in the file (equal specificity). */
 @media (min-width: 900px) {
-  /* The card hugs its contents instead of filling the overlay.
-   *
-   * Stretched, the card was the height of the window and the panel beside it
-   * stretched with it — so the Queue/Lyrics tabs sat at the very top while
-   * the player's own first element, Collapse, sat 104px lower (measured:
-   * card top 24, Collapse 128). Two columns of one card starting at two
-   * different heights.
-   *
-   * `safe center` rather than plain `center`, which keeps the reason the
-   * base rule says `stretch`: a centred flex item taller than its scroll
-   * container overflows in *both* directions and the top becomes unreachable
-   * at any scroll position. `safe` falls back to start exactly then, so the
-   * short-window case is still correct.
-   *
-   * Deliberately in this block rather than the earlier min-width: 900px one:
-   * .player-overlay's base rule is further down the file than that block, so
-   * an override up there loses to it at equal specificity — the same trap the
-   * comment above this block describes. */
+  /* Card hugs its contents so both columns start level. `safe center`, and placed
+     here because the base .player-overlay rule comes after the earlier 900px block. */
   .player-overlay {
     align-items: safe center;
-    /* Scrolls again here, where the card hugs its contents rather than
-       filling the overlay: a short window can still leave them taller than
-       the viewport, and there is no phone-sized cover to absorb it. */
+    /* A short window can still leave the card taller than the viewport. */
     overflow-y: auto;
   }
 
@@ -4433,10 +3358,7 @@ audio {
     max-height: 340px;
   }
 
-  /* And the drawer's tightened spacing with it. `is-queue-open` is always
-     set on a wide screen — it is what "this panel is showing" means — so
-     without this the desktop player would sit permanently squeezed for the
-     benefit of a panel that has its own column and needs nothing. */
+  /* is-queue-open is always set on desktop; undo the drawer's tightened spacing. */
   .player-overlay.is-queue-open .back-link,
   .player-overlay.is-queue-open .player-art,
   .player-overlay.is-queue-open .player-meta {
@@ -4456,23 +3378,13 @@ audio {
   }
 }
 
-
-/* Unlike .back-link elsewhere (the detail panel, sitting under the sticky
-   topbar, which already clears the notch/Dynamic Island itself), this one is
-   the first element in a position: fixed; inset: 0 overlay with nothing
-   above it — it has to clear that safe area on its own. */
+/* First element of a fixed full-screen overlay, so it must clear the safe area. */
 .player-overlay .back-link {
   margin-top: env(safe-area-inset-top, 0px);
-  /* It's an inline-flex elsewhere; as a flex item of the card it would
-     stretch to the full width and turn the whole line into a tap target. */
+  /* As a flex item it would stretch into a full-width tap target. */
   align-self: flex-start;
 }
 
-/* Modeled on YouTube Music/Apple Music's mobile mini-player: a flush bar
-   docked to the bottom edge (not floating), a thin passive progress line
-   along its top edge, square art, title/artist, and a play/pause button as
-   the one dominant control. Tapping the bar itself (anywhere but the two
-   buttons) expands to the full overlay. */
 .mini-player {
   position: fixed;
   left: 0;
@@ -4481,8 +3393,7 @@ audio {
   z-index: 900;
   background: var(--bg-surface);
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);
-  /* Frosted-glass feel where supported; opaque --bg-surface is already a
-     complete, correct look on its own where it isn't. */
+  /* Opaque --bg-surface is a complete look where backdrop-filter isn't supported. */
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
 }
@@ -4491,18 +3402,8 @@ audio {
   display: none;
 }
 
-/* A control, not a strip: a 3px line is impossible to aim at, so the padding
-   around it is the real target and both track and fill thicken on hover to
-   say it's grabbable.
-
-   The padding is all below the line. Symmetrical padding put the bar's own
-   raised background above the track, which reads as a grey band along the
-   top edge of the mini player rather than as part of a control — and the
-   bigger the target got, the wider the band. Growing downwards instead, with
-   a negative margin to match, means the target eats the bar's own top
-   padding (dead space) while the line stays flush against the top edge. It
-   deliberately stops short of the artwork and buttons below: a seek that
-   swallows taps meant for Expand would be a worse bug than a small target. */
+/* The padding is the real hit target and sits below the line: symmetric padding
+   showed a grey band above it. Stops short of the buttons below. */
 .mini-player-progress {
   position: relative;
   display: block;
@@ -4525,14 +3426,11 @@ audio {
 .mini-player-progress-fill {
   position: absolute;
   left: 0;
-  /* Flush with the top, on top of the ::before track, which sits at the top
-     of the content box now that all the padding is underneath it. */
   top: 0;
   height: 3px;
   width: 0%;
   background: var(--accent);
-  /* The button owns the clicks; the fill would otherwise swallow the ones
-     that land on the played part of the track. */
+  /* Would otherwise swallow clicks on the played part of the track. */
   pointer-events: none;
 }
 
@@ -4541,12 +3439,8 @@ audio {
   height: 5px;
 }
 
-/* No safe-area padding here, deliberately. This bar only sits on the screen
-   edge on desktop, where the rule that adds it lives (see the min-width: 481px
-   block at the end of this file). On a phone the bottom navigation is below
-   it and already carries the inset, and .mini-player adds it a second time to
-   clear that bar — a third helping just left a band of empty raised
-   background under the controls. */
+/* No safe-area padding: on a phone the bottom nav carries the inset, on desktop
+   the min-width: 481px block at the end of the file adds it. */
 .mini-player-bar {
   display: flex;
   align-items: center;
@@ -4615,7 +3509,6 @@ audio {
   height: 40px;
   border-radius: var(--radius-circle);
   border: none;
-  /* Matches the overlay's play button — same action, same colour. */
   background: var(--accent);
   color: var(--black);
   display: flex;
@@ -4633,14 +3526,11 @@ audio {
   display: none;
 }
 
-/* Icon isn't optically centered in its own bounding box (more weight to the
-   right), which reads as visibly off-center inside a circular button. */
+/* Optical centring: the triangle's weight sits off its bounding box. */
 #mini-icon-play {
   margin-left: 2px;
 }
 
-/* Only rendered while a queue is loaded (home/overlay.js toggles `hidden`),
-   so this never costs width on a bar that has nothing to skip to. */
 .mini-player-transport {
   display: flex;
   align-items: center;
@@ -4655,8 +3545,6 @@ audio {
   flex-shrink: 0;
 }
 
-/* Elapsed / total, desktop only — on a phone the bar has no width for it and
-   the overlay is one tap away. */
 .mini-player-time {
   display: none;
   font-size: var(--text-xs);
@@ -4720,34 +3608,12 @@ audio {
   }
 }
 
-/* Keeps Home's last shelf row from sitting underneath the floating mini-bar
-   — toggled on <body> (see app.js's openPlayer/closePlayer) rather than a
-   permanent reserved gap, matching the app's existing convention of keying
-   layout off toggled state (e.g. html[data-active-tab]) instead of
-   always-on padding. */
+/* Keeps the last shelf row clear of the mini-bar (toggled on <body>). */
 body.has-mini-player .layout {
   padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
 }
 
-/* ---------------------------------------------------------------------------
-   Artist profile (templates/_artist_panel.html)
-   The only detail-panel body that isn't a track list. Everything here sits on
-   top of the shelf and card rules above rather than beside them — a release
-   card is a .card, its shelf is a .shelf, and only the two things a track
-   list has no equivalent for are defined below.
---------------------------------------------------------------------------- */
-
-/* A release card used to override .card .thumb back to a square ratio,
-   because the app-wide default was 16:9. That default is square now, so the
-   override has nothing left to say. */
-
-/* Long enough to need collapsing — 729 characters for a mid-size artist,
-   measured — but the full text is worth having, so it clamps rather than
-   truncating server-side. */
-/* The only long-form prose in the app, and the one place the page's 1100px
-   container is too wide: at this size it ran about 130 characters a line,
-   well past the 60-80 where the eye still finds the next line reliably.
-   Capped in ch so the measure holds whatever the font resolves to. */
+/* Capped in ch for a readable line length. */
 .artist-bio {
   margin: 0 0 var(--space-1);
   max-width: 72ch;
@@ -4772,12 +3638,6 @@ body.has-mini-player .layout {
   font-weight: 600;
 }
 
-/* "Released this year" and nothing finer — YouTube Music reports only a year
-   on the artist page (see music.ArtistRelease). */
-/* What kind of release a card is — Album, Single, EP. Muted rather than
-   accent, unlike .badge-new below: it is on every card, and a colour that
-   loud repeated twenty times down a grid stops meaning anything. It also
-   has to lose to "New" when both are on the same line. */
 .badge-kind {
   margin-right: 0.35rem;
   padding: 0.05rem 0.35rem;
@@ -4802,24 +3662,14 @@ body.has-mini-player .layout {
   text-transform: uppercase;
 }
 
-/* ---------------------------------------------------------------------------
-   Phone bottom bar, part two.
-
-   The bar itself is styled up with the rest of .tabs; these two rules live
-   down here purely because of the cascade. .mini-player and .layout are both
-   defined later in this file, so an equally specific override placed beside
-   the bar's own styles is overwritten by them — which is exactly what
-   happened on the first pass: the bar rendered correctly while the mini
-   player still sat on top of it and the page still ran underneath it.
---------------------------------------------------------------------------- */
+/* Phone bottom bar, part two: must come after .mini-player and .layout, which
+   would otherwise override these at equal specificity. */
 @media (max-width: 480px) {
-  /* Above the bar, not behind it. */
   .mini-player {
     bottom: calc(var(--bottom-nav-height) + min(env(safe-area-inset-bottom, 0px), 20px));
   }
 
-  /* The bar is always on screen, so the page always has to clear it — unlike
-     the mini player, which only reserves room while a track is loaded. */
+  /* The bar is always on screen, so the page always has to clear it. */
   .layout {
     padding-bottom: calc(var(--bottom-nav-height) + 1rem + min(env(safe-area-inset-bottom, 0px), 20px));
   }
@@ -4829,29 +3679,13 @@ body.has-mini-player .layout {
   }
 }
 
-/* ---------------------------------------------------------------------------
-   Desktop: the mini bar is the player.
-
-   With no bottom nav to share the edge with, this bar is where a desktop
-   session lives — the full-screen overlay is a mobile idiom that leaves a
-   530px column marooned in the middle of a 1440px screen. It used to carry
-   two controls, play and close, with everything between them empty.
-
-   Track info stays left, the transport centres, elapsed/total and close sit
-   right, which is where every desktop player puts them.
---------------------------------------------------------------------------- */
 @media (min-width: 481px) {
-  /* Grid, not flex: equal side columns are what put the transport at the
-     bar's true centre. Under flex it drifted with the title's length and the
-     width of the right-hand group, which is the kind of misalignment you
-     only notice as "something is off". */
+  /* Grid, not flex: equal side columns put the transport at the true centre. */
   .mini-player-bar {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
     gap: var(--space-4);
-    /* The one place this bar really is against the bottom of the screen, so
-       the one place the inset belongs. */
     padding: var(--space-2) var(--space-4) calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
     max-width: 1100px;
     margin: 0 auto;
@@ -4874,34 +3708,19 @@ body.has-mini-player .layout {
   }
 }
 
-/* Previous is desktop-only: on a phone the bar has no width to spare, and the
-   overlay's own transport is one tap away. */
 @media (max-width: 480px) {
   #mini-player-prev {
     display: none;
   }
 }
 
-/* ---------------------------------------------------------------------------
-   The on-screen keyboard.
-
-   js/viewport.js measures how much of the layout viewport the keyboard covers
-   and writes it here; see that file for why the measurement is done in JS
-   rather than left to the browser.
-
-   Last in the file on purpose. These override .layout and .mini-player rules
-   of equal specificity, and a rule that comes first simply loses — the same
-   trap the bottom-bar block above fell into.
---------------------------------------------------------------------------- */
+/* On-screen keyboard (measured by js/viewport.js). Last in the file: overrides
+   .layout and .mini-player rules of equal specificity. */
 :root {
   --keyboard-inset: 0px;
 }
 
-/* Measured and published by js/viewport.js's installHeaderOffset. Only used
-   on a phone, where the app header is itself sticky and Explore's search
-   head has to pin below it rather than under it. Zero here so the sticky
-   offset resolves to something sane before the first measurement lands, and
-   on any browser without ResizeObserver. */
+/* Published by js/viewport.js's installHeaderOffset; 0 until measured. */
 :root {
   --app-header-height: 0px;
 }
@@ -4913,10 +3732,6 @@ body.has-mini-player .layout {
 }
 
 @media (max-width: 480px) {
-  /* Both are docked to an edge the keyboard has taken over. Hiding them is
-     what every music app does while you type — the search field is the only
-     thing being used, and a transport bar wedged between the results and the
-     keys is in the way of both. They come straight back on blur. */
   body.is-keyboard-open .tabs,
   body.is-keyboard-open .mini-player,
   body.is-typing .tabs,
@@ -4924,42 +3739,24 @@ body.has-mini-player .layout {
     display: none;
   }
 
-  /* Room to scroll the rest of the page up out from under the keys. Without
-     it the last results are unreachable: the page ends where the keyboard
-     begins and there is nothing left to scroll. */
   body.is-keyboard-open .layout,
   body.has-mini-player.is-keyboard-open .layout {
     padding-bottom: calc(var(--keyboard-inset) + 1rem);
   }
 
-  /* is-typing on its own carries no measurement — it says a keyboard is up,
-     not how tall it is (see js/viewport.js). The bars are gone either way;
-     this only keeps the page from ending flush against the keys in the
-     moment before the measurement lands, or on a browser that reports
-     nothing useful at all. */
+  /* is-typing has no measurement yet; pad the page until one lands. */
   body.is-typing .layout {
     padding-bottom: calc(var(--keyboard-inset) + 1rem);
   }
 }
 
-/* ---------------------------------------------------------------------------
-   What this device is holding (Settings' "Songs on this device" row and the
-   panel the Downloads tile opens). The tile's own fill is up with the other
-   library tiles, which it now shares.
---------------------------------------------------------------------------- */
-
-/* The Offline playback switch. A real <input type="checkbox"> under a drawn
-   track, rather than a button pretending: it comes with the keyboard
-   behaviour, the focus ring and the announced state already correct, and the
-   only thing left to do is not draw the native box. */
+/* A real checkbox under a drawn track, keeping native keyboard/focus/state. */
 .switch {
   position: relative;
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
   cursor: pointer;
-  /* The 44px touch target every other control in this app has; the track
-     itself is deliberately smaller than that. */
   min-height: 44px;
   padding-left: 0;
 }
@@ -4974,12 +3771,7 @@ body.has-mini-player .layout {
 }
 
 .switch-track {
-  /* Drawn, never hit. The input is absolutely positioned under this and the
-     track paints over it, so without this a tap in the middle of the switch
-     lands on a decorative <span> — it still works, because the whole thing is
-     inside a <label>, but "the control is a label round some spans" is a
-     fragile way for it to work and it makes the switch untappable the moment
-     anything reaches for the element under the finger. */
+  /* Drawn, never hit: taps must reach the input underneath. */
   pointer-events: none;
   width: 46px;
   height: 28px;
@@ -5021,16 +3813,12 @@ body.has-mini-player .layout {
 }
 
 @media (max-width: 480px) {
-  /* Same reason the row's other controls get it: the row is a column here,
-     and a stretched switch would drift to the middle of that width instead
-     of sitting left with the text above it. */
+  /* Otherwise it stretches to the column's width and drifts to the middle. */
   .settings-row > .switch {
     align-self: flex-start;
   }
 }
 
-/* Reachable by a screen reader, invisible on screen — the switch's own name,
-   which the drawn track cannot carry. */
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -5043,10 +3831,8 @@ body.has-mini-player .layout {
   border: 0;
 }
 
-/* Taking one song back off the device, from a row of the Downloads panel.
-   Deliberately not .track-remove: that class is wired to "remove from this
-   playlist" (see home/playlists.js), and a row that carried it with no
-   playlist behind it would send that request with no id. */
+/* Not .track-remove: that class is wired to "remove from this playlist"
+   (home/playlists.js) and would send a request with no id. */
 .track-forget {
   background: none;
   border: none;
@@ -5069,19 +3855,8 @@ body.has-mini-player .layout {
   color: var(--danger);
 }
 
-/* ---------------------------------------------------------------------------
-   No connection.
-
-   Everything in this app but one thing is a request away, so with no network
-   the honest UI is not a broken one — it is a smaller one. Library stays,
-   with its Downloads tile, and the rest is visibly out of reach rather than
-   live-looking and silently dead. home/device.js does the other half: it
-   moves you to Library if the connection goes while you are somewhere else.
-
-   pointer-events rather than the disabled attribute, because half of these
-   are <a> elements, which have no such attribute — one mechanism for both
-   beats two that have to be kept in step.
---------------------------------------------------------------------------- */
+/* Offline: everything but Library is out of reach. pointer-events rather than
+   `disabled` because half of these are <a>s. */
 
 body.is-offline .tab-btn[data-tab="home"],
 body.is-offline .tab-btn[data-tab="explore"],
@@ -5091,26 +3866,17 @@ body.is-offline #refresh-artists-btn,
 body.is-offline #mobile-menu-refresh {
   pointer-events: none;
   opacity: 0.35;
-  /* The selected-tab colour is set by higher-up rules keyed on
-     html[data-active-tab]; without this an offline user dropped back on
-     Library would still see Home or Settings underlined as if it were live. */
+  /* Overrides the html[data-active-tab] selected colour. */
   color: var(--text-muted);
   border-bottom-color: transparent;
 }
 
-/* Filtering a grid whose only reachable tile is Downloads is a control with
-   nothing to do. */
 body.is-offline #tab-library .search-input-wrap {
   display: none;
 }
 
-/* ---------------------------------------------------------------------------
-   The prompt dialog (core.js's promptDialog).
-
-   Last in the file for the same reason the keyboard block above it is: these
-   override .modal-overlay's own centring, and an equally specific rule placed
-   earlier simply loses.
---------------------------------------------------------------------------- */
+/* Prompt dialog (core.js's promptDialog). Last in the file: overrides
+   .modal-overlay's centring at equal specificity. */
 
 .modal-prompt {
   max-width: 420px;
@@ -5127,8 +3893,6 @@ body.is-offline #tab-library .search-input-wrap {
   display: none;
 }
 
-/* The field is the whole dialog, so it gets the room a single-field form
-   deserves rather than the inline sizing it had beside a paragraph. */
 .modal-prompt .prompt-input {
   margin-top: 0.5rem;
   padding: 0.7rem 0.8rem;
@@ -5139,18 +3903,8 @@ body.is-offline #tab-library .search-input-wrap {
   margin-top: 1.25rem;
 }
 
-/* A dialog taller than the space left for it has to scroll inside the
-   overlay; centring alone just pushes its top edge off screen, where it
-   cannot be scrolled back to. */
+/* Centring alone pushes a tall dialog's top off-screen, unreachable by scroll. */
 .modal-overlay {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-
-/* This dialog is centred like every other modal, including with the keyboard
-   up — the overlay's box tracks the *visual* viewport (see .modal-overlay's
-   --vvh/--vvt above), so "the middle" means the middle of what is actually on
-   screen rather than of a layout viewport half-hidden behind the keys. It was
-   briefly pinned to the top instead, which fixed a slide that had a different
-   cause (the field was focused before the overlay had been laid out — see
-   core.js's promptDialog) and cost the centring for nothing. */

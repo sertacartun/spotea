@@ -1,11 +1,3 @@
-"""Following, unfollowing and refreshing channels.
-
-The work itself lives in app/services (artist creation, the one-time history
-backfill, bulk import) — this file is the HTTP surface over it: validation,
-status codes, and deciding how each service call gets run (deferred to a
-background task for a single add, inline for bulk import).
-"""
-
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -44,9 +36,7 @@ def add_feed(
             db,
             payload.channel_url,
             user.id,
-            # Answer as soon as the artist row exists. The catalogue snapshot
-            # and the avatar behind it are what run_initial_sync does in the
-            # background, and what Library's card reports while it happens.
+            # Answer as soon as the row exists; the catalogue snapshot runs in the background.
             sync=False,
         )
     except AlreadyFollowingError as exc:
@@ -54,34 +44,17 @@ def add_feed(
     except NotAnArtistError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    # Marked here rather than inside the task, so the card the client is
-    # about to render cannot beat it to the question — see mark_syncing.
+    # Marked here, not inside the task, so the card the client renders next can't beat it.
     mark_syncing(artist.id)
     background_tasks.add_task(run_initial_sync_task, artist.id)
 
-    # Always 0: nothing has been fetched yet. Kept on the response for the
-    # shape's sake; no caller of this route reads it.
     return ArtistAddResult(artist=ArtistOut.model_validate(artist), new_content_count=new_count)
 
 @router.get("/syncing", response_model=list[int])
 def list_backfilling_feeds(
     user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> list[int]:
-    """The artists still being filled in right now — their first
-    RSS sync, or the one-time history scan behind it (see
-    services/backfill.ACTIVE_PHASES).
-
-    What Library's "Fetching uploads…" cards poll on, so they can turn
-    back into a video count once the work behind them finishes (see
-    home/library.js). Since POST /artists stopped syncing inline, a brand-new
-    card is in this list from the moment it appears rather than showing a
-    confident "0 videos" for the couple of seconds that took. One call for the whole grid rather than one
-    backfill-status call per card, and it costs a dict lookup each — the
-    registry is in memory.
-
-    Declared above /{artist_id}/backfill-status only for readability; the two
-    paths can't collide.
-    """
+    """The artists whose first sync is still running, polled by Library's cards."""
     feed_ids = [artist_id for (artist_id,) in db.query(Artist.id).filter(Artist.user_id == user.id)]
     return sorted(syncing_artist_ids(feed_ids))
 
@@ -90,16 +63,11 @@ def list_backfilling_feeds(
 def delete_feed(
     artist_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> None:
-    """Unfollowing isn't allowed to destroy what the user actually downloaded,
-    played, favorited, or saved — only content nobody ever touched gets
-    purged. Anything kept stays on the artist row, which is downgraded to
-    followed=False (same state as an Explore placeholder — see
-    get_or_create_placeholder) rather than deleted, so it drops out of
-    Library/New releases/background refresh but keeps working everywhere else
-    (Storage, Recently Played, Favorites/Saved, direct playback — none of
-    those filter on Artist.followed). Re-following the same channel later picks
-    this same row back up via services/artist_follow.py's follow_artist lookup
-    instead of duplicating it."""
+    """Unfollow without destroying downloaded, played or favorited content.
+
+    If anything is kept, the artist row is downgraded to followed=False instead of
+    deleted, so that content keeps working and re-following picks the row back up.
+    """
     artist = db.query(Artist).filter(Artist.id == artist_id, Artist.user_id == user.id).first()
     if not artist:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artist not found")

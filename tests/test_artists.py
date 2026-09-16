@@ -1,14 +1,4 @@
-"""Following an artist, syncing what they release, and unfollowing.
-
-The sync used to read the artist's "<Artist> - Topic" channel over RSS. It
-now diffs YouTube Music's own release list against a stored snapshot (see
-services/artist_sync.py), which is what most of these pin: a first sync
-records without importing, a later one imports exactly what appeared, and a
-release that fails to open is left out of the snapshot so the next refresh
-tries it again.
-
-Every network call is monkeypatched out; nothing here goes online.
-"""
+"""Following an artist, syncing what they release, and unfollowing. Nothing here goes online."""
 
 import json
 import logging
@@ -85,15 +75,8 @@ def _stub_artist_lookup(monkeypatch, profile, calls=None):
     monkeypatch.setattr(artist_follow_module, "fetch_artist", fake)
 
 
-# --------------------------------------------------------------------------
-# Following. The library holds artists, so the one thing a follow can fail on
-# is the channel not being one.
-# --------------------------------------------------------------------------
-
-
 def test_following_a_musicians_own_channel_keys_on_their_topic_channel(db_session, monkeypatch):
-    """Their official channel and their Topic channel have to resolve to one
-    row, or following the same artist twice makes two."""
+    """Official and Topic channel ids must resolve to one row."""
     _stub_artist_lookup(monkeypatch, _artist())
 
     artist, _ = follow_artist(
@@ -106,9 +89,6 @@ def test_following_a_musicians_own_channel_keys_on_their_topic_channel(db_sessio
 
 
 def test_the_card_is_titled_with_the_artists_name(db_session, monkeypatch):
-    """Not the Topic channel's own title, which would read "Shirin David -
-    Topic". The name comes off the artist page now, so there is no suffix to
-    strip in the first place."""
     _stub_artist_lookup(monkeypatch, _artist())
 
     artist, _ = follow_artist(
@@ -119,8 +99,6 @@ def test_the_card_is_titled_with_the_artists_name(db_session, monkeypatch):
 
 
 def test_a_channel_that_is_not_an_artist_cannot_be_followed(db_session, monkeypatch):
-    """The music-only scope in one rule. YouTube Music answers a non-artist
-    with a page its parser can't read, which fetch_artist flattens to None."""
     _stub_artist_lookup(monkeypatch, None)
 
     with pytest.raises(NotAnArtistError):
@@ -150,9 +128,7 @@ def test_a_non_artist_channel_is_a_400_not_a_500(client, monkeypatch):
 
 
 def test_following_the_channel_of_an_artist_already_followed_is_a_duplicate(db_session, monkeypatch, client):
-    """Both ids reduce to the same artist, so the second follow has to be
-    caught — and it can only be caught *after* the artist resolution, which
-    is why that runs before the duplicate check."""
+    """Artist resolution runs before the duplicate check, so both ids collide."""
     _stub_artist_lookup(monkeypatch, _artist())
     follow_artist(db_session, f"https://www.youtube.com/channel/{TOPIC_ID}", USER_ID, sync=False)
 
@@ -166,9 +142,7 @@ def test_following_the_channel_of_an_artist_already_followed_is_a_duplicate(db_s
 
 
 def test_following_a_previously_previewed_artist_upgrades_the_placeholder(db_session, monkeypatch):
-    """A track grabbed from Explore leaves a followed=False row behind (see
-    _get_or_create_placeholder). Following for real upgrades it in place
-    rather than bouncing the user with "already exists"."""
+    """An Explore placeholder (followed=False) is upgraded in place, not rejected as a duplicate."""
     placeholder = Artist(user_id=USER_ID, channel_id=TOPIC_ID, followed=False)
     db_session.add(placeholder)
     db_session.commit()
@@ -184,19 +158,12 @@ def test_following_a_previously_previewed_artist_upgrades_the_placeholder(db_ses
 
 
 def test_the_track_list_is_not_paid_for_on_a_follow(db_session, monkeypatch):
-    """The follow needs the ids and the name off the page header. The "Top
-    songs" playlist behind them is a second request nobody here reads."""
     calls = []
     _stub_artist_lookup(monkeypatch, _artist(), calls=calls)
 
     follow_artist(db_session, f"https://www.youtube.com/channel/{OFFICIAL_ID}", USER_ID, sync=False)
 
     assert calls == [(OFFICIAL_ID, False)]
-
-
-# --------------------------------------------------------------------------
-# Syncing. What a release-snapshot diff does that an upload artist didn't.
-# --------------------------------------------------------------------------
 
 
 def _followed(db_session, **kwargs):
@@ -215,9 +182,6 @@ def _followed(db_session, **kwargs):
 
 
 def test_a_first_sync_records_the_catalogue_without_importing_it(db_session, monkeypatch):
-    """Following means "tell me what they put out from now on". Importing
-    the back catalogue would bury the thing the follow was for — and it is a
-    click away on their profile anyway."""
     monkeypatch.setattr(
         artist_sync,
         "fetch_artist",
@@ -235,10 +199,7 @@ def test_a_first_sync_records_the_catalogue_without_importing_it(db_session, mon
 
     assert new_count == 0
     assert db_session.query(Content).count() == 0
-    # The snapshot keeps the whole release, not just its id: the artist page
-    # hands over the title, year, kind and cover in the same response, and
-    # Home's "New releases" shelf renders from exactly this (see
-    # page_context._new_releases) so it never has to fetch anything.
+    # The whole release is stored: Home's "New releases" shelf renders from it without fetching.
     stored = json.loads(artist.release_snapshot)
     assert [entry["browse_id"] for entry in stored] == ["MPREb_aaaaaaaaaaa", "MPREb_bbbbbbbbbbb"]
     assert stored[0]["title"] == "A Single"
@@ -246,9 +207,6 @@ def test_a_first_sync_records_the_catalogue_without_importing_it(db_session, mon
 
 
 def test_a_first_sync_still_records_monthly_listeners(db_session, monkeypatch):
-    """Free off the same response a first sync already makes — see
-    ArtistFetchResult.monthly_listeners — so it lands even though nothing
-    else about the catalogue is imported yet."""
     monkeypatch.setattr(
         artist_sync, "fetch_artist", lambda browse_id, all_songs=True: _artist(monthly_listeners="1.91M")
     )
@@ -261,9 +219,6 @@ def test_a_first_sync_still_records_monthly_listeners(db_session, monkeypatch):
 
 
 def test_monthly_listeners_is_refreshed_on_every_sync(db_session, monkeypatch):
-    """Unlike name/avatar_url, this isn't a fact settled once — it moves,
-    so a later sync has to overwrite a stale figure rather than keep the
-    first one it ever saw."""
     monkeypatch.setattr(
         artist_sync, "fetch_artist", lambda browse_id, all_songs=True: _artist(monthly_listeners="2.4M")
     )
@@ -287,9 +242,6 @@ def _related(channel_id, title):
 
 
 def test_a_first_sync_still_records_related_artists(db_session, monkeypatch):
-    """Same free-data reasoning as monthly_listeners — YouTube Music's own
-    "fans also like" list arrives on the same response a first sync already
-    pays for."""
     monkeypatch.setattr(
         artist_sync,
         "fetch_artist",
@@ -307,8 +259,6 @@ def test_a_first_sync_still_records_related_artists(db_session, monkeypatch):
 
 
 def test_related_artists_is_refreshed_on_every_sync(db_session, monkeypatch):
-    """A moving list, not a fact settled once — a later sync overwrites
-    whatever it found before, same as monthly_listeners."""
     monkeypatch.setattr(
         artist_sync,
         "fetch_artist",
@@ -327,9 +277,6 @@ def test_related_artists_is_refreshed_on_every_sync(db_session, monkeypatch):
 
 
 def test_an_artist_with_no_related_artists_clears_a_stale_list(db_session, monkeypatch):
-    """`related=[]` is a real answer (this artist genuinely has none listed
-    right now), not "unknown" — it has to overwrite, not preserve, an
-    earlier sync's stale list."""
     monkeypatch.setattr(artist_sync, "fetch_artist", lambda browse_id, all_songs=True: _artist(related=[]))
 
     artist = _followed(db_session, release_snapshot="[]")
@@ -341,9 +288,6 @@ def test_an_artist_with_no_related_artists_clears_a_stale_list(db_session, monke
 
 
 def test_a_first_sync_still_records_top_tracks(db_session, monkeypatch):
-    """Same free-data reasoning as monthly_listeners/related_artists — the
-    artist page's own preview songs arrive on the same response a first
-    sync already pays for."""
     monkeypatch.setattr(
         artist_sync,
         "fetch_artist",
@@ -406,8 +350,6 @@ def test_a_later_sync_imports_only_what_appeared_since(db_session, monkeypatch):
 
 
 def test_a_release_that_will_not_open_is_retried_next_time(db_session, monkeypatch):
-    """Left out of the stored snapshot rather than written off, so one bad
-    response doesn't hide a release for good."""
     monkeypatch.setattr(
         artist_sync,
         "fetch_artist",
@@ -423,9 +365,7 @@ def test_a_release_that_will_not_open_is_retried_next_time(db_session, monkeypat
 
 
 def test_a_track_already_in_the_library_is_not_inserted_twice(db_session, monkeypatch):
-    """Content's (user_id, video_id) constraint is global — a collaboration
-    can arrive on two followed artists' releases, and an Explore preview can
-    predate the follow entirely."""
+    """Content's (user_id, video_id) is unique across artists, e.g. a collaboration."""
     other = _followed(db_session, channel_id="https://example.com/other", browse_id="UCother")
     db_session.add(
         Content(artist_id=other.id, user_id=USER_ID, video_id="shared00001", title="Already here")
@@ -465,8 +405,6 @@ def test_an_unreadable_artist_page_is_a_skip_not_a_failure(db_session, monkeypat
 
 
 def test_refresh_isolates_one_failing_artist(db_session, monkeypatch):
-    """One artist's apply blowing up must not abort every other artist's
-    refresh in the same call."""
     good = _followed(db_session, channel_id="https://example.com/good")
     bad = _followed(db_session, channel_id="https://example.com/bad", browse_id="UCbad")
 
@@ -492,8 +430,6 @@ def test_refresh_isolates_one_failing_artist(db_session, monkeypatch):
 
 
 def test_a_feed_with_no_artist_behind_it_is_skipped(db_session, monkeypatch):
-    """Explore placeholders have no browse id and are not followed — there is
-    nothing to sync from them."""
     placeholder = _followed(db_session, browse_id=None, followed=False)
 
     def explode(*args, **kwargs):
@@ -502,11 +438,6 @@ def test_a_feed_with_no_artist_behind_it_is_skipped(db_session, monkeypatch):
     monkeypatch.setattr(artist_sync, "fetch_artist_data", explode)
 
     assert artist_sync.refresh_feeds(db_session, [placeholder]) == 0
-
-
-# --------------------------------------------------------------------------
-# Unfollowing. Never destroys what the user actually engaged with.
-# --------------------------------------------------------------------------
 
 
 def _seed_feed_with_content(db_session, **content_kwargs):
@@ -540,8 +471,7 @@ def test_unfollowing_keeps_downloaded_content_and_downgrades_the_feed(client, db
     artist, content = _seed_feed_with_content(db_session, status="ready", file_path=None)
 
     res = client.delete(f"/artists/{artist.id}")
-    # client's request runs on its own Session — db_session's identity map
-    # otherwise keeps serving the pre-delete cached attribute values.
+    # client's request runs on its own Session; drop db_session's cached attributes.
     db_session.expire_all()
 
     assert res.status_code == 204
@@ -571,11 +501,6 @@ def test_unfollowing_keeps_favorited_content(client, db_session):
     assert db_session.query(Content).filter(Content.id == content.id).first() is not None
 
 
-# --------------------------------------------------------------------------
-# The card that appears before anything has been fetched.
-# --------------------------------------------------------------------------
-
-
 def _stub_initial_fetch(monkeypatch, spy=None):
     def fake(browse_id, snapshot, avatar_url):
         if spy:
@@ -586,9 +511,7 @@ def _stub_initial_fetch(monkeypatch, spy=None):
 
 
 def test_a_new_feed_says_it_is_filling_in_before_it_fetches_anything(db_session, monkeypatch):
-    """Library renders a card the moment POST /artists answers, and without
-    this it would render a confident "0 songs" for as long as the fetch takes
-    — which reads as an artist that failed to add, not one still arriving."""
+    """Otherwise the card shows "0 songs" while the fetch runs."""
     seen: list[set[int]] = []
     artist = _followed(db_session)
     initial_sync_module.mark_syncing(artist.id)
@@ -615,8 +538,6 @@ def test_a_failed_initial_sync_does_not_leave_the_card_stuck(db_session, monkeyp
 
 
 def test_adding_a_feed_answers_before_it_fetches_anything(client, monkeypatch):
-    """The response only needs the row to exist. Everything behind it is a
-    background task."""
     fetched: list[str] = []
     scheduled: list[int] = []
 
@@ -637,9 +558,7 @@ def test_adding_a_feed_answers_before_it_fetches_anything(client, monkeypatch):
 
 
 def test_the_card_is_already_filling_in_when_the_response_lands(client, monkeypatch):
-    """The background task starting before the client's first fragment
-    request is not guaranteed — losing that race would leave the card
-    claiming zero and never polling."""
+    """The background task isn't guaranteed to start before the client's first fragment request."""
     monkeypatch.setattr(
         artist_follow_module, "fetch_artist", lambda browse_id, all_songs=True: _artist()
     )
@@ -653,9 +572,6 @@ def test_the_card_is_already_filling_in_when_the_response_lands(client, monkeypa
         assert client.get("/artists/syncing").json() == [artist_id]
     finally:
         initial_sync_module.sync_progress.discard(artist_id)
-
-
-# -------------------------------------------------------- GET /artists/syncing
 
 
 def test_backfilling_lists_only_this_users_running_syncs(client, db_session):
@@ -674,9 +590,7 @@ def test_backfilling_lists_only_this_users_running_syncs(client, db_session):
     try:
         assert client.get("/artists/syncing").json() == [mine.id]
 
-        # A finished sync keeps its registry entry readable for a while (see
-        # progress.py), so "has an entry" is not "is running" — a card left
-        # saying "fetching" forever is exactly what confusing the two causes.
+        # A finished sync keeps its entry for a while (see progress.py): an entry is not "running".
         initial_sync_module.sync_progress.set(mine.id, ("done", 0, 0))
         assert client.get("/artists/syncing").json() == []
     finally:
@@ -703,18 +617,8 @@ def test_library_marks_a_feed_that_is_still_being_fetched(client, db_session):
     assert "data-preparing" not in body, "the card kept saying it was fetching after the sync ended"
 
 
-# --------------------------------------------------------------------------
-# The release snapshot: change detection *and* what Home's shelf renders.
-# --------------------------------------------------------------------------
-
-
 def test_an_old_bare_id_snapshot_is_not_treated_as_unseen(db_session, monkeypatch):
-    """The snapshot used to be a list of browse ids and is now a list of
-    releases. Reading only the new shape would make every release on every
-    followed artist look new on the first refresh after the upgrade — which
-    is a live fetch per release and the artist's entire back catalogue
-    imported into Content. Hence snapshot_release_ids reads both.
-    """
+    """The legacy bare-id snapshot must still be read, or every release looks new after upgrade."""
     monkeypatch.setattr(
         artist_sync,
         "fetch_artist",
@@ -738,8 +642,6 @@ def test_an_old_bare_id_snapshot_is_not_treated_as_unseen(db_session, monkeypatc
 
 
 def test_an_old_snapshot_is_rewritten_in_the_new_shape(db_session, monkeypatch):
-    """It corrects itself in one refresh, which is why no migration was
-    needed — an entry with no title simply doesn't render until then."""
     monkeypatch.setattr(
         artist_sync, "fetch_artist", lambda browse_id, all_songs=True: _artist(singles=[_release()])
     )
@@ -762,8 +664,6 @@ def test_an_old_snapshot_is_rewritten_in_the_new_shape(db_session, monkeypatch):
 
 
 def test_snapshot_readers_survive_junk():
-    """A truncated or hand-edited column is a shelf with nothing on it, not
-    a 500 on Home."""
     from app.services.artist_sync import snapshot_release_ids, snapshot_releases
 
     for junk in (None, "", "not json", "{}", "[1, 2]"):
@@ -772,9 +672,6 @@ def test_snapshot_readers_survive_junk():
 
 
 def test_a_release_that_wont_open_stays_out_of_the_snapshot(db_session, monkeypatch):
-    """So the next refresh tries it again rather than writing it off on one
-    bad response — unchanged behaviour, re-pinned because the snapshot now
-    holds objects and the removal had to be rewritten."""
     monkeypatch.setattr(
         artist_sync,
         "fetch_artist",

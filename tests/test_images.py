@@ -1,9 +1,4 @@
-"""Caching remote images to disk (app/images.py).
-
-The interesting property here isn't the fetch, it's that `dest.is_file()` is the
-only cache check the app has and nothing ever re-downloads an image that exists.
-That makes a half-written file permanent, so the write has to be all-or-nothing.
-"""
+"""Caching remote images (app/images.py): an existing file is never refetched, so writes are atomic."""
 
 import urllib.error
 from email.message import Message
@@ -50,9 +45,7 @@ class _FakeResponse:
 
 @pytest.fixture
 def network(monkeypatch):
-    """`install(outcome)` makes the next fetch return those bytes or raise that
-    exception, and returns a recorder holding the (request, timeout) pairs made
-    and the sizes read() was asked for."""
+    """`install(outcome)` returns bytes or raises; the recorder holds (request, timeout) and read sizes."""
     calls: list[tuple[object, float | None]] = []
     read_sizes: list[int] = []
     recorder = SimpleNamespace(calls=calls, read_sizes=read_sizes)
@@ -94,8 +87,6 @@ def test_the_fetch_carries_a_timeout(network, tmp_path):
 
 
 def test_an_already_cached_image_is_not_refetched(network, tmp_path):
-    """What makes caching worth anything — every RSS refresh calls this for
-    every entry, not just new ones (see download_thumbnail's docstring)."""
     recorder = network(JPEG)
     (tmp_path / "vid00000001.jpg").write_bytes(JPEG)
 
@@ -113,9 +104,7 @@ def test_a_failed_fetch_leaves_nothing_behind(network, tmp_path):
 
 
 def test_an_oversized_response_is_neither_read_whole_nor_written(network, tmp_path):
-    """Two halves of one guarantee: the read is capped, so an enormous response
-    is never pulled into memory in the first place, *and* what came back over
-    the cap is discarded rather than written straight to disk."""
+    """The read is capped, and what came back over the cap is discarded, not written."""
     recorder = network(b"x" * (MAX_IMAGE_BYTES + 1))
 
     assert _download_image(tmp_path, "vid00000001.jpg", "https://i.ytimg.com/x.jpg", "/thumbnails") is None
@@ -124,8 +113,7 @@ def test_an_oversized_response_is_neither_read_whole_nor_written(network, tmp_pa
 
 
 def test_an_empty_response_is_not_written(network, tmp_path):
-    """A zero-byte file would be cached as a valid image forever, which renders
-    as a broken thumbnail no refresh can heal."""
+    """A zero-byte file would be cached as a valid image forever."""
     network(b"")
 
     assert _download_image(tmp_path, "vid00000001.jpg", "https://i.ytimg.com/x.jpg", "/thumbnails") is None
@@ -133,9 +121,7 @@ def test_an_empty_response_is_not_written(network, tmp_path):
 
 
 def test_the_destination_never_holds_a_partial_file(network, tmp_path, monkeypatch):
-    """The reason for the temp-file-and-rename: bytes must never appear at the
-    destination path until all of them have arrived, because nothing will ever
-    replace a file that exists."""
+    """Nothing replaces an existing file, so no bytes may appear at dest before all have arrived."""
     network(JPEG)
     dest = tmp_path / "vid00000001.jpg"
     existed_before_rename = []
@@ -176,8 +162,7 @@ def test_fetch_image_bytes_returns_the_body_and_content_type(network):
 
 
 def test_fetch_image_bytes_writes_nothing_to_disk(network, tmp_path, monkeypatch):
-    """The whole point over _download_image: a channel nobody's followed
-    doesn't earn a permanent local copy (see /image-proxy in app/main.py)."""
+    """Unlike _download_image: an unfollowed channel doesn't earn a permanent local copy."""
     network(JPEG)
     monkeypatch.chdir(tmp_path)
 
@@ -187,9 +172,7 @@ def test_fetch_image_bytes_writes_nothing_to_disk(network, tmp_path, monkeypatch
 
 
 def test_fetch_image_bytes_rejects_a_non_image_content_type(network):
-    """The upstream host is allowlisted (see app.main's _IMAGE_PROXY_ALLOWED_
-    HOSTS) but still not trusted to actually serve an image — an error page
-    or redirect target shouldn't be forwarded as if it were one."""
+    """An allowlisted host still mustn't have an error page forwarded as an image."""
     network(b"<html>not an image</html>", content_type="text/html")
 
     assert fetch_image_bytes("https://yt3.ggpht.com/abc") is None
@@ -215,13 +198,7 @@ def test_fetch_image_bytes_returns_none_on_a_failed_fetch(network):
         ("http://i.ytimg.com/vi/abc/mqdefault.jpg", True),
         # Already ours: nothing to fetch.
         ("/thumbnails/abc.jpg", False),
-        # The one that mattered. Nearly every track is stored in this shape
-        # (see music._proxied_cover_url), and it used to pass — after which
-        # download_thumbnail handed the relative path to
-        # urllib.request.Request, which raises ValueError("unknown url
-        # type"). _download_image catches URLError/OSError/TimeoutError and
-        # not that, so the background task died on it every single time and
-        # no thumbnail was ever cached for any of them.
+        # Nearly every track is stored in this shape.
         ("/image-proxy?u=https%3A%2F%2Fyt3.ggpht.com%2Fabc", False),
         (None, False),
         ("", False),

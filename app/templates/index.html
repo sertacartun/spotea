@@ -3,11 +3,7 @@
 {% block title %}Spotea{% endblock %}
 
 {% block head_extra %}
-  {# The one inline script in the app, and the reason the CSP carries a nonce
-     at all — it has to run before first paint, so moving it to an external
-     file would put a blocking request in front of every render. The nonce
-     comes off request.state, which Jinja2Templates exposes on every template
-     without any router having to pass it (see app/middleware.py). #}
+  {# The app's only inline script (must run before first paint), hence the CSP nonce in app/middleware.py. #}
   <script nonce="{{ request.state.csp_nonce }}">
     // Runs before the body paints, so the right tab (the one named in the
     // URL, or Home) is already correct on first render — without this, the
@@ -61,13 +57,7 @@
 {% endblock %}
 
 {% block body %}
-  {# First thing painted, and the only thing painted until pages/index.js
-     hides it. <html>'s inline background style covers the gap before the
-     (render-blocking) stylesheet arrives; this covers the gap after that,
-     while shelf images are still loading in and JS is still wiring up tabs
-     and the player — without it that wiring-up happened visibly, as a pop of
-     avatars and a topbar that went from inert to clickable a beat later. See
-     home/library.js's setupSplash for how it's dismissed. #}
+  {# Painted first and kept until JS finishes wiring up (home/library.js's setupSplash dismisses it). #}
   <div id="app-splash" class="app-splash">
     <div class="app-splash-mark" aria-hidden="true">
       <svg viewBox="0 0 512 512" fill="none">
@@ -96,17 +86,8 @@
     <span class="spinner spinner-lg" role="status" aria-label="Refreshing"></span>
   </div>
 
-  {# A 1px probe at the very top of the page, and the only thing that answers
-     "is this scrolled all the way up". Home's header runs transparent over the
-     hero's wash while it is, and fills in the moment it isn't — see
-     home/ambient.js, which owns the attribute, and style.css's
-     [data-hero-lit] rules.
-
-     Here rather than inside the hero, because the hero starts *below* the
-     header: a probe at the hero's own top edge stays on screen for a header's
-     worth of scrolling before it leaves, and observing the whole hero (which
-     is what this replaced) held the bar transparent for the hero's entire
-     height — long enough for shelf rows to slide under an unfilled bar. #}
+  {# Scroll-top probe for home/ambient.js's [data-hero-lit]. Must sit above the header, not in the hero,
+     or the bar stays transparent while rows slide under it. #}
   <span class="page-top-probe" aria-hidden="true"></span>
 
   <div class="app-header-sticky">
@@ -127,11 +108,6 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-menu" /></svg>
         </button>
         <div id="mobile-menu" class="mobile-menu" role="menu" hidden>
-          {# "Refresh", not "Check for new releases": the sentence wrapped to
-             two lines in a menu whose other item is one word, and this is the
-             same control as the topbar's Refresh button on desktop — calling
-             it two different things in two places is its own small confusion.
-             The full phrasing survives on the title and in Settings. #}
           <button type="button" id="mobile-menu-refresh" class="mobile-menu-item" role="menuitem" title="Check for new releases">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-refresh" /></svg>
             <span>Refresh</span>
@@ -147,10 +123,6 @@
     </div>
   </header>
 
-  {# Icons render alongside the labels but only show on the mobile bottom bar
-     (see style.css's .tab-icon) — on a phone this is the app's primary
-     navigation and a bare word is both a small target and a slow read. The
-     desktop tab strip stays text-only. #}
   <nav class="tabs" role="tablist">
     <div class="tabs-inner">
     <button type="button" class="tab-btn" data-tab="home" role="tab" aria-selected="false">
@@ -173,11 +145,6 @@
   </nav>
   </div>
 
-  {# Shown only while the browser says there is no connection (see
-     static/js/core.js's watchConnection). Ships hidden and stays hidden for
-     everyone with a working one — it is not a placeholder, it is a state
-     this page really can be in, and offline it is the difference between
-     "the app is broken" and "the app is doing what it can". #}
   <div class="offline-banner" id="offline-banner" role="status" hidden>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-phone" /></svg>
     <span>Offline — open <strong>Downloads</strong> in your Library to play what's on this device.</span>
@@ -218,23 +185,7 @@
 
     <section id="tab-explore" class="tab-panel" data-tab-panel="explore" hidden>
       <div class="channels-panel-inner">
-        {# The field and the tab strip sit in one sticky block so that
-           scrolling a long result list doesn't take the search box with it —
-           what you typed and which half of the results you're looking at are
-           both still the question while you're reading the answer. One
-           wrapper rather than two sticky elements: stacking them would mean
-           hardcoding the strip's offset to the field's rendered height.
-
-           Two headings became two tabs. Both lists are fetched together and
-           only one is on screen, which is what a phone has room for — the
-           songs used to push the artists so far down that finding one meant
-           scrolling past twenty tracks.
-
-           Deliberately the player panel's own .panel-tabs/.panel-tab (see
-           _player_overlay.html) rather than a second tab style: one app, one
-           way a tab strip looks. .search-tabs only drops the drawer's top
-           border and spacing, which belong to where that strip sits, not to
-           what it is. #}
+        {# One sticky wrapper for field and tabs, so the strip's offset needn't hardcode the field's height. #}
         <div class="explore-search-head">
           <div class="channel-search search-input-wrap">
             <input type="text" id="explore-search-input" placeholder="Search a song or artist…" autocomplete="off" autocapitalize="off" autocorrect="off" />
@@ -259,17 +210,7 @@
         </div>
 
         <div id="explore-browse-panel">
-          {# Charts, charting artists and one rotating mood shelf, searched
-             from the interests listed in Settings when there are any.
-             Filled entirely by home/explore.js — fetched in the background
-             as soon as the app loads (not part of the page render itself,
-             since it can cost a live YouTube round trip), so the shelves
-             are already here by the time this tab is opened.
-
-             No refresh control of its own, and no expiry either: a batch
-             is rebuilt when the interest list is edited and when the
-             app-wide Refresh button is pressed, and otherwise served from
-             cache however old it is (see services/recommendations.py). #}
+          {# Filled entirely by home/explore.js, fetched in the background at app load (can cost a live YouTube call). #}
           <div id="recommendations-body"></div>
         </div>
 
@@ -278,19 +219,6 @@
 
     <section id="tab-settings" class="tab-panel" data-tab-panel="settings" hidden>
       <div class="channels-panel-inner">
-        {# Groups, not one list. Every row used to sit under a single
-           "Account" heading, which put a preference select and a button that
-           clears your history next to each other with nothing to tell them
-           apart, and left the last row orphaned outside the group by an
-           unbalanced </section>. What the account is comes first, everything
-           that spends or erases space is together below it, and the
-           destructive one is last.
-
-           There were three groups until the middle one, "Playback", lost the
-           refresh-interval row along with the setting. Its other row is
-           "Download quality", which decides how much of a phone a library
-           takes rather than how anything plays, so it moved down here rather
-           than keeping a heading of its own over a single control. #}
         <section class="settings-group">
           <h2>Account · <span class="settings-group-who">{{ account_name }}</span></h2>
 
@@ -325,26 +253,12 @@
             <button type="button" id="open-downloads" class="btn-quiet">Manage downloads</button>
           </div>
 
-          {# The other half of "Storage used" above: that row is the instance's
-             disk, this one is the phone's. It used to be a toggle on every
-             single row of the Downloads modal, which made keeping a library
-             for a flight a hundred separate taps — and hid the one number
-             that matters (how much of this device is spoken for) behind a
-             modal.
-
-             A switch rather than a "Save all" button, because what it turns
-             on is a standing arrangement, not a one-off transfer: while it is
-             on, anything the server downloads from then on lands on this
-             device too (see home/device.js's syncDevice). A button would have
-             to be pressed again after every new song, and nothing on screen
-             would ever say whether it was still true. #}
+          {# A standing switch, not a one-off button: while on, new server downloads also land on this device
+             (home/device.js's syncDevice). #}
           <div class="settings-row">
             <div class="settings-row-info">
               <span class="settings-row-label">Offline playback</span>
-              {# Filled by home/device.js from IndexedDB — the server has no
-                 way of knowing any of it. data-count is what the "Clear all"
-                 confirmation in the Downloads modal reads to decide whether
-                 it has to warn that the device copies go too. #}
+              {# Filled by home/device.js from IndexedDB. The Downloads "Clear all" confirmation reads data-count. #}
               <span class="settings-row-desc" id="device-summary-text" data-count="0">
                 Keep every download on this phone, so it plays with no connection.
               </span>
@@ -372,25 +286,8 @@
     </section>
   </main>
 
-  {# One overlay in two modes, not two screens.
-
-     Settings' "Manage interests" opens it, and on a brand new profile it is
-     also the first run — open from the start and, until enough is picked,
-     refusing to close. Those were a modal and an inline panel on Home doing
-     the same job with two templates, two JS modules and two save paths; the
-     panel is gone and this is what's left.
-
-     `data-required` is what makes the difference, and it is an attribute
-     rather than a second template because it stops being true mid-session:
-     home/settings.js removes it once the first run is done, and from then on
-     this closes like any other overlay (see core.js's isRequired). That is
-     also why the close button and the Continue row are both always here —
-     CSS shows whichever the current mode calls for, so neither has to be
-     conditionally rendered and then conjured back later.
-
-     A first run is also fullscreen — edge to edge, nothing of the app
-     showing round the side — where Settings' is a centred card. Same
-     attribute decides it; see the CSS. #}
+  {# Interests overlay: Settings' picker and the first-run step. data-required (removed by home/settings.js
+     once done) blocks closing and makes it fullscreen; CSS picks which controls show. #}
   <div
     id="interests-overlay"
     class="modal-overlay"
@@ -407,11 +304,7 @@
         update on the same schedule as your library.
       </p>
 
-      {# Toggling a chip saves on its own — no Add button, no Save button, on
-         a first run just as much as afterwards. home/settings.js owns that;
-         see setupInterests. That is why the button below says Continue and
-         not Save: by the time it can be pressed, everything it would have
-         saved is already saved. #}
+      {# Chips save on toggle (home/settings.js's setupInterests), hence "Continue", not "Save". #}
       <div id="interests-picker" data-min-interests="{{ onboarding_min_interests }}">
         {% with chips = interest_chips %}{% include "_interest_picker.html" %}{% endwith %}
       </div>
@@ -437,11 +330,7 @@
   </div>
 
 
-  {# "Add to playlist", opened from the + beside the player's heart. The list
-     inside is built client-side from GET /playlists rather than rendered
-     here: it has to reflect which playlists already hold the track that is
-     playing *right now*, which changes with every track and is not something
-     a page render can know in advance. #}
+  {# List built client-side from GET /playlists: membership depends on the track playing right now. #}
   <div id="playlist-picker-overlay" class="modal-overlay" hidden>
     <div class="modal modal-playlist-picker">
       <div class="modal-header">

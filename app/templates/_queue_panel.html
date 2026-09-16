@@ -1,21 +1,5 @@
-{# What's in the queue, in play order, inside the player overlay.
-
-   Rows come from _content_row.html — the same template a playlist's track
-   list uses — so a queue row is identical to the row it was queued from,
-   and clicking one plays it without any extra wiring: the href is the
-   ordinary /#player/<id> route, and queue.js's noteCurrent moves the
-   pointer to whatever opens (see its docstring).
-
-   The whole queue, including what's already played, and with nothing here
-   saying which row is current — home/overlay.js's markCurrentQueueRow puts
-   the marker on and moves it. That split is the point: the pointer changes
-   every time a track ends or is picked, and re-rendering for it was what
-   made the list rebuild itself under the finger that had just chosen a row.
-
-   Filled by GET /partials/queue, which is handed the ids by the client —
-   the queue's order lives in the browser, not the database. #}
-{# No heading of its own: the panel's tab strip says which of the two views
-   this is (see _player_overlay.html). #}
+{# The current-row marker is applied client-side (home/overlay.js), so moving it never re-renders the list
+   under the user's finger. Queue order lives in the browser; ids are passed to GET /partials/queue. #}
 {% if queue_items %}
 {% for item in queue_items %}
 {% with index = loop.index, show_channel = true %}

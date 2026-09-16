@@ -43,7 +43,7 @@ def test_default_pagination_is_newest_first_50_per_page(db_session):
     assert page == 1
     assert total_pages == 2
     assert len(items) == 50
-    assert items[0].title == "Title 055"  # most recently published
+    assert items[0].title == "Title 055"
     assert items[-1].title == "Title 006"
 
 
@@ -122,9 +122,6 @@ def test_only_returns_the_requesting_users_content(db_session):
 
 
 def test_filter_played_orders_by_last_played_at_not_published_at(db_session):
-    """Recently Played must sort by when it was *played*, not by the video's
-    publish date — the actual bug this guards against: query_content_page
-    used to always order by published_at regardless of filter."""
     artist = Artist(user_id=USER_ID, channel_id="https://example.com/played-artist", name="C")
     db_session.add(artist)
     db_session.commit()
@@ -150,9 +147,7 @@ def test_filter_played_orders_by_last_played_at_not_published_at(db_session):
 
 
 def test_filter_played_includes_preview_content(db_session):
-    """A played Explore preview still belongs on the full Recently Played
-    list — matches pages.py's home_recently_played shelf, which carves out
-    the same exception. Every other filter still excludes previews."""
+    """Same exception as the home shelf; every other filter still excludes previews."""
     artist = Artist(user_id=USER_ID, channel_id="https://example.com/preview-artist", name="C")
     db_session.add(artist)
     db_session.commit()

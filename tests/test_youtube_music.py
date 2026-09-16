@@ -1,12 +1,4 @@
-"""app/youtube/music.py — the YouTube Music source, without the network.
-
-Every response body below is a trimmed copy of a real one, captured live
-against the unauthenticated API. What is being pinned here is the mapping
-onto search.py's dataclasses (which is what lets this module be swapped in
-behind the existing routers) and the handful of shapes that bite: browse
-ids that carry a "VL" prefix, 60-pixel cover art, Topic channel ids standing
-in for artists, and counts that arrive as "1.8M" rather than a number.
-"""
+"""app/youtube/music.py without the network; response bodies are trimmed live captures."""
 
 import logging
 from urllib.parse import quote
@@ -18,9 +10,7 @@ from app.youtube.urls import cover_url_at_size, is_video_still, playlist_id_from
 
 
 def _proxied(remote_url: str) -> str:
-    """The same wrapping _proxied_cover_url applies — see that function's
-    docstring for why a song/playlist/release cover is never hotlinked
-    directly."""
+    """The same wrapping _proxied_cover_url applies."""
     return f"/image-proxy?u={quote(remote_url, safe='')}"
 
 SONG = {
@@ -55,9 +45,6 @@ CHART_ARTIST = {
 
 
 class FakeYTMusic:
-    """Stands in for the client, recording what it was asked for. Every
-    method returns whatever the test queued under its name."""
-
     def __init__(self, **responses):
         self.responses = responses
         self.calls: list[tuple] = []
@@ -91,8 +78,7 @@ class FakeYTMusic:
 
 @pytest.fixture
 def client(monkeypatch):
-    """Installs a FakeYTMusic and hands it back, so no test in this file can
-    accidentally reach the network."""
+    """Installs a FakeYTMusic so no test in this file can reach the network."""
 
     def install(**responses):
         fake = FakeYTMusic(**responses)
@@ -113,10 +99,7 @@ def test_a_song_becomes_a_video_search_result(client):
 
 
 def test_a_songs_artists_become_its_channel(client):
-    """The Topic channel id is what a preview row hangs its placeholder artist
-    off (routers/explore.py), so it has to survive the mapping — and the
-    artist names are what the card prints where a video would print its
-    uploader."""
+    """A preview row's placeholder artist hangs off the Topic channel id."""
     client(search=[SONG])
 
     (result,) = music.search_songs("sezen aksu")
@@ -126,12 +109,7 @@ def test_a_songs_artists_become_its_channel(client):
 
 
 def test_several_artists_become_a_credit_beside_the_lead(client):
-    """The joined line and the artist are separate answers, and used to be
-    one. Whatever names the row also names the Artist it attaches to — which
-    every other track on that channel shares — so a collaboration's credit
-    landing there renamed the artist for good. One Drake diss credited to
-    four people left 29 of his tracks displaying "Drake, Kanye West, Lil
-    Wayne, Eminem"."""
+    """The credit line is separate from the artist, or a collaboration renames the artist."""
     client(
         search=[
             {
@@ -152,9 +130,7 @@ def test_several_artists_become_a_credit_beside_the_lead(client):
 
 
 def test_one_artist_gets_no_credit_of_its_own(client):
-    """A credit that repeats the artist's name is one more copy of the same
-    string on every row, and a NULL is what lets Content.display_artist fall
-    back to the artist."""
+    """NULL lets Content.display_artist fall back to the artist."""
     client(search=[{**SONG, "artists": [{"name": "Sezen Aksu", "id": "UCNaGLJRPE3ohleIDM7RFtlQ"}]}])
 
     (result,) = music.search_songs("solo")
@@ -164,10 +140,7 @@ def test_one_artist_gets_no_credit_of_its_own(client):
 
 
 def test_the_lead_name_follows_the_channel_that_was_picked(client):
-    """channel_title and channel_id have to describe the same person: the row
-    is keyed on the channel, and a name belonging to somebody else would put
-    the wrong label on that artist's page. The first credit here carries no
-    usable id, so neither the channel nor the name may come from it."""
+    """channel_title and channel_id must describe the same person."""
     client(
         search=[
             {
@@ -188,9 +161,7 @@ def test_the_lead_name_follows_the_channel_that_was_picked(client):
 
 
 def test_a_compilation_with_no_real_artist_channel_keeps_none(client):
-    """"Various Artists" comes back with a name but no id. A None channel_id
-    is the honest answer — the batch endpoint refuses those rows rather than
-    inventing a artist for them."""
+    """"Various Artists" has no id; the batch endpoint refuses None rather than inventing one."""
     client(search=[{**SONG, "artists": [{"name": "Various Artists", "id": None}]}])
 
     (result,) = music.search_songs("compilation")
@@ -200,8 +171,7 @@ def test_a_compilation_with_no_real_artist_channel_keeps_none(client):
 
 
 def test_cover_art_is_requested_at_a_size_worth_rendering(client):
-    """The API reports 60 and 120 pixel covers; the cards are drawn at
-    roughly 200 and the panel hero at twice that."""
+    """The API reports 60/120px covers; cards render at ~200px."""
     client(search=[SONG])
 
     (result,) = music.search_songs("sezen aksu")
@@ -216,9 +186,6 @@ def test_an_entry_with_no_video_id_is_dropped(client):
 
 
 def test_a_failing_call_is_an_empty_result_not_an_exception(monkeypatch):
-    """Explore's search box fires while someone types — a bad response has
-    to render as "nothing found", never as a 500. See the module docstring."""
-
     class Exploding:
         def search(self, *args, **kwargs):
             raise RuntimeError("InnerTube said no")
@@ -229,9 +196,7 @@ def test_a_failing_call_is_an_empty_result_not_an_exception(monkeypatch):
 
 
 def test_search_never_passes_a_language(client):
-    """The trap this module's docstring opens with: YTMusic(language="tr")
-    returns empty lists for songs, artists and albums instead of failing, so
-    the only safe rule is that nothing here ever sets one."""
+    """YTMusic(language=...) silently returns empty lists, so nothing may set one."""
     fake = client(search=[SONG])
 
     music.search_songs("sezen aksu")
@@ -241,9 +206,7 @@ def test_search_never_passes_a_language(client):
 
 
 def test_a_playlist_browse_id_loses_its_vl_prefix(client):
-    """Left on, it would build a youtube.com/playlist URL that resolves to
-    nothing — and PLAYLIST_ID_RE accepts the prefixed form, so nothing
-    downstream would catch it."""
+    """The VL-prefixed id builds a playlist URL that resolves to nothing, yet PLAYLIST_ID_RE accepts it."""
     client(search=[FEATURED_PLAYLIST])
 
     (result,) = music.search_playlists("turkish rock")
@@ -288,8 +251,6 @@ def test_playlist_search_tops_up_from_community_lists_and_deduplicates(client):
 
 
 def test_a_mood_playlist_describes_itself_by_who_is_on_it(client):
-    """Mood shelves report a `description` instead of an `author`, and it is
-    the better subtitle of the two."""
     client(
         get_mood_playlists=[
             {
@@ -314,8 +275,7 @@ MOOD_MENU = {
 
 
 def test_mood_categories_skip_the_section_that_cannot_be_parsed(client):
-    """Measured across all 40 categories: every "Genres" entry raises a
-    parse error from inside ytmusicapi. See music.MOOD_SECTION."""
+    """Every "Genres" entry raises a parse error inside ytmusicapi (music.MOOD_SECTION)."""
     client(get_mood_categories=MOOD_MENU)
 
     categories = music.fetch_mood_categories()
@@ -349,8 +309,7 @@ def test_both_chart_shelves_come_from_one_request(client):
     assert len(fake.calls) == 1
     (playlist,) = charts.playlists
     assert playlist.playlist_id == "OLAK5uy_mFBgHnPi7PIkt7vlG84rCduzVjFtuHnpM"
-    # Chart art names its size the other way round ("=s192", not
-    # "=w226-h226"); cover_url_at_size handles both.
+    # Chart art uses "=s192" rather than "=w226-h226"; cover_url_at_size handles both.
     assert playlist.thumbnail_url == _proxied("https://yt3.ggpht.com/k=s544")
 
 
@@ -396,8 +355,7 @@ def test_display_counts_become_numbers(reported, expected):
 
 
 def test_an_artist_page_resolves_the_official_channel(client):
-    """The whole reason a follow action pays for this call: the browse id is
-    the Topic channel, and `channelId` is the artist's real one."""
+    """The browse id is the Topic channel; `channelId` is the artist's real one."""
     client(
         get_artist={
             "name": "Sezen Aksu",
@@ -419,11 +377,7 @@ def test_an_artist_page_resolves_the_official_channel(client):
 
 
 def test_the_videos_section_is_left_out(client):
-    """It used to be merged in. Measured on Drake and Shirin David: 8 of the
-    10 videos were the same song as an entry already in the list under a
-    different id (audio track vs official video), and a video entry carries
-    no duration at all — so the merge bought a handful of duplicate,
-    duration-less rows at the bottom of the panel."""
+    """Videos mostly duplicate listed songs and carry no duration."""
     music_video = {"videoId": "3q4cJ1G_on8", "title": "Aşk Dansı", "views": "1.7B"}
     client(
         get_artist={
@@ -440,7 +394,6 @@ def test_the_videos_section_is_left_out(client):
 
 
 def test_the_same_id_is_never_listed_twice(client):
-    """A playlist can repeat an entry; the panel shouldn't."""
     client(
         get_artist={"name": "Sezen Aksu", "songs": {"browseId": "VLx", "results": []}},
         get_playlist={"tracks": [SONG, SONG]},
@@ -450,9 +403,7 @@ def test_the_same_id_is_never_listed_twice(client):
 
 
 def test_an_artist_page_lists_the_whole_top_songs_playlist(client):
-    """The page itself previews five songs and keeps the rest behind a
-    browse id — 56 of them for a mid-size artist, measured. Five is not an
-    artist page worth opening, so the playlist is what gets listed."""
+    """The page previews five songs; the full top-songs playlist is what gets listed."""
     deep_cut = {**SONG, "videoId": "3q4cJ1G_on8", "title": "Aşk Dansı"}
     fake = client(
         get_artist={
@@ -471,9 +422,7 @@ def test_an_artist_page_lists_the_whole_top_songs_playlist(client):
 
 
 def test_the_previewed_songs_stand_in_when_the_playlist_cannot_be_read(client):
-    """A five-track page is a worse artist page, and an empty one falls
-    through to the channel listing (see services/remote_detail.py) — which
-    for a vlogging artist is the listing this whole route exists to avoid."""
+    """An empty result would fall through to the channel listing (services/remote_detail.py)."""
     client(
         get_artist={
             "name": "Shirin David",
@@ -488,11 +437,7 @@ def test_the_previewed_songs_stand_in_when_the_playlist_cannot_be_read(client):
 
 
 def test_the_cap_is_above_anything_youtube_music_serves(client):
-    """A "Top songs" playlist stops at 150 for everyone — Taylor Swift,
-    Drake, Bach — so the longest real page is that plus the music videos.
-    The cap is a bound against an unbounded remote list, not something the
-    catalogue is expected to hit; if it starts biting, the panel needs
-    pagination rather than a bigger number here."""
+    """Top-songs playlists stop at 150; the cap bounds a remote list, it isn't expected to bite."""
     songs = [{**SONG, "videoId": f"_efHZg9D{n:03d}"} for n in range(150)]
     client(
         get_artist={"name": "Sezen Aksu", "songs": {"browseId": "VLx", "results": []}},
@@ -516,9 +461,7 @@ def test_an_absurd_list_is_still_capped(client):
 
 
 def test_entries_youtube_drops_are_reported_as_missing(client):
-    """Measured: Drake's playlist reports 150 tracks and yields 143, Bach's
-    147. The shortfall is what `track_count` exists to carry — the panel
-    says "first 143 of 150" instead of implying 143 is the whole list."""
+    """`track_count` carries the shortfall so the panel says "first 143 of 150"."""
     tracks = [{**SONG, "videoId": f"_efHZg9D{n:03d}"} for n in range(143)]
     client(
         get_artist={"name": "Drake", "songs": {"browseId": "VLx", "results": []}},
@@ -532,8 +475,6 @@ def test_entries_youtube_drops_are_reported_as_missing(client):
 
 
 def test_a_short_catalogue_is_not_reported_as_truncated(client):
-    """56 songs is the whole page — a count higher than the list would put a
-    "first N of M" on a page that is showing all of them."""
     tracks = [{**SONG, "videoId": f"_efHZg9D{n:03d}"} for n in range(56)]
     client(
         get_artist={"name": "Shirin David", "songs": {"browseId": "VLx", "results": []}},
@@ -547,9 +488,7 @@ def test_a_short_catalogue_is_not_reported_as_truncated(client):
 
 
 def test_all_songs_false_does_not_pay_for_the_track_list(client):
-    """A follow click wants the ids off the page header (see
-    artist_follow._as_artist_follow). The second request the track list costs
-    would buy nothing there."""
+    """A follow only needs the page header, not the track list."""
     fake = client(
         get_artist={
             "name": "Sezen Aksu",
@@ -565,13 +504,7 @@ def test_all_songs_false_does_not_pay_for_the_track_list(client):
 
 
 def test_a_channel_that_is_not_an_artist_is_none(client, caplog):
-    """Measured live: asking for a podcast or a tech channel raises
-    KeyError('musicImmersiveHeaderRenderer') from inside ytmusicapi. That is
-    what makes it safe to try any channel id here and let the answer decide
-    — see services/remote_detail.py.
-
-    And it must not warn. Every podcast opened from Explore now asks this
-    question first, so a traceback per failure is a log nobody can read."""
+    """Non-artist channels raise KeyError inside ytmusicapi; that must return None without warning."""
 
     def raise_key_error(browse_id):
         raise KeyError("musicImmersiveHeaderRenderer")
@@ -585,8 +518,7 @@ def test_a_channel_that_is_not_an_artist_is_none(client, caplog):
 
 
 def test_an_artist_page_carries_its_releases(client):
-    """All of it off the one response the songs came from, which is what
-    makes a profile cost what a bare track list cost."""
+    """Releases come off the same response as the songs."""
     client(
         get_artist={
             "name": "Shirin David",
@@ -623,7 +555,6 @@ def test_an_artist_page_carries_its_releases(client):
 
 
 def test_a_release_with_no_browse_id_is_dropped(client):
-    """A card with nothing to open is worse than one card fewer."""
     client(
         get_artist={
             "name": "Shirin David",
@@ -636,8 +567,7 @@ def test_a_release_with_no_browse_id_is_dropped(client):
 
 
 def test_an_album_and_a_single_open_the_same_way(client):
-    """YouTube Music answers a one-track single and a fourteen-track album
-    with the identical structure, which is why one route serves both."""
+    """A single and an album share one response structure."""
     client(
         get_album={
             "title": "Schlau aber blond",
@@ -658,10 +588,7 @@ def test_an_album_and_a_single_open_the_same_way(client):
 
 
 def test_a_tracks_missing_thumbnail_falls_back_to_the_album_cover(client):
-    """A track entry inside an album/single response carries no thumbnail
-    of its own — measured live on a real 14-track album, every one came
-    back thumbnails: None — since the whole release shares one cover. Every
-    row in an opened album rendered with no image at all before this."""
+    """Album tracks carry no thumbnail of their own."""
     client(
         get_album={
             "title": "Schlau aber blond",
@@ -736,8 +663,7 @@ def test_cover_url_at_size_handles_both_size_dialects(url, expected):
         # No query, and the webp host variant.
         ("https://i.ytimg.com/vi/1lrFsXkT_rM/mqdefault.jpg", True),
         ("https://i.ytimg.com/vi_webp/1lrFsXkT_rM/hqdefault.webp", True),
-        # Square album art — what a *song* carries, and the whole point of
-        # telling the two apart (see images.is_music_video).
+        # Square album art: what a song carries (see images.is_music_video).
         ("https://yt3.ggpht.com/abc=w544-h544-l90-rj", False),
         ("https://lh3.googleusercontent.com/abc=w544-h544-l90-rj", False),
         # A locally cached cover.
@@ -765,19 +691,11 @@ def test_playlist_id_from_browse_id(browse_id, expected):
     assert playlist_id_from_browse_id(browse_id) == expected
 
 
-# ---------------------------------------------------------------------------
-# Pages that answer with an artist's name and none of their music. Both of
-# these were found by following the same six channels the onboarding wizard
-# suggests and seeing which ones came out as artists.
-# ---------------------------------------------------------------------------
-
 VEVO_ID = "UClRx3MMyYUyqOxyEqA5F2nQ"
 REAL_ARTIST_ID = "UCtxdfwb9wfkoGocVUAJ-Bmg"
 ARTIST_TOPIC_ID = "UCf_gP4AMRSgAfyzbkeS9k4g"
 
-# What a VEVO channel actually returns: the right name, and no songs section
-# at all — no preview, no browseId behind it. Captured live on Travis Scott,
-# and identical in shape on 50 Cent, Snoop Dogg and Beyoncé.
+# VEVO channel: the right name, and no songs section at all.
 VEVO_PAGE = {"name": "Travis Scott", "channelId": REAL_ARTIST_ID, "songs": {"results": []}}
 
 REAL_ARTIST_PAGE = {
@@ -797,24 +715,19 @@ REAL_ARTIST_PAGE = {
 
 
 def test_a_vevo_channel_is_followed_through_to_the_real_artist_page(client):
-    """A label's VEVO channel is a video channel. YouTube Music answers for
-    one with an artist page carrying the name and nothing else, which read
-    as "artist with no music" — so the wizard followed the VEVO channel
-    itself and the library card opened a plain track list."""
+    """A VEVO channel's artist page has a name but no songs, so follow through to the real artist."""
     fake = client(get_artist=lambda browse_id: VEVO_PAGE if browse_id == VEVO_ID else REAL_ARTIST_PAGE)
 
     profile = music.fetch_artist(VEVO_ID, all_songs=False)
 
     assert profile.topic_channel_id == ARTIST_TOPIC_ID
-    # The id travels with the redirect: the VEVO id would reopen the songless
-    # page this just escaped.
+    # The redirect carries the real id; the VEVO id would reopen the songless page.
     assert profile.browse_id == REAL_ARTIST_ID
     assert [call[1][0] for call in fake.calls] == [VEVO_ID, REAL_ARTIST_ID]
 
 
 def test_an_artist_page_with_songs_is_never_asked_for_twice(client):
-    """The second request is what the redirect costs, so it only happens on
-    a page that had nothing to offer in the first place."""
+    """Only a page with nothing to offer pays for the redirect request."""
     fake = client(get_artist=REAL_ARTIST_PAGE)
 
     music.fetch_artist(REAL_ARTIST_ID, all_songs=False)
@@ -823,8 +736,7 @@ def test_an_artist_page_with_songs_is_never_asked_for_twice(client):
 
 
 def test_a_page_with_no_songs_and_no_redirect_is_left_alone(client):
-    """An artist who genuinely has no music on YouTube Music. There is
-    nowhere to redirect to, and the caller still gets the page."""
+    """No music and nowhere to redirect: the caller still gets the page."""
     fake = client(get_artist={"name": "Nobody", "channelId": REAL_ARTIST_ID, "songs": {"results": []}})
 
     profile = music.fetch_artist(REAL_ARTIST_ID, all_songs=False)
@@ -834,9 +746,7 @@ def test_a_page_with_no_songs_and_no_redirect_is_left_alone(client):
 
 
 def test_the_topic_channel_is_matched_regardless_of_case(client):
-    """Usher's page is headed "USHER" and every one of his tracks credits
-    "Usher" — an exact comparison found nothing and he was followed as a
-    channel."""
+    """Pages can be headed "USHER" while tracks credit "Usher"."""
     client(
         get_artist={
             "name": "USHER",
@@ -857,12 +767,8 @@ def test_the_topic_channel_is_matched_regardless_of_case(client):
     assert profile.topic_channel_id == ARTIST_TOPIC_ID
 
 
-# --- Several countries' charts, blended ------------------------------------
-
-
 def _chart_artist(slug, title):
-    """A chart entry with a real-shaped browse id — _artist_result drops
-    anything that isn't a 24-character UC channel id."""
+    """A chart entry with a real 24-character UC browse id; _artist_result drops anything else."""
     return {**CHART_ARTIST, "browseId": f"UC{slug}".ljust(24, "0"), "title": title}
 
 
@@ -876,7 +782,6 @@ def _country_charts(**by_country):
 
 
 def test_one_country_still_costs_one_request(client):
-    """The ordinary case must not pay for the blend it doesn't need."""
     fake = client(get_charts=_country_charts(TR={"videos": [CHART_PLAYLIST], "artists": []}))
 
     music.fetch_charts_for(["TR"])
@@ -885,9 +790,7 @@ def test_one_country_still_costs_one_request(client):
 
 
 def test_charting_artists_are_taken_a_rank_at_a_time(client):
-    """Not one country's whole chart and then the next. Concatenating would
-    leave the first country owning every slot, which is the same failure the
-    global chart has by population — see fetch_charts_for."""
+    """Taken a rank at a time, so the first country doesn't own every slot."""
     client(
         get_charts=_country_charts(
             TR={"videos": [], "artists": [
@@ -939,9 +842,7 @@ def test_a_country_with_a_shorter_chart_doesnt_stop_the_others(client):
 
 
 def _country_chart_playlists(country):
-    """The four playlists a country's chart actually returns, in the order
-    YouTube Music returns them — Trending is not first. Titles and shapes
-    measured live on 2026-08-21 (US, GB, AU)."""
+    """A country's four chart playlists in the order YouTube Music returns them; Trending isn't first."""
     return [
         {**CHART_PLAYLIST, "playlistId": f"PL4fGSI1pDJnLIVE{country}".ljust(34, "0"),
          "title": f"Top 100 Live Performances - {country}"},
@@ -955,10 +856,7 @@ def _country_chart_playlists(country):
 
 
 def test_only_the_trending_playlist_survives(client):
-    """The other three are video charts — the same songs ranked by their
-    official music video's view count, plus live sets — which is not what
-    this app is for. Trending is also not first in the response, so this
-    cannot be done by taking [0]."""
+    """The other three are video charts; Trending isn't first, so [0] won't do."""
     client(get_charts={"videos": _country_chart_playlists("Turkey"), "artists": []})
 
     titles = [p.title for p in music.fetch_charts("TR").playlists]
@@ -967,11 +865,7 @@ def test_only_the_trending_playlist_survives(client):
 
 
 def test_each_country_contributes_exactly_one_tile(client):
-    """Six countries, six tiles, in the order they were configured. The
-    interleaving that used to matter here (a country chart carried three or
-    four playlists, so four countries overflowed a twelve-tile shelf and the
-    last one listed fell off) has nothing left to do — but the shelf still
-    has to hold every country asked for."""
+    """One tile per configured country, in order."""
     client(
         get_charts=_country_charts(
             **{
@@ -1006,12 +900,7 @@ def test_the_same_chart_playlist_in_two_countries_appears_once(client):
     assert len(music.fetch_charts_for(["TR", "US"]).playlists) == 1
 
 
-# --- find_song_version -----------------------------------------------------
-#
-# YouTube Music's curated and mood playlists are music-video playlists almost
-# end to end — measured across three of them, 3 of 200, 3 of 96 and 2 of 200
-# entries were songs. A video entry has a 16:9 still for a cover, no album
-# and usually no lyrics, so the player asks for the song instead.
+# Curated/mood playlists are almost all music videos, so the player asks for the song instead.
 
 MUSIC_VIDEO = {
     "title": "Biliyorsun",
@@ -1039,16 +928,13 @@ def test_a_music_video_resolves_to_its_song(client):
 
 
 def test_a_music_video_result_is_never_the_answer(client):
-    """The first hit for a video's own title is often the video itself.
-    Taking it would swap a row for exactly what it already was."""
+    """The first hit for a video's title is often the video itself."""
     client(search=[MUSIC_VIDEO])
 
     assert music.find_song_version("Biliyorsun", "Sezen Aksu") is None
 
 
 def test_a_different_song_is_not_close_enough(client):
-    """A search is a guess, and playing the wrong recording is worse than
-    playing a music video."""
     other = {**SONG, "title": "Firuze"}
     client(search=[other])
 
@@ -1056,8 +942,6 @@ def test_a_different_song_is_not_close_enough(client):
 
 
 def test_a_different_artist_is_not_close_enough(client):
-    """Same title, someone else's recording — a cover, or a track that just
-    shares a name."""
     other = {**SONG, "artists": [{"name": "Someone Else", "id": "UCotherotherother"}]}
     client(search=[other])
 
@@ -1065,9 +949,7 @@ def test_a_different_artist_is_not_close_enough(client):
 
 
 def test_bracketed_asides_and_punctuation_do_not_block_a_match(client):
-    """Measured on ten real video entries: the song's title differs from the
-    video's by exactly this kind of noise — "(feat. …)", "(Cardi B Version)",
-    "(Official Video)" — and all ten were the right track."""
+    """The noise real song and video titles differ by, e.g. "(feat. …)", "(Official Video)"."""
     versioned = {**SONG, "title": "Biliyorsun (feat. Someone) [Remastered]"}
     client(search=[versioned])
 
@@ -1078,16 +960,13 @@ def test_bracketed_asides_and_punctuation_do_not_block_a_match(client):
 
 
 def test_duration_is_deliberately_not_part_of_the_match(client):
-    """A music video with a long intro runs 35 seconds past its song and is
-    still the same track — one of the ten measured. Requiring the durations
-    to agree would have thrown it away."""
+    """A music video with a long intro is still the same track."""
     client(search=[SONG])
 
     assert music.find_song_version("Biliyorsun", "Sezen Aksu") is not None
 
 
 def test_a_track_with_no_artist_matches_on_title_alone(client):
-    """Weaker, and still stronger than taking the first hit."""
     client(search=[SONG])
 
     result = music.find_song_version("Biliyorsun", None)
@@ -1107,13 +986,7 @@ COLLAB_SONG = {
 
 
 def test_a_collaboration_matches_on_the_lead_artist(client):
-    """The row names one artist ("ROSÉ"); the song credits several ("ROSÉ,
-    Bruno Mars"). This used to compare the row's single name against every
-    credit joined into one string, so every feat. missed — which is a large
-    share of exactly the chart pop these playlists are made of. Measured
-    before the fix: 3 of 5 sampled tracks resolved, both misses collaborations;
-    after, 5 of 5, and 13 of 14 across a real playlist.
-    """
+    """The row names one artist while the song credits several."""
     client(search=[COLLAB_SONG])
 
     result = music.find_song_version("Biliyorsun", "Sezen Aksu")
@@ -1123,8 +996,6 @@ def test_a_collaboration_matches_on_the_lead_artist(client):
 
 
 def test_a_credited_artist_further_down_the_list_still_counts(client):
-    """"feat." credits aren't always second, and the row's name isn't always
-    the first one YouTube Music lists."""
     client(search=[COLLAB_SONG])
 
     assert music.find_song_version("Biliyorsun", "Sertab Erener") is not None
@@ -1142,53 +1013,31 @@ def test_a_credited_artist_further_down_the_list_still_counts(client):
     ],
 )
 def test_a_different_recording_is_not_the_song(client, title):
-    """_match_key throws brackets away, which is what lets "Sunflower
-    (Spider-Man: Into the Spider-Verse)" match "Sunflower" — and the same
-    rule makes an instrumental look like an equally good answer. Swapping a
-    track for its karaoke version is worse than leaving the music video."""
+    """_match_key drops brackets, which would otherwise make an instrumental look like the song."""
     client(search=[{**SONG, "title": title}])
 
     assert music.find_song_version("Biliyorsun", "Sezen Aksu") is None
 
 
 def test_asking_for_a_live_version_still_finds_one(client):
-    """The rule is "not a *different* recording", not "never bracketed" — a
-    row that is itself a live take should resolve to the live song."""
+    """A row that is itself a live take should resolve to the live song."""
     client(search=[{**SONG, "title": "Biliyorsun (Live)"}])
 
     assert music.find_song_version("Biliyorsun (Live in Istanbul)", "Sezen Aksu") is not None
 
 
 def test_a_version_that_is_still_the_song_is_accepted(client):
-    """"(Cardi B Version)", "(Taylor's Version)" — the song, released under a
-    qualifier. Measured: one of ten sampled tracks resolved this way and it
-    was correct."""
+    """A qualifier like "(Taylor's Version)" is still the song."""
     client(search=[{**SONG, "title": "Biliyorsun (Sertab Version)"}])
 
     assert music.find_song_version("Biliyorsun", "Sezen Aksu") is not None
 
 
-# --- find_song_version: chart titles ----------------------------------------
-#
-# A second round of measurement, over every track of one chart and one mood
-# playlist (117 music videos), matching on exact title equality alone:
-#
-#   Trending 20 United States   17 videos    5 matched  (29%)
-#   Fall Hits                  100 videos   96 matched  (96%)
-#
-# Playlists were already fine. Charts were the broken case, because the two
-# carry different titles: a playlist entry has a clean song title ("Bel Air"),
-# a chart entry has the raw uploaded video title ("KATSEYE (캣츠아이) 'Hootie
-# Frutti' Official MV"). With the fallbacks below the same run matched 12 and
-# 100 — and all 17 chart decisions were checked by hand, the 5 that still
-# miss being songs that genuinely aren't on YouTube Music under their own
-# artist.
+# Chart entries carry raw uploaded video titles ("KATSEYE (캣츠아이) 'Hootie Frutti' Official MV").
 
 
 def test_a_raw_video_title_still_finds_its_song(client):
-    """The chart case. _match_key drops bracketed asides, so "(Official
-    Video)" costs nothing — but a bare "Official MV" and a leading artist
-    credit survive it and used to defeat the whole match."""
+    """A bare "Official MV" and a leading artist credit survive _match_key."""
     client(search=[SONG])
 
     result = music.find_song_version("SEZEN AKSU 'Biliyorsun' Official MV", "Sezen Aksu")
@@ -1198,9 +1047,6 @@ def test_a_raw_video_title_still_finds_its_song(client):
 
 
 def test_noise_outside_brackets_no_longer_blocks_a_match(client):
-    """Measured on Lana Del Rey's "Video Games Performance Edit, HD, Closed
-    Captioned" — no brackets anywhere, and every word after the song's title
-    is the uploader's labelling."""
     client(search=[SONG])
 
     result = music.find_song_version(
@@ -1211,19 +1057,13 @@ def test_noise_outside_brackets_no_longer_blocks_a_match(client):
 
 
 def test_a_shorter_song_inside_the_title_is_not_the_answer(client):
-    """The guard, and the reason bare containment isn't enough on its own:
-    measured, it matched "Legends" against "VonOff1700 - Hood Legends
-    (Official Video)" — a different song by the same artist. The song's title
-    has to be a delimited part of the video's, or every word left over once
-    it is removed has to be decoration. "Hood" is neither."""
+    """The song title must be a delimited part of the video title, or the leftovers must be decoration."""
     client(search=[{**SONG, "title": "Legends", "videoId": "wrongsong01"}])
 
     assert music.find_song_version("Sezen Aksu - Hood Legends (Official Video)", "Sezen Aksu") is None
 
 
 def test_the_longest_qualifying_title_wins(client):
-    """When two songs both sit inside one video title, the longer one
-    accounts for more of it and is the more specific answer."""
     short = {**SONG, "title": "Biliyorsun", "videoId": "shortsong01"}
     longer = {**SONG, "title": "Biliyorsun Sezen", "videoId": "longsong001"}
     client(search=[short, longer])
@@ -1235,8 +1075,6 @@ def test_the_longest_qualifying_title_wins(client):
 
 
 def test_an_exact_title_beats_a_nested_one_further_down(client):
-    """Exact equality is still the answer wherever it turns up in the list;
-    the fallback only ever fills in for its absence."""
     nested = {**SONG, "title": "Biliyorsun", "videoId": "nestedsong1"}
     exact = {**SONG, "title": "Biliyorsun Official Video", "videoId": "exactsong01"}
     client(search=[nested, exact])
@@ -1247,15 +1085,8 @@ def test_an_exact_title_beats_a_nested_one_further_down(client):
     assert result.video_id == "exactsong01"
 
 
-# --- find_song_version: who the artist is -----------------------------------
-
-
 def test_the_same_channel_under_a_different_name_is_the_same_artist(client):
-    """YouTube Music hands one artist different display names in different
-    responses — a Fall Hits entry says "Marie Ulven" where search says "girl
-    in red" — and the same UCmNtyqQl03eWyvikCMbO3fA in both. The id is an
-    identity rather than a guess, and it is what took that playlist from 96
-    of 100 to 100 of 100."""
+    """YouTube Music gives one channel id different display names across responses."""
     client(search=[SONG])
 
     result = music.find_song_version("Biliyorsun", "Marie Ulven", "UCNaGLJRPE3ohleIDM7RFtlQ")
@@ -1265,11 +1096,7 @@ def test_the_same_channel_under_a_different_name_is_the_same_artist(client):
 
 
 def test_a_label_upload_matches_the_artist_named_in_the_title(client):
-    """A label owns the channel a chart entry came from, so the row arrives
-    attributed to the label ("HYBE LABELS") and neither its name nor its id
-    matches the song's. The real artist appears in the video's own title, and
-    that corroborates rather than loosens: a wrong song's artist doesn't turn
-    up there."""
+    """A label upload names the label; the real artist in the title corroborates the match."""
     client(search=[SONG])
 
     result = music.find_song_version(
@@ -1281,9 +1108,7 @@ def test_a_label_upload_matches_the_artist_named_in_the_title(client):
 
 
 def test_a_different_channel_and_name_is_still_not_the_artist(client):
-    """The three ways to recognise an artist are alternatives, not a slope:
-    with none of them holding, the answer is still no match. Measured on
-    Cazzu's "Si Una Vez", whose search returns Selena's original."""
+    """With none of the three artist checks holding, there is no match."""
     client(search=[SONG])
 
     assert music.find_song_version("Biliyorsun", "Someone Else", "UCsomeoneelse0000000") is None

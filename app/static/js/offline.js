@@ -1,63 +1,26 @@
-// Keeping a track's actual bytes on the device, so it plays with no network
-// at all.
-//
-// The server already downloads everything you play (see routers/content.py's
-// _run_download) — that is what the Downloads modal lists. But those files
-// live on the instance's disk, which is no help on a train: reaching them
-// still needs a request to reach the instance. This module is the second
-// hop, from the instance to the phone.
-//
-// Why IndexedDB rather than the Cache API, which the service worker already
-// uses: the <audio> element issues Range requests while seeking, and the
-// Cache API keys purely on URL with no notion of Range — a cached response
-// for one byte range gets replayed for a request asking for a different one
-// (which is exactly why sw.js refuses to cache /content/* at all). Handing
-// the element a Blob sidesteps ranges entirely: the bytes are already in the
-// page, so seeking is a memory operation and no request is made for it.
-//
-// The playback path this feeds is not new. player.js already accepts bytes
-// instead of a URL, for the prefetch that pulls the *next* track down while
-// the current one plays (see offerPrefetchedAudio). A saved track is offered
-// through that same door, so nothing about how audio actually starts changes
-// here.
+// Keeps tracks' bytes on the device. IndexedDB, not the Cache API: <audio> issues
+// Range requests and Cache API keys on URL only, replaying the wrong range.
 
 const DB_NAME = "spotea-offline";
 const DB_VERSION = 1;
 
-// Metadata and bytes are deliberately in separate stores, keyed by the same
-// content id. Listing what's saved (the Downloads modal, the device total)
-// must not pay for the audio: IndexedDB materialises whole records, so a
-// getAll() over a single combined store would pull every saved song's Blob
-// into memory just to render a list of titles.
+// Separate stores: IndexedDB materialises whole records, so listing titles from
+// a combined store would load every Blob into memory.
 const META_STORE = "tracks";
 const BLOB_STORE = "blobs";
 
-/** Whether this browser can store anything at all. */
 export function isSupported() {
   return typeof indexedDB !== "undefined";
 }
 
-/* -------------------------------------------------------------------------
-   Whether this device is meant to keep everything
-   ---------------------------------------------------------------------- */
-
-// A device preference, not an account one — the same login on a laptop and a
-// phone wants different answers, and the server has no business holding
-// either. localStorage rather than a cookie for the same reason: nothing
-// about this ever needs to reach a request.
-//
-// It lives down here rather than beside the switch that sets it (see
-// home/device.js) because the player reads it too: a prefetch that has just
-// pulled the next track into memory keeps those bytes when this is on, which
-// is what stops the sync fetching the very same file again a moment later.
+// A device preference, not an account one. Lives here because the player reads
+// it too (a prefetched track's bytes are kept when it's on).
 const OFFLINE_PREF_KEY = "spotea-offline-playback";
 
 export function offlinePlaybackOn() {
   try {
     return localStorage.getItem(OFFLINE_PREF_KEY) === "1";
   } catch {
-    // Private browsing with storage disabled. The copies could not be kept
-    // either, so "off" is the only honest answer.
     return false;
   }
 }
@@ -85,21 +48,16 @@ function openDb() {
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
-    // Another tab running a newer version of the app is holding the old
-    // database open. Failing here is better than hanging forever on a
-    // request that will never fire either callback.
+    // Another tab holds the old DB open; fail rather than hang forever.
     request.onblocked = () => reject(new Error("Offline storage is busy in another tab"));
   }).catch((err) => {
-    // Never leave a rejected promise memoised — a transient failure (private
-    // browsing, a blocked upgrade the user then resolved) would otherwise
-    // poison every later call for the lifetime of the page.
+    // Never memoise a rejection, or one transient failure poisons the page.
     dbPromise = null;
     throw err;
   });
   return dbPromise;
 }
 
-/** Promise-wraps one IDBRequest. */
 function promisify(request) {
   return new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
@@ -107,17 +65,13 @@ function promisify(request) {
   });
 }
 
-/** Runs `work` inside a transaction that resolves when it actually commits. */
 function transact(storeNames, mode, work) {
   return openDb().then(
     (db) =>
       new Promise((resolve, reject) => {
         const tx = db.transaction(storeNames, mode);
         let result;
-        // Resolving on the request's own onsuccess would report a write as
-        // done before the transaction commits, so a quota failure raised at
-        // commit time would surface after the caller had already told the
-        // user it was saved.
+        // Resolve on commit, not on the request: quota errors surface at commit.
         tx.oncomplete = () => resolve(result);
         tx.onerror = () => reject(tx.error);
         tx.onabort = () => reject(tx.error || new Error("Offline write aborted"));
@@ -134,16 +88,7 @@ function transact(storeNames, mode, work) {
   );
 }
 
-/**
- * Asks the browser not to evict what we store.
- *
- * Without this, everything here is "best effort" storage the browser is free
- * to throw away under disk pressure — which for a feature whose whole point
- * is that the songs are still there when you have no signal is the one
- * failure that matters. Granted silently on an installed PWA in most
- * browsers; a refusal is not an error, just a weaker guarantee, so this
- * reports rather than throws.
- */
+/** A refusal is reported, not thrown. */
 export async function requestPersistence() {
   if (!navigator.storage?.persist) return false;
   try {
@@ -154,14 +99,6 @@ export async function requestPersistence() {
   }
 }
 
-/**
- * What the device is holding, and what the browser will let it hold.
- *
- * `quota` is the browser's own figure for the whole origin and is a long way
- * from a promise — it is advisory, differs per browser, and on iOS is both
- * smaller and less predictable than elsewhere. It is shown so a full device
- * is legible rather than mysterious, not because it can be relied on.
- */
 export async function deviceUsage() {
   const records = await listSaved();
   const bytes = records.reduce((total, record) => total + (record.size || 0), 0);
@@ -173,20 +110,10 @@ export async function deviceUsage() {
       quota = null;
     }
   }
-  // The ids ride along rather than being a second call. Everything that shows
-  // a total also has to tick the rows it covers, and two reads of the same
-  // store can disagree — a save landing between them renders a total that
-  // counts a track the toggles say isn't saved.
+  // ids from the same read, so the total and the rows it covers can't disagree.
   return { count: records.length, bytes, quota, ids: records.map((record) => record.id) };
 }
 
-/**
- * Every saved track's metadata, newest first. Never touches the audio.
- *
- * Exported because it is the whole source of the Downloads panel's rows (see
- * home/device.js): offline there is no /partials to render a track list from,
- * so what was stored beside the bytes is the list.
- */
 export async function listSaved() {
   if (!isSupported()) return [];
   try {
@@ -199,15 +126,6 @@ export async function listSaved() {
   }
 }
 
-/**
- * What was stored alongside a saved track's audio: enough to render it with
- * no server to ask.
- *
- * This is the whole reason the metadata is kept at all. A device that can
- * play the bytes but cannot say what the song is called is not usable
- * offline, and GET /content/{id} — where every other surface gets a title
- * from — is exactly what is unreachable at the moment it matters.
- */
 export async function readTrackMeta(contentId) {
   if (!isSupported()) return null;
   try {
@@ -221,13 +139,7 @@ export async function readTrackMeta(contentId) {
   }
 }
 
-/**
- * A blob: URL for the saved audio, or null when this track isn't saved.
- *
- * The caller owns the URL and must revoke it — which for the playback path
- * means handing it to player.js's offerPrefetchedAudio, whose existing
- * ownership rules already cover revoking it whether or not it gets used.
- */
+/** Caller revokes (offerPrefetchedAudio does). */
 export async function openTrackUrl(contentId) {
   if (!isSupported()) return null;
   try {
@@ -241,7 +153,7 @@ export async function openTrackUrl(contentId) {
   }
 }
 
-/** A blob: URL for the saved cover art, or null. Caller revokes. */
+/** Caller revokes. */
 export async function openCoverUrl(contentId) {
   if (!isSupported()) return null;
   try {
@@ -255,19 +167,7 @@ export async function openCoverUrl(contentId) {
   }
 }
 
-/**
- * Pulls a track's bytes down and keeps them.
- *
- * `track` is what the Downloads modal already knows about the row — enough
- * to render it again with no server to ask, which is the point: a device
- * that can play the audio but can't say what the song is called is not
- * usable offline.
- *
- * `signal` calls the transfer off. The sync passes one so that a whole
- * track's bytes stop coming down the moment the player runs out of its own
- * (see home/device.js) — this is a convenience, and the song the user is
- * actually listening to is not.
- */
+/** `signal` lets the sync give way to playback. */
 export async function saveTrack(contentId, track = {}, { signal } = {}) {
   const id = Number(contentId);
 
@@ -279,33 +179,17 @@ export async function saveTrack(contentId, track = {}, { signal } = {}) {
 }
 
 /**
- * Keeps bytes the page is already holding, without going and getting them.
- *
- * Split out of saveTrack for the prefetch, which pulls the whole of the next
- * track into memory while the current one plays (see home/overlay.js's
- * cacheUpcomingAudio) and until now dropped it again the moment the handoff
- * was done with it — leaving the sync to fetch that exact file a second time,
- * over the same connection, while the element was still buffering it. That
- * second transfer is what made tracks sit at 0:00.
- *
- * The cover goes through /image-proxy rather than YouTube's CDN directly.
- * Not a detail: a cross-origin fetch of an image is opaque, and an opaque
- * Blob is unreadable — it would store bytes that could never be displayed.
- * The proxy is same-origin, so its response is a real one (and it is also
- * the only way the app renders covers at all — see main.py's image_proxy).
+ * Keeps bytes the page already holds (the prefetch), so the sync doesn't refetch
+ * them. Covers go via same-origin /image-proxy: a cross-origin image Blob is opaque.
  */
 export async function storeTrack(contentId, audio, track = {}) {
   const id = Number(contentId);
 
-  // Deliberately not given the caller's abort signal: by the time this runs
-  // the audio is already down, and throwing a finished transfer away because
-  // a few kilobytes of artwork got cancelled would be perverse.
+  // Not given the abort signal: the audio is already down, don't discard it over artwork.
   let cover = null;
   if (track.coverUrl) {
     try {
       const coverRes = await fetch(track.coverUrl);
-      // A cover that won't come is worth losing; the song isn't. Anything
-      // that fails here leaves cover null and the record still saveable.
       if (coverRes.ok) cover = await coverRes.blob();
     } catch {
       cover = null;
@@ -319,9 +203,7 @@ export async function storeTrack(contentId, audio, track = {}) {
     duration: track.duration ?? null,
     coverUrl: track.coverUrl || null,
     mime: audio.type || "application/octet-stream",
-    // The audio only. The cover is a rounding error next to it and counting
-    // it would make this figure disagree with the server's own per-item size
-    // for no benefit.
+    // Audio only, to match the server's per-item size.
     size: audio.size,
     savedAt: Date.now(),
   };
@@ -332,12 +214,8 @@ export async function storeTrack(contentId, audio, track = {}) {
       tx.objectStore(META_STORE).put(meta);
     });
   } catch (err) {
-    // A half-written pair is worse than nothing: metadata with no audio
-    // renders a song that cannot play, and audio with no metadata is
-    // invisible to every listing and so can never be deleted from the UI.
-    // The transaction above is atomic across both stores, so reaching here
-    // means neither landed — but a quota failure can also strike after an
-    // earlier successful write, so sweep this id either way.
+    // A half-written pair can't play or can't be deleted from the UI; sweep this id
+    // either way, since a quota failure can follow an earlier successful write.
     await deleteTrack(id).catch(() => {});
     if (err?.name === "QuotaExceededError") {
       throw new Error("No room left on this device. Remove a few saved songs and try again.");
@@ -348,7 +226,6 @@ export async function storeTrack(contentId, audio, track = {}) {
   return meta;
 }
 
-/** Forgets one track's bytes and its metadata. */
 export async function deleteTrack(contentId) {
   const id = Number(contentId);
   await transact([META_STORE, BLOB_STORE], "readwrite", (tx) => {
@@ -357,7 +234,6 @@ export async function deleteTrack(contentId) {
   });
 }
 
-/** Forgets everything. */
 export async function clearAll() {
   await transact([META_STORE, BLOB_STORE], "readwrite", (tx) => {
     tx.objectStore(BLOB_STORE).clear();

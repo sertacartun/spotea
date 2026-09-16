@@ -1,30 +1,5 @@
-{# Home's channel chips and the four content shelves.
-
-   Rendered both inside index.html and on its own by GET /partials/home, so a
-   save/favorite/play can re-render this region from the server instead of
-   being hand-patched into the DOM. Everything here is derived state — which
-   is exactly why hand-patching it kept going subtly wrong.
-
-   `has_content` rather than a count: this branch only asks "does this profile
-   have anything at all yet".
-
-   Every "See more" link renders `hidden` — home/library.js's wireScrollers()
-   only reveals one once it's confirmed that row actually overflows. Starting
-   visible and letting JS hide the non-scrollable ones after the fact flashes
-   a link that then vanishes on every load; starting hidden never does.
-#}
-{# Cover as Canvas — the one thing Home is asking you to do, with the room lit
-   by the record you were last on.
-
-   The wash behind it is derived from this cover at runtime (home/ambient.js)
-   and clamped before it is ever applied, so the colour changes with the music
-   while the text and the primary action keep the contrast they were measured
-   at. Nothing here is decorative: this is the only filled primary action on
-   the page, which is what makes it the focal point rather than a sixth shelf.
-
-   Guarded on home_recently_played rather than has_content: with a library but
-   no play history there is no "where you left off" to offer, and a hero that
-   invents one would be worse than no hero. The shelves below cover that case. #}
+{# "See more" links start hidden; home/library.js reveals only those whose row overflows (starting visible would flash). #}
+{# Guarded on home_recently_played: with no play history there is nothing to resume. #}
 {% if home_recently_played %}
 {% set hero = home_recently_played[0] %}
 <section class="home-hero" aria-labelledby="home-hero-title">
@@ -57,10 +32,7 @@
       </div>
       <div class="channel-row" id="home-channel-row">
         {% for artist in home_recent_artists %}
-        {# Two classes: .channel-chip is what home/library.js's click handler
-           binds to, .artist-chip is what makes it look like an artist rather
-           than a pill. Explore's mood chips are .channel-chip too and stay
-           pills — a mood is a label, an artist is a face. #}
+        {# .channel-chip is the click hook (home/library.js); .artist-chip is the styling. #}
         <button type="button" class="channel-chip artist-chip" data-browse-id="{{ artist.browse_id or '' }}">
           {% if artist.avatar_url %}
           <img class="channel-chip-avatar" src="{{ artist.avatar_url }}" alt="" loading="lazy" />
@@ -74,25 +46,11 @@
     </div>
     {% endif %}
 
-    {# First run used to be an inline panel here, with its own copy of the
-       genre picker and its own JS. It is now the interests overlay in
-       index.html, opened over this page rather than rendered into it — one
-       picker, one save path, and nothing here that has to know whether the
-       profile is new. This branch is what shows behind it. #}
     {% if not has_content %}
     <p class="muted">Nothing played yet — find something in the Explore tab.</p>
     {% else %}
 
-    {# Releases, not Content rows: these are albums and singles to open, and
-       the cards carry data-release-id rather than a content id, so they go
-       through home/detail.js's release handler exactly like the ones on an
-       artist profile do. "See more" opens Library's tile of the same name,
-       which is the same releases without the twelve-card cap.
-
-       No data-queue-kind: there is nothing here to queue. A one-track single
-       plays on click (see the release handler); anything longer opens. #}
-    {# shelf--lead: the first content shelf on the panel, sized larger than the
-       ones under it so Home is not four identical rows. #}
+    {# Release cards carry data-release-id, handled by home/detail.js; no data-queue-kind. #}
     <div class="shelf shelf--lead">
       <div class="shelf-header">
         <h2 class="shelf-title">New releases</h2>

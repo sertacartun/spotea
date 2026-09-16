@@ -5,10 +5,6 @@
 >
   <a class="track-link" href="/#player/{{ item.id }}" aria-label="Play {{ item.title }}">
     <span class="track-index">{{ index }}</span>
-    {# `| cover` rather than item.thumbnail_url: a track stored without one
-       falls back to its video still (see images.track_cover). Kept
-       conditional anyway — the filter has nothing to derive from either if a
-       row somehow has no video_id. #}
     <span class="track-thumb">
       {% set cover = item | cover %}
       {% if cover %}
@@ -17,27 +13,14 @@
     </span>
     <span class="track-info">
       <span class="track-title" title="{{ item.title }}">{{ item.title }}</span>
-      {# Artist only. published_at used to follow it, but it records when this
-         app first saw the track rather than when it came out — every row of a
-         freshly synced artist reads as today — so it was a second line of the
-         same date all the way down the list. Left out of a single-artist page
-         (show_channel is false there) where every row would name the artist
-         you are already looking at. #}
+      {# No date: published_at is when the app first saw the track, not its release. #}
       {% if show_channel %}
       <span class="track-artist">{{ item.display_artist }}</span>
       {% endif %}
     </span>
   </a>
-  {# No "downloaded" tick next to the duration. The Downloads page is the
-     one place that question gets asked, and it answers it in full; a badge
-     on every row of every list was the same answer repeated where nobody
-     was asking. #}
   <span class="track-duration">{{ item.duration_seconds | duration if item.duration_seconds else '' }}</span>
-  {# Only inside a hand-made playlist, which is the only list a row can be
-     taken out of — everywhere else this template renders (the pinned lists,
-     an artist, the queue panel) membership is derived from something else and
-     there is nothing here to remove. `is defined` because those callers set
-     no playlist_id at all. #}
+  {# Only hand-made playlists set playlist_id; `is defined` because other callers don't. #}
   {% if playlist_id is defined and playlist_id %}
   <button
     type="button"

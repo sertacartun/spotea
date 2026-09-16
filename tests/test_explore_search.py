@@ -1,13 +1,4 @@
-"""Explore's search box, and what each half of it asks YouTube Music for.
-
-Both halves used to read different indexes — songs from YouTube Music,
-channels from youtube.com — and the split was what these pinned. There is
-only one index now, so what's left to pin is that each half asks for its own
-kind and neither borrows the other's source: a search for a song must not
-turn into an artist search, and vice versa.
-
-Both sources are monkeypatched out; nothing here touches the network.
-"""
+"""Explore's search box: each half asks YouTube Music for its own kind only."""
 
 import pytest
 
@@ -27,7 +18,7 @@ ARTIST = ChannelSearchResult(
     channel_id="UCQm-Fc8TAF3c1hJffBPjxgw",
     title="Tarkan",
     thumbnail_url="/image-proxy?u=x",
-    # None, as YouTube Music's artist search actually answers — measured live.
+    # None, as YouTube Music's artist search actually answers.
     subscriber_count=None,
     channel_url="https://www.youtube.com/channel/UCQm-Fc8TAF3c1hJffBPjxgw",
 )
@@ -35,7 +26,6 @@ ARTIST = ChannelSearchResult(
 
 @pytest.fixture
 def sources(monkeypatch):
-    """Replaces both searches and records which ones were consulted."""
     calls: list[str] = []
 
     def install(*, songs=(), artists=()):
@@ -64,8 +54,7 @@ def test_songs_come_from_youtube_music(client, sources):
 
 
 def test_a_song_row_carries_what_playing_it_needs(client, sources):
-    """The row is handed straight back to POST /explore/tracks, so the
-    artist's channel and the duration have to survive the round trip."""
+    """The row is handed straight back to POST /explore/tracks."""
     sources(songs=[SONG])
 
     row = client.get("/explore/songs", params={"q": "biliyorsun"}).json()[0]
@@ -76,8 +65,6 @@ def test_a_song_row_carries_what_playing_it_needs(client, sources):
 
 
 def test_a_query_with_no_songs_is_an_empty_list(client, sources):
-    """There is no youtube.com fallback any more: this app only holds music,
-    so a query YouTube Music can't answer has no answer here either."""
     calls = sources(songs=[])
 
     res = client.get("/explore/songs", params={"q": "keynote how we built it"})
@@ -97,8 +84,6 @@ def test_artist_search_never_reaches_for_the_song_index(client, sources):
 
 
 def test_an_artist_row_survives_a_missing_subscriber_count(client, sources):
-    """Artist search results carry no subscriber count at all (measured
-    live). The card just prints a name; the row must not 500 over it."""
     sources(artists=[ARTIST])
 
     row = client.get("/explore/artists", params={"q": "tarkan"}).json()[0]

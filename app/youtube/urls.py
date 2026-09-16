@@ -1,34 +1,19 @@
-"""YouTube URL shapes and the ID conventions behind them.
-
-Pure string work — no network, no yt-dlp, no feedparser. Everything else in
-this package builds on it.
-"""
+"""YouTube URL shapes and ID conventions — pure string work, no network."""
 
 import re
 from urllib.parse import urlsplit
 
 VIDEO_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{11}$")
 
-# Playlist ids come in several shapes ("PL…" user playlists, "RDCLAK5uy_…"
-# auto-generated YouTube Music mixes, "UULF…" channel uploads), all longer
-# than the fixed 11 characters of a video id — which is the property that
-# matters here, since this guards a path parameter that gets pasted straight
-# into a youtube.com URL.
+# Playlist ids vary in shape ("PL…", "RDCLAK5uy_…", "UULF…") but are all longer than a video id.
 PLAYLIST_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{12,64}$")
 
 CHANNEL_ID_RE = re.compile(r"^UC[\w-]{22}$")
 
-# A YouTube Music release id — an album or a single. Same reason as above:
-# it arrives as untrusted path input (see routers/partials.py's release
-# route) and goes straight into an API call. Length isn't fixed the way a
-# channel id's is, so this bounds it rather than pinning it.
+# Untrusted path input that goes straight into an API call; length isn't fixed, so bound it.
 RELEASE_ID_RE = re.compile(r"^MPREb_[\w-]{1,32}$")
 
-# A mood/genre category's opaque browse token (see youtube/music.py's
-# MoodCategory) — measured live across all 40 of YouTube Music's current
-# categories: always exactly 24 URL-safe characters, but nothing says that's
-# guaranteed to stay true, so this bounds rather than pins the length, same
-# as RELEASE_ID_RE above.
+# Currently always 24 chars, but not guaranteed — bound rather than pin.
 MOOD_PARAMS_RE = re.compile(r"^[\w-]{1,32}$")
 
 CHANNEL_ID_URL_RE = re.compile(r"youtube\.com/channel/(UC[\w-]{22})")
@@ -42,15 +27,8 @@ PLAYLIST_PAGE_URL_TEMPLATE = "https://www.youtube.com/playlist?list={playlist_id
 CHANNEL_PAGE_URL_TEMPLATE = "https://www.youtube.com/channel/{channel_id}"
 
 
-# Every URL this package is handed can end up being fetched, and the only
-# thing standing between "follow this channel" and
-# a request-forgery primitive is the host. Without this check an authenticated
-# user could point POST /artists at 127.0.0.1 or a LAN address and read the
-# failure text back; no Artist row could survive it (a real one needs a
-# yt_channelid in the response), so it was a probe rather than a breach, but
-# the probe is itself the leak. Checked at both entry points — resolve_feed_url,
-# so the error arrives before any network call, and fetch_feed, which is what
-# actually opens the socket.
+# Host allowlist: any URL handed to this package may be fetched, so without it
+# POST /artists becomes an SSRF probe against localhost/LAN.
 _YOUTUBE_HOSTS = frozenset(
     {
         "youtube.com",
@@ -66,11 +44,7 @@ _YOUTUBE_HOSTS = frozenset(
 def is_youtube_url(url: str) -> bool:
     """True only for an http(s) URL naming one of YouTube's own hosts.
 
-    A scheme-less "youtube.com/@handle" is accepted by assuming https: that's
-    the form a browser address bar displays, so it's the form people paste,
-    and yt-dlp accepted it before this check existed. `hostname` (rather than
-    `netloc`) is what makes "https://youtube.com@evil.example/" fail — the
-    userinfo trick is the whole reason not to do this with a substring test.
+    Uses `hostname`, not `netloc` or a substring test, so "https://youtube.com@evil.example/" fails.
     """
     candidate = url.strip()
     if "://" not in candidate:
@@ -83,15 +57,12 @@ def is_youtube_url(url: str) -> bool:
 
 
 def extract_channel_id(url: str) -> str | None:
-    """The channel id out of either shape this app passes around: the artist
-    URL a Artist row is keyed by ("…?channel_id=UC…") and the channel page URL
-    the Follow button carries ("youtube.com/channel/UC…")."""
+    """The channel id from either "…?channel_id=UC…" or "youtube.com/channel/UC…"."""
     match = CHANNEL_ID_PARAM_RE.search(url) or CHANNEL_ID_URL_RE.search(url)
     return match.group(1) if match else None
 
 
 def playlist_url(playlist_id: str) -> str:
-    """A plain playlist page, for any playlist id."""
     return PLAYLIST_PAGE_URL_TEMPLATE.format(playlist_id=playlist_id)
 
 
@@ -99,62 +70,30 @@ def absolute_thumbnail_url(raw: str | None) -> str | None:
     if not raw:
         return None
     url = f"https:{raw}" if raw.startswith("//") else raw
-    # yt3.googleusercontent.com serves the same images (same path) as
-    # yt3.ggpht.com, but browsers hotlinking it cross-origin in an <img> tag
-    # get net::ERR_BLOCKED_BY_ORB (Chrome's Opaque Response Blocking) — the
-    # googleusercontent.com response is missing the headers ORB wants to
-    # confirm it's really an image. ggpht.com (YouTube's dedicated image
-    # CDN) sends them and renders fine, so rewrite to that host.
+    # Hotlinking yt3.googleusercontent.com gets ERR_BLOCKED_BY_ORB in Chrome;
+    # yt3.ggpht.com serves the same image with the headers ORB wants.
     return url.replace("//yt3.googleusercontent.com/", "//yt3.ggpht.com/")
 
 
-# Google's image CDN takes the rendered size in the URL's trailing "=s<n>"
-# segment and resizes server-side. yt-dlp reports channel avatars as "=s0",
-# which is the *original* upload — measured live, one came back at 390 KB
-# for a picture the app never draws larger than 88 CSS pixels.
+# The CDN resizes via a trailing "=s<n>"; yt-dlp reports "=s0", the full-size original.
 _AVATAR_SIZE_RE = re.compile(r"=s\d+(-[^=]*)?$")
 
 
 def avatar_url_at_size(url: str | None, size: int) -> str | None:
-    """The same avatar, asked for at `size` pixels instead of whatever size
-    the URL currently names.
-
-    Worth doing wherever a stored avatar URL is rendered into a small fixed
-    box: at "=s0" a dozen suggestion cards pulled roughly 4.7 MB through
-    /image-proxy, versus about 180 KB at "=s176" — same images, same CDN,
-    a size parameter apart.
-
-    Applied at render time rather than baked into what gets stored, so the
-    stored URL stays exactly what YouTube reported and the display size
-    remains a property of the surface drawing it.
-    """
+    """The same avatar at `size` pixels; applied at render time so the stored URL stays as reported."""
     if not url:
         return None
     return _AVATAR_SIZE_RE.sub(f"=s{size}", url)
 
 
-# The same CDN, a second way of naming the size. YouTube Music reports its
-# square art (song covers, album covers, playlist art, artist portraits) as
-# "=w60-h60-l90-rj" rather than "=s<n>" — sometimes with an extra trailing
-# segment, e.g. "=w60-h60-l90-rj-dcJRaW7REL". Unanchored and width/height
-# only, so whatever follows the dimensions is preserved rather than guessed
-# at; verified live that "=w544-h544-l90-rj" serves the same image at 22 KB
-# where the 60px original was 1.3 KB.
+# YouTube Music's "=w60-h60-l90-rj[-…]" size dialect; unanchored so trailing segments are preserved.
 _COVER_SIZE_RE = re.compile(r"=w\d+-h\d+")
 
 
 def cover_url_at_size(url: str | None, size: int) -> str | None:
-    """The same square artwork at `size` pixels, in whichever of the CDN's
-    two size dialects the URL happens to use.
+    """The same square artwork at `size` pixels, in either of the CDN's size dialects.
 
-    Both turn up in one YouTube Music response: search results and artist
-    portraits come back as "=w60-h60-…", while the chart shelves' playlist
-    art uses plain "=s192". Handing the "=s" case straight to
-    avatar_url_at_size rather than duplicating its rule is the point of
-    keeping them next to each other.
-
-    A URL with neither (i.ytimg.com video stills, which carry a signed `sqp`
-    query and are not resizable this way) passes through untouched.
+    URLs with neither (signed i.ytimg.com stills) pass through untouched.
     """
     if not url:
         return None
@@ -164,66 +103,32 @@ def cover_url_at_size(url: str | None, size: int) -> str | None:
 
 
 def video_still_url(video_id: str | None) -> str | None:
-    """A video's own thumbnail, derived from its id alone.
+    """A video's own thumbnail, built from its id — the last-resort cover.
 
-    The last-resort cover for a track stored without one. It costs no
-    request and cannot go stale — every video on YouTube has this URL, and
-    it is built rather than fetched — which is exactly what a fallback
-    needs to be, since the case it exists for is a row whose real cover was
-    already missed once.
-
-    Not square, unlike everything YouTube Music serves: this is the 16:9
-    video still, and it lands in slots drawn for album art. Every one of
-    them sets `object-fit: cover`, so it arrives as a centre crop rather
-    than a letterboxed rectangle. mqdefault over hqdefault because hq pads
-    4:3 with black bars, which a centre crop cannot remove.
+    mqdefault, not hqdefault: hq pads 4:3 with black bars that an object-fit crop can't remove.
     """
     if not video_id:
         return None
     return f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg"
 
 
-# A video still on YouTube's image CDN, whatever size variant it names:
-#   https://i.ytimg.com/vi/<video id>/hqdefault.jpg?sqp=…&rs=…
-# A video still on YouTube's image CDN, whatever size variant it names:
-#   https://i.ytimg.com/vi/<video id>/hqdefault.jpg?sqp=…&rs=…
 _VIDEO_STILL_RE = re.compile(
     r"^https://i\.ytimg\.com/vi(?:_webp)?/[A-Za-z0-9_-]{11}/[a-z0-9]+\.(?:jpg|webp)(?:\?.*)?$"
 )
 
 
 def is_video_still(url: str | None) -> bool:
-    """Whether this cover is a video frame rather than square album art.
-
-    Which is the same question as "is this row a music video": YouTube Music
-    serves a song's cover from its album-art CDN and a *video* entry's from
-    i.ytimg.com, and nothing else in this app ever renders one of these. See
-    images.is_music_video, the only caller, for why that distinction has to
-    be read off the URL rather than stored.
-
-    This was `sharper_still_url`, which rewrote the same URL to
-    `maxresdefault.jpg` so the proxy could fetch a 1280x720 copy of a
-    400x225 cover. That went away with the surface that needed it — the
-    player now plays the song, whose cover is square (see routers/content.py's
-    swap_in_song_version) — leaving only the recognition it was built on.
-    """
+    """Whether this cover is a video frame rather than square album art (i.e. a music video)."""
     return bool(url) and _VIDEO_STILL_RE.match(url) is not None
 
 
-# YouTube Music hands back playlist ids as *browse* ids: the same id with a
-# "VL" glued on the front ("VLPL…", "VLRDCLAK5uy_…"). Nothing downstream
-# speaks that dialect — playlist_url() would build a youtube.com/playlist
-# URL that resolves to nothing — and PLAYLIST_ID_RE happily accepts the
-# prefixed form, since it is still 12-64 URL-safe characters. So the strip
-# has to happen here, before the shared validation, rather than being caught
-# by it.
+# YouTube Music prefixes playlist browse ids with "VL". PLAYLIST_ID_RE still accepts the
+# prefixed form, so the strip must happen before validation rather than be caught by it.
 _BROWSE_PLAYLIST_PREFIX = "VL"
 
 
 def playlist_id_from_browse_id(browse_id: str | None) -> str | None:
-    """A YouTube Music browse id as a plain playlist id, or None if it isn't
-    one. Ids that already arrive unprefixed (the mood shelves report
-    `playlistId` rather than `browseId`) pass through the same validation."""
+    """A YouTube Music browse id as a plain playlist id, or None if it isn't one."""
     if not browse_id:
         return None
     playlist_id = browse_id.removeprefix(_BROWSE_PLAYLIST_PREFIX)

@@ -13,33 +13,19 @@ from app.templating import templates
 
 router = APIRouter()
 
-# Lowercased before this is applied, so there is no A-Z here. Must start
-# with a letter or a digit, and may then carry dots, dashes and underscores —
-# the punctuation people actually put in a handle, and nothing that would
-# make a username hard to say out loud or hard to type on a phone keyboard.
-# Whitespace is excluded by construction, which is what lets the stored value
-# be compared with a plain ==.
+# Applied after lowercasing; excluding whitespace is what lets usernames compare with plain ==.
 USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 MIN_USERNAME_LENGTH = 3
 MAX_USERNAME_LENGTH = 30
 MIN_PASSWORD_LENGTH = 8
-# bcrypt silently truncates/ignores anything past 72 bytes — two passwords
-# sharing that prefix would otherwise verify as equal.
+# bcrypt ignores bytes past 72 — two passwords sharing that prefix would verify as equal.
 MAX_PASSWORD_LENGTH = 72
 
-# login_submit is a sync def, so FastAPI runs it in Starlette's threadpool
-# (40 workers by default) alongside every other sync route — and each call
-# here costs one real bcrypt check, ~420ms. With no limit, a handful of
-# concurrent attackers could occupy the whole pool with nothing but failed
-# logins and stall every other request in the app. ProgressRegistry is
-# already the right shape for this: a keyed store whose entries expire on
-# their own, which is all a per-IP failure counter needs.
+# Each login costs a real bcrypt check in the shared threadpool; without a per-IP
+# limit, failed logins alone could starve every other sync route.
 MAX_FAILED_LOGIN_ATTEMPTS = 10
 LOGIN_LOCKOUT_WINDOW_SECONDS = 60
 
-# Counts failures only — a fixture or a real user logging in successfully
-# never adds to this, so it can't lock out someone who typed their password
-# right the first time.
 _failed_login_attempts: ProgressRegistry[str, int] = ProgressRegistry(
     ttl_seconds=LOGIN_LOCKOUT_WINDOW_SECONDS
 )
@@ -65,8 +51,7 @@ def login_submit(
 ):
     key = _client_key(request)
     if (_failed_login_attempts.get(key) or 0) >= MAX_FAILED_LOGIN_ATTEMPTS:
-        # No DB query, no bcrypt — the whole point is to stop spending CPU on
-        # this client's requests, not just to answer them differently.
+        # No DB query, no bcrypt: the point is to stop spending CPU on this client.
         return templates.TemplateResponse(
             request,
             "login.html",
@@ -76,13 +61,10 @@ def login_submit(
 
     normalized_username = username.strip().lower()
     user = db.query(User).filter(User.username == normalized_username).first()
-    # Always a real bcrypt check, win or lose — DUMMY_PASSWORD_HASH stands in
-    # for a real user's hash so an unknown username costs the same as a wrong
-    # password. See its docstring for the timing gap this closes.
+    # Always a real bcrypt check so an unknown username takes as long as a wrong password.
     password_hash = user.password_hash if user is not None else DUMMY_PASSWORD_HASH
     password_ok = verify_password(password, password_hash)
-    # Same generic message either way — doesn't reveal whether the username
-    # itself is registered.
+    # One generic message: don't reveal whether the username exists.
     if user is None or not password_ok:
         _failed_login_attempts.set(key, (_failed_login_attempts.get(key) or 0) + 1)
         return templates.TemplateResponse(
@@ -94,9 +76,7 @@ def login_submit(
 
     _failed_login_attempts.discard(key)
     request.session[SESSION_KEY] = user.id
-    # #home overrides whatever tab localStorage remembers from a previous
-    # session (see index.html's inline head script) — a fresh login should
-    # always land on Home, not wherever this browser last happened to be.
+    # #home overrides the tab localStorage remembers, so a fresh login lands on Home.
     return RedirectResponse(url="/#home", status_code=303)
 
 
@@ -146,8 +126,7 @@ def register_submit(
     try:
         db.commit()
     except IntegrityError:
-        # Two concurrent registrations for the same username both passing the
-        # pre-check above — the unique constraint is the real guarantee.
+        # Concurrent registrations can both pass the pre-check; the unique constraint decides.
         db.rollback()
         return templates.TemplateResponse(
             request,

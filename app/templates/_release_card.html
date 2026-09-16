@@ -1,23 +1,5 @@
-{# One album or single, as a card. Rendered in three places — an artist's
-   profile, Home's "New releases" shelf and Library's releases panel — which
-   is why it lives here rather than being written out three times.
-
-   `release` is either an ArtistRelease dataclass (the profile) or the dict
-   form stored in Artist.release_snapshot (the other two). Jinja resolves
-   `release.title` against both, so nothing here has to know which it got.
-
-   `release_subtitle` is what the second line says: the artist on a surface
-   that mixes artists, the year on the artist's own page where naming them
-   again would be noise.
-
-   `current_year` is only passed by the profile, which lists a whole
-   catalogue and so has something to mark as new. The other two surfaces are
-   filtered to this year already, where a "New" on every card says nothing.
-
-   No href and no data-content-id: a release has no Content row and no video
-   id until it is opened. home/detail.js's openReleaseCard handles the click
-   wherever the card is, and a release holding exactly one track plays
-   instead of opening (see routers/partials.py's remote_release_fragment). #}
+{# `release` is an ArtistRelease or the dict form from Artist.release_snapshot; Jinja reads both.
+   No href/data-content-id: a release has no Content row until opened (home/detail.js's openReleaseCard). #}
 <article class="card release-card" data-release-id="{{ release.browse_id }}" data-title="{{ release.title }}">
   <button type="button" class="thumb" aria-label="Open {{ release.title }}">
     {% if release.cover_url %}<img src="{{ release.cover_url }}" alt="" loading="lazy" />{% endif %}

@@ -4,18 +4,10 @@
   data-status="{{ item.status }}"
 >
   <a class="thumb" href="/#player/{{ item.id }}" aria-label="Play {{ item.title }}">
-    {# See _content_row.html — `| cover` falls back to the video still for a
-       track stored without artwork of its own. #}
     {% set cover = item | cover %}
     {% if cover %}
     <img src="{{ cover }}" alt="" loading="lazy" />
     {% endif %}
-    {# Nothing is stamped on the artwork. Not a duration — that's a
-       video-thumbnail convention, and the duration is already in the track
-       list on the right, where a music app puts it. Not a "downloaded"
-       badge either: the Downloads page answers that question properly, so
-       everywhere else it was noise. The only thing that appears here is the
-       play affordance, and only on hover. #}
   </a>
   <div class="card-body">
     <h3 class="card-title" title="{{ item.title }}">
@@ -23,10 +15,7 @@
     </h3>
     <div class="card-meta-row">
       <div class="card-meta-text">
-        {# Artist only. published_at is when *we* first saw the track, not
-           when it was released — every Bob Marley song in the library reads
-           "20 Aug 2026" — so printing it on each card cost a line of height
-           to repeat the same meaningless date. #}
+        {# No date: published_at is when the app first saw the track, not its release. #}
         <p class="card-channel" title="{{ item.display_artist }}">
           <a class="card-link" href="/#player/{{ item.id }}">{{ item.display_artist }}</a>
         </p>

@@ -1,8 +1,4 @@
-"""Field limits on request bodies (app/schemas.py).
-
-SQLite doesn't enforce a column's declared VARCHAR length, so these Field
-bounds are the only thing standing between a request and an unbounded write.
-"""
+"""Field limits on request bodies (app/schemas.py); SQLite doesn't enforce VARCHAR lengths."""
 
 import pytest
 from pydantic import ValidationError
@@ -36,8 +32,7 @@ def test_an_empty_value_is_rejected(model, field):
 
 
 def test_a_video_title_at_the_content_column_width_is_accepted():
-    """Matches Content.title's own String(500) column, so a value that fits
-    the schema always fits the row it's about to be inserted into."""
+    """Matches Content.title's String(500) column."""
     VideoAddCreate(video_id="dQw4w9WgXcQ", title="x" * TITLE_MAX, channel_id="UCX6OQ3DkcsbYNE6H8uQQuVA")
 
 

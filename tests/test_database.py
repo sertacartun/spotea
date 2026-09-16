@@ -4,10 +4,7 @@ from app.database import engine
 
 
 def test_sqlite_runs_in_wal_mode_with_foreign_keys_on():
-    """WAL because a writer in rollback-journal mode blocks readers outright,
-    and the background refresh commits once per channel across dozens of them.
-    foreign_keys because SQLite leaves them off per connection, so the FKs the
-    schema declares were never actually enforced."""
+    """WAL so writers don't block readers; foreign_keys because SQLite leaves them off per connection."""
     with engine.connect() as conn:
         journal_mode = conn.exec_driver_sql("PRAGMA journal_mode").scalar()
         foreign_keys = conn.exec_driver_sql("PRAGMA foreign_keys").scalar()
@@ -17,16 +14,7 @@ def test_sqlite_runs_in_wal_mode_with_foreign_keys_on():
 
 
 def test_a_missing_added_column_is_created_on_an_existing_database():
-    """`create_all` adds a missing table to an existing database but never a
-    missing column, so a model that grows one leaves every SELECT against
-    `content` failing with "no such column". For an app whose entire state is
-    one SQLite file the owner cannot discard, that has to heal itself at
-    startup rather than being an upgrade note.
-
-    Exercised by actually removing the column and putting it back, because the
-    only interesting case is the one where the file and the model disagree —
-    which a freshly built test database never is.
-    """
+    """`create_all` never adds a missing column to an existing table, so startup has to."""
     import sqlite3
 
     import pytest
@@ -51,17 +39,13 @@ def test_a_missing_added_column_is_created_on_an_existing_database():
     _add_missing_columns()
     assert column in columns()
 
-    # Idempotent: this runs on every start, and every start after the first
-    # finds nothing to do.
+    # Idempotent: runs on every start.
     _add_missing_columns()
     assert column in columns()
 
 
 def test_every_added_column_is_nullable():
-    """These are added to a table that already has rows, so there is nothing
-    to backfill them with. A NOT NULL column here would fail outright on any
-    database that isn't empty — which is every database this code path exists
-    for."""
+    """Added to tables that already have rows, so NOT NULL would fail on any non-empty database."""
     from app.main import _ADDED_CONTENT_COLUMNS
 
     for column, ddl in _ADDED_CONTENT_COLUMNS:
@@ -70,16 +54,7 @@ def test_every_added_column_is_nullable():
 
 
 def test_an_obsolete_column_is_dropped_from_an_existing_database():
-    """The other direction from the test above, and on a different table:
-    `users` gained its first removal when the refresh interval went away, so
-    the drop path had to stop being content-only.
-
-    Exercised by putting the column back, since a freshly built test database
-    never has it. Added nullable here because SQLite refuses ALTER TABLE ADD
-    COLUMN NOT NULL without a default — the shape a real upgrading database
-    has is NOT NULL with none, which is exactly why the column cannot simply
-    be left in place: every INSERT into users would fail.
-    """
+    """Added back nullable because SQLite refuses ADD COLUMN NOT NULL without a default."""
     import sqlite3
 
     import pytest
@@ -102,18 +77,13 @@ def test_an_obsolete_column_is_dropped_from_an_existing_database():
     _drop_removed_columns()
     assert "refresh_interval_minutes" not in columns()
 
-    # Idempotent: this runs on every start, and every start after the first
-    # finds nothing to do.
+    # Idempotent: runs on every start.
     _drop_removed_columns()
     assert "refresh_interval_minutes" not in columns()
 
 
 def test_an_email_column_is_renamed_and_shortened_to_a_username():
-    """The upgrade path off email logins. A database from before the change
-    has `users.email` and no `users.username`, and the account in it must
-    still be able to log in afterwards — under a name its owner can actually
-    type, which is the part before the @.
-    """
+    """Upgrade off email logins: the account keeps working under the part before the @."""
     from app.main import _rename_email_to_username
 
     def columns():
@@ -136,8 +106,7 @@ def test_an_email_column_is_renamed_and_shortened_to_a_username():
         with engine.connect() as conn:
             assert conn.exec_driver_sql("SELECT username FROM users WHERE id = 1").scalar() == "someone"
 
-        # Idempotent: a database that has already been through this has no
-        # email column left to find.
+        # Idempotent: no email column is left to find.
         _rename_email_to_username()
         assert "username" in columns()
     finally:
@@ -146,10 +115,7 @@ def test_an_email_column_is_renamed_and_shortened_to_a_username():
 
 
 def test_two_addresses_sharing_a_local_part_both_keep_their_full_address():
-    """`a@one.com` and `a@two.com` cannot both become `a` — the column is
-    unique. Neither may be locked out over it, so neither is shortened and
-    both keep a name that still works at the login prompt.
-    """
+    """The username column is unique, so colliding local parts keep their full address."""
     from app.auth import hash_password
     from app.main import _rename_email_to_username
 

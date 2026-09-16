@@ -1,20 +1,6 @@
-"""Timed lyrics for the player's Lyrics tab, fetched once per recording.
+"""Timed lyrics for the Lyrics tab, fetched once per recording.
 
-The whole design here follows from two measurements taken before it was
-written (see music.fetch_timed_lyrics for the full numbers):
-
-  * a miss costs **two** live YouTube requests, and
-  * about two thirds of tracks have no lyrics at all.
-
-So this never runs on its own. Nothing fetches lyrics because a track
-started playing; the only caller is the route behind the Lyrics tab, and
-that tab is only opened deliberately. On a library where nobody ever opens
-it, this module makes zero requests for the life of the install.
-
-The other half of that is caching the *absence*. A row with `lines` NULL
-means "asked YouTube, there are none" — the common answer — and it is what
-stops the two-request miss repeating every time the tab is opened on a track
-that will never have lyrics.
+A miss costs two YouTube requests and most tracks have none, so absence is cached too (`lines` NULL).
 """
 
 import json
@@ -30,20 +16,12 @@ logger = logging.getLogger(__name__)
 
 
 def _to_payload(row: TrackLyrics) -> dict:
-    """The shape the client renders. `lines: null` is "no lyrics for this
-    track", which the panel says out loud rather than leaving blank."""
     if row.lines is None:
         return {"lines": None, "source": None}
     return {"lines": json.loads(row.lines), "source": row.source}
 
 
 def lyrics_for(db: Session, video_id: str) -> dict:
-    """This track's timed lyrics, from the cache or from YouTube Music.
-
-    Always returns the payload shape above — a track with no lyrics is a
-    normal answer here, not an error, and the caller has nothing different
-    to do with it.
-    """
     cached = db.get(TrackLyrics, video_id)
     if cached is not None:
         return _to_payload(cached)
@@ -67,9 +45,7 @@ def lyrics_for(db: Session, video_id: str) -> dict:
     try:
         db.commit()
     except IntegrityError:
-        # Two tabs asking for the same track at once. The other request
-        # already stored the same answer, so take theirs rather than failing
-        # a read that has the data in hand either way.
+        # Concurrent request for the same track already stored the answer; use theirs.
         db.rollback()
         existing = db.get(TrackLyrics, video_id)
         if existing is not None:

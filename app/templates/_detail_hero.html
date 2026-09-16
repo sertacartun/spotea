@@ -1,19 +1,7 @@
-{# The header every track list shares: artwork, title, count line, and the
-   one action that differs by kind (Unfollow for a followed artist, Follow
-   or "In your library" for a remote one). Included by _detail_panel.html
-   and by _artist_panel.html, which is why it can't assume there are rows
-   below it — `show_play_actions` is what a caller sets to false when the
-   list underneath is a preview rather than the whole thing, so Play all
-   can't promise more than it would deliver. #}
+{# Shared track-list header. Callers set show_play_actions=false when the list below is only a preview. #}
 <div class="channel-hero">
-  {# Same treatment as Home's hero: the page is lit by the artwork it is
-     showing. Rendered for every kind — with no artwork there is nothing to
-     sample and it stays at the page colour, which is what it already was. #}
   <div class="ambient-field detail-hero-ambient" aria-hidden="true"></div>
   {% if remote %}
-  {# Artwork is the playlist's first track or, for a channel, whatever avatar
-     the recommendation search already cached — either can be missing, and the
-     empty span is the same placeholder box an artist with no avatar renders. #}
   {% if hero_image %}
   <img class="channel-hero-avatar{{ '' if hero_is_avatar else ' is-artwork' }}" data-ambient-source src="{{ hero_image }}" alt="" />
   {% else %}
@@ -50,12 +38,6 @@
       Unfollow
     </button>
     {% elif kind in ("yt-artist", "yt-artist-songs") %}
-    {# Already following them? Then the action worth offering is the opposite
-       one — this page *is* their page, so there is nowhere else to send
-       anyone. What a follow targets is their "<Artist> - Topic" channel,
-       which carries their releases and nothing else. Both artist views carry
-       the button, so following doesn't disappear when you open the full song
-       list. #}
     {% if followed_artist_id %}
     <button type="button" id="unfollow-artist-btn" class="btn-quiet channel-hero-unfollow" data-artist-id="{{ followed_artist_id }}">
       Following
@@ -70,10 +52,7 @@
       Follow
     </button>
     {% endif %}
-    {# Only a hand-made list can be deleted — the pinned three are filters
-       with nothing to delete, and an artist's page offers Unfollow instead.
-       `is defined` because this template is included from four contexts and
-       only one of them sets it. #}
+    {# `is defined`: only one of the four including contexts sets it. #}
     {% elif user_playlist is defined and user_playlist %}
     <button type="button" id="delete-playlist-btn" class="btn-quiet channel-hero-unfollow" data-playlist-id="{{ user_playlist.id }}">
       Delete playlist
@@ -81,13 +60,7 @@
     {% endif %}
   </div>
   {% if content and show_play_actions | default(true) %}
-  {# Play/Shuffle act on the whole channel or playlist, not just this page —
-     home/queue.js fetches the full id list from /content/queue/... rather than
-     reading the twenty rows below. On a remote list there is no such endpoint
-     and no second page: the rows on screen *are* the whole list, so
-     home/remote.js builds the queue from them directly. Only rendered when
-     there's something to play; an empty playlist gets its empty_message and
-     no controls. #}
+  {# Play/Shuffle fetch the full id list (home/queue.js); remote lists queue the rendered rows (home/remote.js). #}
   <div class="detail-actions">
     <button type="button" id="detail-play-all" class="btn-play-all" aria-label="Play all" title="Play all">
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><use href="#i-play" /></svg>
