@@ -53,7 +53,7 @@ To update later: `git pull && docker compose up -d --build`. Your music in `./da
 
 ## More
 
-- [Self-hosting guide](docs/SELF_HOSTING.md): configuration, HTTPS, running without Docker
+- [Self-hosting guide](docs/SELF_HOSTING.md): HTTPS with Tailscale, configuration, running without Docker
 - [Architecture](ARCHITECTURE.md): how it works inside
 - [Contributing](CONTRIBUTING.md)
 
