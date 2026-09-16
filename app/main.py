@@ -11,7 +11,7 @@ from sqlalchemy import text
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import scheduler
-from app.config import settings
+from app.config import resolve_secret_key, settings
 from app.database import Base, SessionLocal, engine
 from app.deps import NotAuthenticated, require_login
 from app.images import fetch_image_bytes
@@ -168,7 +168,7 @@ app = FastAPI(title="Spotea", lifespan=lifespan)
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key=settings.secret_key,
+    secret_key=resolve_secret_key(settings),
     session_cookie="spotea_session",
     same_site="lax",
     # Off by default: most installs are plain HTTP on a LAN.

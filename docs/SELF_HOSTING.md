@@ -5,24 +5,22 @@ everything else.
 
 ## Running with Docker
 
-1. Copy the example env file and set a `SECRET_KEY`:
-
-   ```bash
-   cp .env.example .env
-   python3 -c "import secrets; print(secrets.token_hex(32))"
-   ```
-
-2. Start the app:
+1. Start the app:
 
    ```bash
    docker compose up -d
    ```
 
-3. Open `http://localhost:8000` (or whatever `HOST_PORT` you set in `.env`)
+2. Open `http://localhost:8000` (or whatever `HOST_PORT` you set in `.env`)
    and register an account.
 
 Downloaded audio and the SQLite database persist in `./data` on the host,
-so they survive container restarts and rebuilds.
+so they survive container restarts and rebuilds. So does `./data/secret_key`,
+the key that signs login sessions, generated on first start; delete it and
+everyone is logged out.
+
+No `.env` is needed. Create one (`cp .env.example .env`) only to change a
+setting from the table below.
 
 ### Updating
 
@@ -68,7 +66,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# edit .env — for local dev, relative paths work well, e.g.:
+# edit .env — for local dev, relative paths are required, e.g.:
 #   DATABASE_URL=sqlite:///./data/spotea.db
 #   STORAGE_DIR=./data/storage
 
@@ -81,7 +79,7 @@ All configuration is via environment variables (see `.env.example`):
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `SECRET_KEY` | yes | — | Random key used to sign session cookies |
+| `SECRET_KEY` | no | generated | Key used to sign session cookies. Unset, one is generated on first start and kept in `secret_key` next to `STORAGE_DIR` |
 | `DATABASE_URL` | no | `sqlite:////app/data/spotea.db` | SQLAlchemy database URL |
 | `STORAGE_DIR` | no | `/app/data/storage` | Where downloaded audio files are stored, in a subdirectory per account — the file name is the video id alone, so two accounts with the same track need two copies rather than one file either of them could delete out from under the other |
 | `AVATARS_DIR` | no | `/app/data/avatars` | Where fetched artist avatars are stored |
