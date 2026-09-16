@@ -44,7 +44,6 @@ You only need [Docker](https://docs.docker.com/get-docker/).
 
 ```bash
 git clone https://github.com/sertacartun/spotea.git && cd spotea
-cp .env.example .env        # then set SECRET_KEY in .env
 docker compose up -d
 ```
 

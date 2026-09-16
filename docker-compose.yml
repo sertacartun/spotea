@@ -5,8 +5,10 @@ services:
       - "${HOST_PORT:-8000}:8000"
     volumes:
       - ./data:/app/data
+    # Optional: with no .env the defaults run as-is and SECRET_KEY is generated into ./data.
     env_file:
-      - .env
+      - path: .env
+        required: false
     restart: unless-stopped
     # Small self-hosted deployment (single SQLite DB, no other services or
     # deploy/swarm config in this file), but downloads/yt-dlp

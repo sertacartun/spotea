@@ -471,8 +471,7 @@ lists it. How quickly that happens after a real release is not measured.
 ## 10. Deployment
 
 ```bash
-cp .env.example .env      # set SECRET_KEY
-docker compose up -d --build
+docker compose up -d --build   # .env optional; SECRET_KEY is generated into ./data
 ```
 
 `./data` holds the database, the audio, and the image caches, and survives
