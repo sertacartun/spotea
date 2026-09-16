@@ -32,17 +32,3 @@ data/.cache/
 .zprofile
 .zshrc
 
-# StyleSeed. The skill install and everything the resolver regenerates from
-# STYLESEED.md + .styleseed/project.json + .styleseed/artifacts/ stays out;
-# those three are the decisions and are tracked. Same call as .claude/ above:
-# agent tooling is not application code.
-.agents/
-skills-lock.json
-.styleseed/bundles/
-.styleseed/manifests/
-.styleseed/palettes/
-.styleseed/palette.json
-.styleseed/palette.css
-# Screenshots and a screen recording — 8.8MB of evidence that is reproducible
-# by re-running the app, and does not belong in the history.
-.styleseed/studio/*/evidence/

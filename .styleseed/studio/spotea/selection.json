@@ -1,6 +1,0 @@
-{
-  "selectedDirectionId": "cover-as-canvas",
-  "decisionBy": "sertacartun",
-  "decidedAt": "2026-08-27T19:28:22.524Z",
-  "rationale": "Identity changes visibly as asked, but structure and playback logic stay intact, so the iOS behaviour that took days to stabilise is not put at risk. The per-track ambient tint is product-owned rather than a borrowed look."
-}

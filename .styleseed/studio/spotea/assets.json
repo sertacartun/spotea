@@ -1,4 +1,0 @@
-{
-  "jobs": [],
-  "note": "The selected direction deliberately generates no media. Cover art proxied from YouTube Music is the entire imagery language, and the ambient field is derived at runtime in OKLCH from the cover already loaded, so it needs no request, no model and no rights clearance. Adding a generative job here would be decoration the direction explicitly rejects."
-}

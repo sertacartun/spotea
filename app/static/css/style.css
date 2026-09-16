@@ -13,21 +13,29 @@
   --black: #000;
   --white: #fff;
 
-  /* Surfaces (backgrounds), darkest to lightest. Values come from the
-     StyleSeed nocturne-violet palette recipe with a key-color generation of
-     #A48AF1 (dark, deep, cool) — see .styleseed/palette.css. The names are
-     unchanged on purpose: every rule below already reads its color from one
-     of these, so re-pointing the values re-skins the whole app in one place
-     instead of editing 4,600 lines. */
-  --bg-page: #020407;
-  --bg-page-glow: #0f141b; /* radial-gradient center on the in-page player overlay's backdrop */
-  --bg-sunken: #06090c; /* channel card */
-  --bg-base: #0a0d0f; /* content cards, chips, list rows */
-  --bg-raised: #0e1216; /* login card, search results, summary panels */
-  --bg-elevated: #131a21; /* modals, hover states */
-  --bg-input: #182029; /* form inputs, avatar/thumbnail placeholders */
-  --bg-toast: #1c242e;
-  --bg-hover-strong: #232c37;
+  /* Surfaces. A smoked, neutral grey with no blue in it, and exactly two
+     steps above the page: --bg-surface for anything that holds content
+     (cards, library rows, the login card, search results, modals, the mini
+     player and tab bar) and --bg-control for anything you press or type into
+     (buttons, chips, fields, selects, the switch, placeholder art, toasts).
+
+     There used to be eight of these, from a generated cool-toned
+     ramp — base, raised, elevated, input, toast, hover-strong, control,
+     field — each a few units apart. Too close to tell apart on a phone, so
+     all they added was the blue-grey cast. Two steps is the most a dark
+     screen can carry and still have each one read as a different thing.
+
+     A control can sit on the page or on a surface, and --bg-control is above
+     both, so it stays visible in a modal or on the login card. What it
+     cannot do is sit on another control; nothing does. */
+  --bg-page: #030303;
+  --bg-surface: #101010; /* 1.08:1 on --bg-page */
+  --bg-control: #212121; /* 1.28:1 on --bg-page, 1.18:1 on --bg-surface */
+
+  /* Hover is not a third colour. It is a thin white layer over whatever fill
+     the element already has, set as background-image so it composes with the
+     background-color underneath instead of replacing it. */
+  --hover-lift: linear-gradient(rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.07));
 
   /* The ambient field. Set per track by home/ambient.js from the cover art
      currently in the hero, and deliberately defaulted to the page color so
@@ -40,32 +48,32 @@
      instead interpolates through transparent *black*, which prints a dirty
      band across the middle of the wash on exactly the light covers this
      treatment is meant to handle. */
-  --ambient-tint: 15 20 27;
-  --ambient-tint-soft: 9 13 18;
+  --ambient-tint: 16 16 16;
+  --ambient-tint-soft: 10 10 10;
 
   /* Borders */
-  --border-subtle: #1a2129;
-  --border-default: #303942;
-  --border-strong: #4a5560; /* ghost/icon button hover */
-  /* Interactive boundaries only. --border-default is a hairline between
-     regions, where a low ratio is correct and a louder one would make every
-     divider shout; but the same value on a button or input outline measured
-     1.75:1 against the page, so controls whose only edge is a border were
-     not visibly controls at all. This one measures 4.42:1 on --bg-page,
-     4.20:1 on --bg-base and 3.78:1 on --bg-elevated, clearing the 3:1 a UI
-     component boundary needs on every surface it appears over. */
-  --border-control: #697684;
+  --border-subtle: #1a1a1a;
+  --border-default: #2c2c2c;
+  --border-strong: #474747; /* ghost/icon button hover */
 
-  /* Text — roughly high to low emphasis. Measured against --bg-page and, for
-     the ones that appear on panels, against --bg-elevated; the lowest of the
-     set (--text-muted on --bg-hover-strong) is 5.69:1, so every step clears
+  /* Controls — chips, buttons, selects, switches, text fields — are a fill,
+     not an outline. They used to be a near-page fill inside a bright 1px
+     border (#697684), which read as a wireframe of a form rather than as
+     the controls themselves. The label already says a button is a button;
+     an empty text field has its placeholder, and focus still draws the
+     accent edge. The border stays as `1px solid transparent` so that edge
+     can appear without moving anything. */
+
+  /* Text — roughly high to low emphasis, neutral like the surfaces. Measured
+     against --bg-page and --bg-control; the lowest of the set (--text-muted
+     as placeholder text on --bg-control) is 6.6:1, so every step clears
      WCAG AA's 4.5:1 for normal text on every surface above. */
-  --text-primary: #eff2f6; /* 18.28:1 on --bg-page */
-  --text-secondary: #c2c7cd; /* 12.07:1 */
-  --text-hover: #dde1e6; /* tab label hover, between secondary and bright */
-  --text-muted: #a0a5aa; /* 8.27:1 */
-  --text-faint-alt: #b4b9bf;
-  --text-disabled: #4a5058;
+  --text-primary: #f2f2f2; /* 18.4:1 on --bg-page */
+  --text-secondary: #c8c8c8; /* 12.3:1 */
+  --text-hover: #e0e0e0; /* tab label hover, between secondary and bright */
+  --text-muted: #a6a6a6; /* 8.5:1 */
+  --text-faint-alt: #b8b8b8;
+  --text-disabled: #4d4d4d;
 
   /* Accent. Red is the brand's colour and the palette's primary role: it
      marks the one action a screen is asking for, and nothing else. A violet
@@ -100,7 +108,7 @@
      also gives Library the one identifiable primary action it was missing. */
 
   /* Seek/volume slider's unfilled track */
-  --track-empty: #303942;
+  --track-empty: #2c2c2c;
 
   /* Type scale. The colors above were tokenized long before this block
      existed, and the gap showed: an audit of this file found 20 distinct
@@ -133,8 +141,8 @@
   /* Radius. 6px used to be the dominant value and it was applied to rows,
      cards and inputs alike, so the radius carried no hierarchy. Small chrome
      gets a tight corner, cards get a soft one. */
-  --radius-sm: 4px; /* row thumbnails, inputs, badges */
-  --radius-md: 8px; /* cards, cover art, modals */
+  --radius-sm: 4px; /* row thumbnails, badges */
+  --radius-md: 8px; /* cards, cover art, modals, buttons, text fields */
   --radius-pill: 999px; /* chips, follow button */
   --radius-circle: 50%; /* artist avatars, play FAB */
 }
@@ -282,7 +290,7 @@ select {
 }
 
 .login-card {
-  background: var(--bg-raised);
+  background: var(--bg-surface);
   padding: 2.5rem;
   border-radius: 12px;
   width: 100%;
@@ -309,9 +317,9 @@ select {
 
 .login-card input {
   padding: 0.6rem 0.75rem;
-  border-radius: 6px;
-  border: 1px solid var(--border-control);
-  background: var(--bg-input);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: var(--bg-control);
   color: var(--text-primary);
   font-size: 1rem;
 }
@@ -325,7 +333,7 @@ select {
   margin-top: 0.5rem;
   padding: 0.6rem;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--accent);
   color: var(--black);
   font-weight: 600;
@@ -369,6 +377,15 @@ select {
 
 .topbar {
   border-bottom: 1px solid var(--border-subtle);
+}
+
+/* Above phone width the tab strip sits directly under this bar and draws its
+   own rule, so two hairlines ran parallel a tab-height apart. The strip's is
+   the one that marks where the page starts; this one goes. */
+@media (min-width: 481px) {
+  .topbar {
+    border-bottom-color: transparent;
+  }
 }
 
 /* Matches .layout's max-width/centering so the header and tabs line up with
@@ -432,7 +449,7 @@ select {
   top: calc(100% + 0.5rem);
   right: 0;
   min-width: 200px;
-  background: var(--bg-elevated);
+  background: var(--bg-surface);
   border: 1px solid var(--border-default);
   border-radius: 8px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
@@ -471,7 +488,7 @@ select {
 }
 
 .mobile-menu-item:hover {
-  background: var(--bg-hover-strong);
+  background: var(--bg-control);
 }
 
 .mobile-menu-item svg {
@@ -518,7 +535,7 @@ select {
 }
 
 .btn-icon:hover {
-  background: var(--bg-hover-strong);
+  background: var(--hover-lift);
   color: var(--white);
 }
 
@@ -535,7 +552,7 @@ select {
   background: none;
   border: none;
   color: var(--text-secondary);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 0.4rem 0.9rem;
   cursor: pointer;
   /* Matches .btn-icon's 44px so "Log out" isn't the odd one out next to it
@@ -548,7 +565,7 @@ select {
 }
 
 .btn-ghost:hover {
-  background: var(--bg-hover-strong);
+  background: var(--hover-lift);
   color: var(--white);
 }
 
@@ -612,20 +629,23 @@ select {
   margin-bottom: -1px;
 }
 
-/* Home's hero runs under this bar. At rest the bar carries no fill and no
-   rule, so the light appears to come from one place instead of being cut off
-   by a band across the top of the screen; the moment the page is scrolled at
-   all, the fill comes back and the logo is over an ordinary page again.
-   home/ambient.js owns data-hero-lit, and sets it only while Home has a hero
-   *and* the page is at the top.
+/* Home's hero, and an open artist or playlist's, runs under this bar. At rest
+   the bar carries no fill and no rule, so the light appears to come from one
+   place instead of being cut off by a band across the top of the screen; the
+   moment the page is scrolled at all, the fill comes back and the logo is over
+   an ordinary page again. home/ambient.js owns data-hero-lit, which only says
+   the page is at the top; whether the panel on screen has a hero is asked
+   here.
 
-   Scoped to Home on purpose. The same element is the tab strip at wider
-   widths and on every other panel, and it has to stay opaque there. */
-html[data-active-tab="home"][data-hero-lit] .app-header-sticky {
+   Scoped to those two panels on purpose. The same element is the tab strip at
+   wider widths and on every other panel, and it has to stay opaque there. */
+html[data-active-tab="home"][data-hero-lit]:has(#tab-home .home-hero) .app-header-sticky,
+html[data-active-tab="detail"][data-hero-lit]:has(#detail-panel .channel-hero) .app-header-sticky {
   background: transparent;
 }
 
-html[data-active-tab="home"][data-hero-lit] .app-header-sticky .topbar {
+html[data-active-tab="home"][data-hero-lit]:has(#tab-home .home-hero) .app-header-sticky .topbar,
+html[data-active-tab="detail"][data-hero-lit]:has(#detail-panel .channel-hero) .app-header-sticky .topbar {
   border-bottom-color: transparent;
 }
 
@@ -729,7 +749,11 @@ html[data-active-tab="detail"][data-detail-home="explore"] .tab-btn[data-tab="ex
        off the screen. */
     bottom: 0;
     z-index: 900;
-    background: var(--bg-raised);
+    /* The page colour, not a surface, so this and the header read as one
+       frame around the content. Opaque: a see-through bar with a blur was
+       tried, and even at 92% a shelf's card titles stayed legible behind the
+       tab labels, two lines of text on top of each other. */
+    background: var(--bg-page);
     border-top: 1px solid var(--border-subtle);
     border-bottom: none;
     /* Capped, not the raw inset. The bar still runs to the very bottom of the
@@ -942,9 +966,9 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   min-width: 0;
 }
 
-/* Same visible border/background as .settings-select below, not the bare
+/* Same filled background as .settings-select below, not the bare
    .btn-quiet look — sitting next to (or, stacked on mobile, below) a
-   description line, a borderless text-only button reads as more paragraph
+   description line, a text-only button with no fill reads as more paragraph
    text rather than a control. Also flex-shrink/white-space: without them, a
    long .settings-row-desc next to it could squeeze this into wrapping — a
    button label breaking mid-word reads as broken, unlike a description
@@ -952,19 +976,18 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
 .settings-row > .btn-quiet {
   flex-shrink: 0;
   white-space: nowrap;
-  background: var(--bg-input);
-  border: 1px solid var(--border-control);
-  border-radius: 6px;
+  background: var(--bg-control);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   /* .btn-quiet's own resting color (--text-secondary) is meant for a
      borderless, blend-into-the-background label — wrong once this variant
-     gets its own filled pill background/border above, where it reads as a
+     gets its own filled pill background above, where it reads as a
      real button and should look like one at rest, not just on hover. */
   color: var(--text-primary);
 }
 
 .settings-row > .btn-quiet:hover {
-  border-color: var(--border-strong);
-  background: var(--bg-input);
+  background-image: var(--hover-lift);
 }
 
 .settings-row-label {
@@ -978,10 +1001,10 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
 
 .settings-select {
   flex-shrink: 0;
-  background: var(--bg-input);
+  background: var(--bg-control);
   color: var(--text-primary);
-  border: 1px solid var(--border-control);
-  border-radius: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   padding: 0.45rem 0.7rem;
   font-size: 0.85rem;
   font-weight: 600;
@@ -989,7 +1012,7 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
 }
 
 .settings-select:hover {
-  border-color: var(--border-strong);
+  background-image: var(--hover-lift);
 }
 
 /* A description sentence next to a dropdown is tight on a phone screen —
@@ -1005,7 +1028,8 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
      .settings-row-info above them, and a button's centered label ends up
      floating in the middle of that width instead of sitting left with it. */
   .settings-row > .settings-select,
-  .settings-row > .btn-quiet {
+  .settings-row > .btn-quiet,
+  .settings-row > .btn-danger {
     align-self: flex-start;
   }
 }
@@ -1034,9 +1058,9 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
 .channel-search input,
 .library-search-input {
   padding: 0.5rem 0.6rem;
-  border-radius: 6px;
-  border: 1px solid var(--border-control);
-  background: var(--bg-input);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: var(--bg-control);
   color: var(--text-primary);
   /* 16px, not smaller — iOS Safari auto-zooms the page on focus for any
      input with a smaller computed font-size, which reads as broken on
@@ -1099,7 +1123,7 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
 }
 
 .search-clear-btn:hover {
-  background: var(--bg-hover-strong);
+  background: var(--hover-lift);
   color: var(--text-primary);
 }
 
@@ -1142,7 +1166,7 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   align-items: center;
   gap: 0.6rem;
   padding: 0.4rem 0.6rem;
-  background: var(--bg-raised);
+  background: var(--bg-surface);
   border-radius: 6px;
 }
 
@@ -1152,7 +1176,7 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
-  background: var(--bg-input);
+  background: var(--bg-control);
   display: block;
 }
 
@@ -1185,7 +1209,7 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   border-radius: 4px;
   object-fit: cover;
   flex-shrink: 0;
-  background: var(--bg-input);
+  background: var(--bg-control);
   display: block;
 }
 
@@ -1220,14 +1244,14 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   padding: 0.3rem 0.7rem;
   font-size: 0.75rem;
   font-weight: 600;
-  background: var(--bg-input);
+  background: var(--bg-control);
   color: var(--text-primary);
   cursor: pointer;
   flex-shrink: 0;
 }
 
 .btn-add-channel:hover {
-  background: var(--bg-hover-strong);
+  background-image: var(--hover-lift);
 }
 
 .btn-add-channel:disabled {
@@ -1304,7 +1328,7 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   height: 72px;
   border-radius: 50%;
   object-fit: cover;
-  background: var(--bg-input);
+  background: var(--bg-control);
   display: block;
   flex: 0 0 auto;
 }
@@ -1358,7 +1382,7 @@ button.track-link {
   gap: 1rem;
   flex-wrap: wrap;
   padding: 0.9rem 1rem;
-  background: var(--bg-raised);
+  background: var(--bg-surface);
   border-radius: 8px;
   margin-bottom: 1rem;
   flex-shrink: 0;
@@ -1374,6 +1398,23 @@ button.track-link {
   display: none;
 }
 
+/* Export sits next to .btn-danger's Clear all, so it takes the same filled
+   shape and size rather than .btn-quiet's bare label — a bare label beside a
+   button read as a mistake. It keeps the brighter text: exporting is the
+   harmless one, and Clear all stays the quieter of the two on purpose. */
+.storage-summary-actions .btn-quiet {
+  background: var(--bg-control);
+  border: 1px solid transparent;
+  color: var(--text-primary);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-md);
+  line-height: normal;
+}
+
+.storage-summary-actions .btn-quiet:hover {
+  background-image: var(--hover-lift);
+}
+
 .storage-total {
   font-size: 1.15rem;
   font-weight: 700;
@@ -1386,7 +1427,6 @@ button.track-link {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
   flex: 1 1 auto;
   overflow-y: auto;
   /* Lets the list shrink below its content height so overflow-y can kick in
@@ -1400,13 +1440,19 @@ button.track-link {
   display: none;
 }
 
+/* Divided by a rule rather than by gaps. The rows are the same colour as the
+   modal they sit in, so a gap between them was all that told one from the
+   next, and down a long list they ran together. */
 .storage-list li {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   padding: 0.55rem 0.75rem;
-  background: var(--bg-base);
-  border-radius: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.storage-list li:last-child {
+  border-bottom: none;
 }
 
 .storage-item-info {
@@ -1457,7 +1503,7 @@ button.track-link {
   justify-content: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  background: var(--bg-raised);
+  background: var(--bg-surface);
   color: var(--text-muted);
   font-size: 0.8rem;
   text-align: center;
@@ -1576,7 +1622,13 @@ button.track-link {
    up behind the header. */
 .home-hero-ambient {
   position: absolute;
-  top: -132px;
+  /* --wash-reach is the hero's distance from the top of the page, measured
+     by home/ambient.js so the light always starts at the top of the screen
+     whatever sits above the hero (the iPhone's safe-area inset included).
+     The extra 56px overshoots that edge so iOS's overscroll bounce doesn't
+     pull the top of the wash into view. The fallback is what this was
+     before it was measured: right on a phone with no inset. */
+  top: calc(-1 * var(--wash-reach, 76px) - 56px);
   bottom: -64px;
   /* Viewport-wide, not column-wide. .layout caps its children at 1100px, and
      a wash that stops at that cap draws two hard vertical edges down a wide
@@ -1627,7 +1679,7 @@ button.track-link {
   border-radius: var(--radius-md);
   overflow: hidden;
   margin-bottom: var(--space-4);
-  background: var(--bg-input);
+  background: var(--bg-control);
   /* The one shadow on this page. Tone is the separator everywhere else, but
      tone cannot separate the cover from a wash the cover itself produced. */
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
@@ -1719,18 +1771,26 @@ button.track-link {
   }
 
   .home-hero-cover {
-    width: 200px;
+    width: 232px;
     margin-bottom: 0;
   }
 
+  /* The play button goes under the title rather than beside it. Beside it,
+     the row had to be capped (620px) to keep the button from reaching the
+     right edge, and even capped a short title left the button floating in
+     the middle of the page with a gap between it and the thing it plays.
+     Stacked, it sits against the text whatever the title's length, and the
+     cover, text and button read as one block. */
   .home-hero-row {
     flex: 1;
     min-width: 0;
-    /* Capped so the play button stays beside the title it plays. Letting the
-       row run the full column width parked it against the right edge, half a
-       screen away from the thing it acts on, and the hero lost its focal
-       point to the gap. */
-    max-width: 620px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-4);
+  }
+
+  .home-hero-text {
+    max-width: 100%;
   }
 
   .home-hero-title {
@@ -1870,15 +1930,19 @@ button.track-link {
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
-  background: var(--bg-base);
-  border: 1px solid var(--border-control);
+  background: var(--bg-control);
+  border: 1px solid transparent;
   color: var(--text-primary);
-  border-radius: 6px;
+  border-radius: var(--radius-pill);
   padding: 0.5rem 1rem;
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.channel-chip:not(.artist-chip):hover {
+  background-image: var(--hover-lift);
 }
 
 /* An artist, wherever they appear, is a round picture with a name under it.
@@ -1921,7 +1985,7 @@ button.track-link {
   border-radius: var(--radius-circle);
   object-fit: cover;
   flex: 0 0 auto;
-  background: var(--bg-input);
+  background: var(--bg-control);
   display: block;
 }
 
@@ -1944,7 +2008,7 @@ button.track-link {
   font-weight: 700;
   line-height: 1;
   color: var(--text-secondary);
-  background: var(--bg-hover-strong);
+  background: var(--bg-control);
   overflow: hidden;
   user-select: none;
 }
@@ -1992,7 +2056,7 @@ button.track-link {
 }
 
 .pagination-btn:hover {
-  background: var(--bg-elevated);
+  background: var(--bg-surface);
   color: var(--white);
 }
 
@@ -2002,7 +2066,7 @@ button.track-link {
 }
 
 .pagination-btn.is-current {
-  background: var(--bg-elevated);
+  background: var(--bg-surface);
   color: var(--white);
   font-weight: 600;
   pointer-events: none;
@@ -2068,14 +2132,14 @@ button.track-link {
      viewport on mobile instead of the title truncating inside it. */
   min-width: 0;
   padding: 0.5rem 0.65rem;
-  background: var(--bg-sunken);
+  background: var(--bg-surface);
   border-radius: 8px;
   color: inherit;
   text-decoration: none;
 }
 
 .channel-card:hover {
-  background: var(--bg-elevated);
+  background-image: var(--hover-lift);
 }
 
 .channel-card[hidden] {
@@ -2092,7 +2156,7 @@ button.track-link {
   height: 44px;
   border-radius: 50%;
   object-fit: cover;
-  background: var(--bg-input);
+  background: var(--bg-control);
   flex: 0 0 auto;
 }
 
@@ -2131,7 +2195,7 @@ button.track-link {
 .channel-card-icon.is-new-uploads,
 .channel-card-icon.is-recently-played,
 .channel-card-icon.is-user-playlist {
-  background: var(--bg-hover-strong);
+  background: var(--bg-control);
 }
 
 /* A <button> in a grid of <a>s: it needs the anchors' box back, since a
@@ -2209,7 +2273,7 @@ button.track-link {
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.7rem 0.75rem;
-  background: var(--bg-base);
+  background: var(--bg-control);
   border: 1px solid transparent;
   border-radius: 6px;
   color: inherit;
@@ -2219,7 +2283,7 @@ button.track-link {
 }
 
 .playlist-picker-row:hover {
-  background: var(--bg-raised);
+  background-image: var(--hover-lift);
 }
 
 /* Already holds the open track. Pressing it again takes the track back out,
@@ -2269,9 +2333,9 @@ button.track-link {
   width: 100%;
   padding: 0.6rem 0.7rem;
   margin: 0.75rem 0 0;
-  background: var(--bg-base);
-  border: 1px solid var(--border-control);
-  border-radius: 6px;
+  background: var(--bg-control);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   color: inherit;
   font: inherit;
 }
@@ -2373,17 +2437,18 @@ button.track-link {
   /* No negative margin. It used to be pulled left by .btn-quiet's own 1rem of
      padding so the *label* would sit flush with the title above it — which
      was right while the button had no visible box, and wrong the moment the
-     border below started rendering: the box then hung a full rem into the
-     artwork beside it. A bordered control aligns on its edge, and its edge is
-     already the column's edge. */
+     box below started rendering: it then hung a full rem into the artwork
+     beside it. A filled control aligns on its edge, and its edge is already
+     the column's edge. */
   margin-top: var(--space-2);
   flex-shrink: 0;
-  border: 1px solid var(--border-control);
+  background: var(--bg-control);
+  border: 1px solid transparent;
 }
 
 .btn-quiet.channel-hero-unfollow:hover {
   color: var(--danger);
-  border-color: var(--danger);
+  background-image: var(--hover-lift);
 }
 
 /* Positioned and z-lifted for the same reason Home's hero content is: the
@@ -2398,7 +2463,8 @@ button.track-link {
    two heroes are the same idea, so they must not be lit two different ways. */
 .detail-hero-ambient {
   position: absolute;
-  top: -152px;
+  /* Measured, as Home's is — see .home-hero-ambient. */
+  top: calc(-1 * var(--wash-reach, 96px) - 56px);
   bottom: -48px;
   left: 50%;
   width: 100vw;
@@ -2412,7 +2478,7 @@ button.track-link {
   height: 120px;
   border-radius: 50%;
   object-fit: cover;
-  background: var(--bg-input);
+  background: var(--bg-control);
   flex: 0 0 auto;
 }
 
@@ -2569,7 +2635,7 @@ button.track-link {
 }
 
 .track-row:hover {
-  background: var(--bg-base);
+  background: var(--bg-surface);
 }
 
 .track-link {
@@ -2596,7 +2662,7 @@ button.track-link {
   height: 44px;
   border-radius: 4px;
   overflow: hidden;
-  background: var(--bg-input);
+  background: var(--bg-control);
 }
 
 .track-thumb img {
@@ -2663,7 +2729,7 @@ button.track-link {
    collision. One layout at every width now. */
 
 .card {
-  background: var(--bg-base);
+  background: var(--bg-surface);
   border-radius: var(--radius-md);
   overflow: hidden;
   display: flex;
@@ -2698,7 +2764,7 @@ button.track-link {
      (see .release-card below, now removed) which is what gave the game
      away. */
   aspect-ratio: 1;
-  background: var(--bg-input);
+  background: var(--bg-control);
   border: none;
   padding: 0;
   margin: 0;
@@ -3066,7 +3132,7 @@ button.track-link {
 }
 
 .modal {
-  background: var(--bg-elevated);
+  background: var(--bg-surface);
   border-radius: 12px;
   padding: 1.5rem;
   width: 100%;
@@ -3239,8 +3305,8 @@ button.track-link {
    are a set to choose from, and one you have to scroll to see all of is one
    you will not read to the end of. */
 .genre-chip {
-  border: 1px solid var(--border-control);
-  background: var(--bg-base);
+  border: 1px solid transparent;
+  background: var(--bg-control);
   color: var(--text-secondary);
   border-radius: var(--radius-pill);
   padding: var(--space-2) var(--space-4);
@@ -3254,7 +3320,7 @@ button.track-link {
 }
 
 .genre-chip:hover {
-  border-color: var(--border-strong);
+  background-image: var(--hover-lift);
   color: var(--text-primary);
 }
 
@@ -3268,7 +3334,7 @@ button.track-link {
   background: none;
   border: none;
   color: var(--text-secondary);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 0.5rem 1rem;
   font-size: 0.85rem;
   font-weight: 600;
@@ -3288,16 +3354,16 @@ button.track-link {
   display: none;
 }
 
-/* Quiet by default. This was a solid fill, which made deleting every
+/* Quiet by default. This was a solid red fill, which made deleting every
    downloaded file the loudest control on the panel — louder than the
    harmless "Export all" beside it — so visual weight ran opposite to how
    much the action costs. The red arrives on hover, once the pointer is
    already on it. */
 .btn-danger {
-  background: transparent;
-  border: 1px solid var(--border-control);
+  background: var(--bg-control);
+  border: 1px solid transparent;
   color: var(--text-secondary);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-4);
   font-size: var(--text-md);
   font-weight: 600;
@@ -3306,14 +3372,14 @@ button.track-link {
 
 .btn-danger:hover {
   color: var(--danger);
-  border-color: var(--danger);
+  background-image: var(--hover-lift);
 }
 
 .btn-primary {
   background: var(--accent);
   border: none;
   color: var(--black);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 0.5rem 1.15rem;
   font-size: 0.85rem;
   font-weight: 700;
@@ -3349,7 +3415,7 @@ button.track-link {
 }
 
 .toast {
-  background: var(--bg-toast);
+  background: var(--bg-control);
   color: var(--text-primary);
   border-left: 3px solid var(--danger);
   border-radius: 8px;
@@ -3419,7 +3485,7 @@ button.track-link {
   max-width: 340px;
   width: 100%;
   margin: 0 auto var(--space-5);
-  background: var(--bg-input);
+  background: var(--bg-control);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
   /* The cap is what the queue opens against: it animates down to
      ART_COMPACT_HEIGHT and the space it gives up is what the queue grows
@@ -3997,7 +4063,7 @@ audio {
 /* Which row is playing. Set by the browser, not the server — see
    _queue_panel.html. */
 .track-row.is-current {
-  background: var(--bg-raised);
+  background: var(--bg-surface);
 }
 
 .track-row.is-current .track-title,
@@ -4255,7 +4321,7 @@ audio {
   /* Keeps a flick that runs off the end of the queue from scrolling the page
      underneath the overlay. */
   overscroll-behavior: contain;
-  background: radial-gradient(circle at 50% 0%, var(--bg-page-glow) 0%, var(--bg-page) 60%);
+  background: radial-gradient(circle at 50% 0%, var(--bg-surface) 0%, var(--bg-page) 60%);
 }
 
 /* Covers the whole backdrop rather than reaching past it: this overlay is
@@ -4413,9 +4479,9 @@ audio {
   right: 0;
   bottom: 0;
   z-index: 900;
-  background: var(--bg-raised);
+  background: var(--bg-surface);
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);
-  /* Frosted-glass feel where supported; opaque --bg-raised is already a
+  /* Frosted-glass feel where supported; opaque --bg-surface is already a
      complete, correct look on its own where it isn't. */
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -4507,7 +4573,7 @@ audio {
   border-radius: 8px;
   overflow: hidden;
   flex-shrink: 0;
-  background: var(--bg-input);
+  background: var(--bg-control);
   display: block;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
@@ -4716,7 +4782,7 @@ body.has-mini-player .layout {
   margin-right: 0.35rem;
   padding: 0.05rem 0.35rem;
   border-radius: 4px;
-  background: var(--bg-elevated);
+  background: var(--bg-control);
   color: var(--text-secondary);
   font-size: 0.68rem;
   font-weight: 700;
@@ -4729,7 +4795,7 @@ body.has-mini-player .layout {
   padding: 0.05rem 0.35rem;
   border-radius: 4px;
   background: var(--accent);
-  color: var(--bg-base);
+  color: var(--bg-surface);
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -4918,8 +4984,8 @@ body.has-mini-player .layout {
   width: 46px;
   height: 28px;
   border-radius: 999px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-control);
+  background: var(--bg-control);
+  border: 1px solid transparent;
   display: inline-flex;
   align-items: center;
   padding: 2px;
@@ -4930,7 +4996,7 @@ body.has-mini-player .layout {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: var(--text-muted);
+  background: var(--text-secondary);
   transition: transform 0.15s ease, background 0.15s ease;
 }
 
