@@ -154,30 +154,34 @@ function watchWashReach() {
   document.querySelectorAll(".tab-panel").forEach((panel) => observer.observe(panel));
 }
 
-// Header is transparent only while the page rests at the top. Observes a 1px
-// probe, not the hero, which stays intersecting until its bottom clears the header.
-let pageTopObserver = null;
+// Over a hero the header fades in with scroll rather than flipping at 1px. The
+// variable lives on the header, not <html>, so a scroll frame restyles only the bar.
+const HEADER_FADE_PX = 100;
 
-function watchPageTop() {
-  pageTopObserver?.disconnect();
-  const probe = document.querySelector(".page-top-probe");
-  if (!probe) {
-    delete document.documentElement.dataset.heroLit;
-    return;
-  }
-  pageTopObserver = new IntersectionObserver(
-    ([entry]) => {
-      if (entry.isIntersecting) document.documentElement.dataset.heroLit = "";
-      else delete document.documentElement.dataset.heroLit;
+function watchHeaderFade() {
+  const header = document.querySelector(".app-header-sticky");
+  if (!header) return;
+  let queued = false;
+  const update = () => {
+    queued = false;
+    const solid = Math.min(1, Math.max(0, window.scrollY / HEADER_FADE_PX));
+    header.style.setProperty("--header-solid", solid.toFixed(3));
+  };
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(update);
     },
-    { threshold: 0 },
+    { passive: true },
   );
-  pageTopObserver.observe(probe);
+  update();
 }
 
 export function setupAmbientTint() {
   applyAmbientTint();
-  watchPageTop();
+  watchHeaderFade();
   watchWashReach();
   onFragmentsSwapped(() => {
     applyAmbientTint();

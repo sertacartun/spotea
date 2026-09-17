@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="app/static/img/apple-touch-icon.png" width="96" alt="Spotea icon">
+  <img src="app/static/img/icons/icon-512.png" width="96" alt="Spotea icon">
 </p>
 
 <h1 align="center">Spotea</h1>

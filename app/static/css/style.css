@@ -420,31 +420,37 @@ select {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: var(--bg-page);
 }
 
-/* 1px, not 0: IntersectionObserver doesn't reliably report a zero-area rect;
-   the negative margin cancels its layout cost. */
-.page-top-probe {
-  display: block;
-  height: 1px;
-  margin-bottom: -1px;
+/* Tint + blur on a pseudo-element: a backdrop-filter on the wrapper itself would
+   trap the phone's fixed bottom tab bar (see .tabs). --solid runs 0-1 and ends
+   fully opaque; blur reaches full strength early so rows never show crisp
+   through a half-tinted bar. */
+.app-header-sticky::before {
+  --solid: 1;
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg-page) calc(var(--solid) * 100%), transparent);
+  -webkit-backdrop-filter: blur(calc(min(1, var(--solid) * 4) * 20px));
+  backdrop-filter: blur(calc(min(1, var(--solid) * 4) * 20px));
 }
 
-/* Transparent over a hero only at the top of the page (data-hero-lit from
-   home/ambient.js). Scoped to these panels; the bar must stay opaque elsewhere. */
-html[data-active-tab="home"][data-hero-lit]:has(#tab-home .home-hero) .app-header-sticky,
-html[data-active-tab="detail"][data-hero-lit]:has(#detail-panel .channel-hero) .app-header-sticky {
-  background: transparent;
+/* Clear over a hero at the top of the page, darkening as it scrolls
+   (--header-solid, 0-1, from home/ambient.js). Scoped to these panels; the bar
+   stays opaque elsewhere. */
+html[data-active-tab="home"]:has(#tab-home .home-hero) .app-header-sticky::before,
+html[data-active-tab="detail"]:has(#detail-panel .channel-hero) .app-header-sticky::before {
+  --solid: var(--header-solid, 0);
 }
 
-html[data-active-tab="home"][data-hero-lit]:has(#tab-home .home-hero) .app-header-sticky .topbar,
-html[data-active-tab="detail"][data-hero-lit]:has(#detail-panel .channel-hero) .app-header-sticky .topbar {
-  border-bottom-color: transparent;
-}
-
-.app-header-sticky {
-  transition: background 200ms ease;
+@media (max-width: 480px) {
+  html[data-active-tab="home"]:has(#tab-home .home-hero) .app-header-sticky .topbar,
+  html[data-active-tab="detail"]:has(#detail-panel .channel-hero) .app-header-sticky .topbar {
+    border-bottom-color: color-mix(in srgb, var(--border-subtle) calc(var(--header-solid, 0) * 100%), transparent);
+  }
 }
 
 .tabs {
@@ -628,8 +634,10 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   margin: 0 0 0.35rem;
 }
 
+/* Row padding + this = the row-to-row gap (padding + hairline + padding), so a
+   group break spaces like any other row. */
 #tab-settings .settings-group + .settings-group {
-  margin-top: 2.25rem;
+  margin-top: calc(0.85rem + 1px);
 }
 
 .settings-group-who {
@@ -3810,6 +3818,12 @@ body.has-mini-player .layout {
 .switch-input:disabled + .switch-track {
   opacity: 0.4;
   cursor: default;
+}
+
+/* The 44px tap target overhangs the 28px track; take the overhang back out of
+   layout so the row spaces like its button and select siblings. */
+.settings-row > .switch {
+  margin-block: -8px;
 }
 
 @media (max-width: 480px) {
