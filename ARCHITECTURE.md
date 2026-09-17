@@ -445,8 +445,14 @@ path unchanged.
 - **One worker, always.** In-memory registries (download progress, sync
   progress, login-failure counts) are process-local, and the app asserts a
   single worker at startup rather than silently misbehaving under two.
-- **SQLite in WAL mode** with foreign keys on. Fetches fan out across a small
-  thread pool; DB writes never happen inside it.
+- **SQLite in WAL mode** with foreign keys on. YouTube Music fetches (a
+  release check, an Explore build) fan out across one long-lived pool of
+  eight threads, `youtube.music.pool`; DB writes never happen inside it. It
+  is shared and never torn down because each thread's ytmusicapi client
+  downloads the music.youtube.com homepage (~375 KB) for a visitor id on its
+  first call. A pool per call paid that again in every worker on every sync —
+  twice the requests, measured 17 instead of 9 for nine artists. Work
+  submitted to the pool must not submit to it again.
 - **Sessions** are signed cookies (`itsdangerous`). Passwords are bcrypt, and
   a login for an unknown username still pays a real bcrypt check so timing
   doesn't reveal which names are registered.

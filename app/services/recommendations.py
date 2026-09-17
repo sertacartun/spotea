@@ -8,7 +8,6 @@ import json
 import logging
 import random
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from datetime import datetime
 
@@ -18,6 +17,7 @@ from app.config import settings
 from app.interests import interests_signature, parse_interests
 from app.models import Artist, Content, RecommendationCache, User
 from app.timeutil import is_stale, utcnow
+from app.youtube import music
 from app.youtube.music import fetch_charts_for, fetch_mood_categories
 from app.youtube.music import search_playlists as search_music_playlists
 
@@ -28,9 +28,6 @@ logger = logging.getLogger(__name__)
 
 # Each sampled interest costs one search; this bounds a run's request count.
 INTERESTS_PER_RUN = 3
-
-# One search per sampled interest plus the two browse builders.
-_POOL_SIZE = INTERESTS_PER_RUN * 1 + 2
 
 RESULTS_PER_SHELF = 12
 
@@ -108,12 +105,11 @@ def build_batch(interests: list[str]) -> dict:
     jobs = [(kind, interest) for interest in sampled for kind in _SEARCHERS]
 
     batch = empty_batch()
-    with ThreadPoolExecutor(max_workers=_POOL_SIZE) as pool:
-        # Submitted first so they overlap with the searches instead of queueing behind them.
-        browsing = [pool.submit(build) for build in _BROWSE_BUILDERS]
-        results = list(pool.map(lambda job: _SEARCHERS[job[0]](job[1]), jobs))
-        for shelves in browsing:
-            batch.update(shelves.result())
+    # Submitted first so they overlap with the searches instead of queueing behind them.
+    browsing = [music.pool.submit(build) for build in _BROWSE_BUILDERS]
+    results = list(music.pool.map(lambda job: _SEARCHERS[job[0]](job[1]), jobs))
+    for shelves in browsing:
+        batch.update(shelves.result())
 
     by_kind: dict[str, list[list[dict]]] = {kind: [] for kind in _SEARCHERS}
     for (kind, _), found in zip(jobs, results, strict=True):

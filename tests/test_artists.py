@@ -2,6 +2,7 @@
 
 import json
 import logging
+import threading
 from datetime import datetime
 
 import pytest
@@ -558,3 +559,26 @@ def test_a_failing_thumbnail_task_cannot_cancel_the_tasks_behind_it(monkeypatch)
     )
 
     assert artist_sync.cache_thumbnail("vid00000001", "/image-proxy?u=whatever") is None
+
+
+def test_syncs_run_on_the_shared_youtube_pool_not_a_pool_of_their_own(db_session, monkeypatch):
+    """Each worker's client downloads the YouTube Music homepage on first use; fresh threads per sync paid that every time."""
+    from app.youtube import music
+
+    workers = []
+
+    def fake(browse_id, all_songs=True):
+        workers.append(threading.current_thread())
+        return _artist()
+
+    monkeypatch.setattr(artist_sync, "fetch_artist", fake)
+    artists = [
+        _followed(db_session, channel_id=f"UCsharedpool{i:02d}", browse_id=f"UCsharedbrowse{i:02d}")
+        for i in range(music.POOL_SIZE + 4)
+    ]
+
+    artist_sync.sync_artists(db_session, artists)
+    artist_sync.sync_artists(db_session, artists)
+
+    assert all(worker.name.startswith("youtube-music") for worker in workers)
+    assert len(set(workers)) <= music.POOL_SIZE, "a sync started threads outside the shared pool"

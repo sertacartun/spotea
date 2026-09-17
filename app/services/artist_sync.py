@@ -6,7 +6,6 @@ release snapshot, so nothing here opens a release or imports its tracks.
 
 import json
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 
 from sqlalchemy.orm import Session
@@ -14,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.images import download_avatar, download_thumbnail
 from app.models import Artist, Content
+from app.youtube import music
 from app.youtube.models import ChannelSearchResult, VideoSearchResult
 from app.youtube.music import ArtistRelease, fetch_artist
 
@@ -29,10 +29,6 @@ def snapshot_releases(snapshot: str | None) -> list[dict]:
     except (TypeError, ValueError):
         return []
     return [entry for entry in entries if isinstance(entry, dict) and entry.get("browse_id")]
-
-
-# Unauthenticated requests: a larger burst risks 429s. DB writes never happen in the pool.
-SYNC_POOL_SIZE = 8
 
 
 @dataclass
@@ -96,7 +92,7 @@ def apply_artist_data(db: Session, artist: Artist, result: ArtistFetchResult) ->
 
 
 def sync_artists(db: Session, artists: list[Artist]) -> None:
-    """Fetches fanned out in a thread pool, applies sequential on the caller's session.
+    """Fetches fanned out on the shared YouTube pool, applies sequential on the caller's session.
 
     Each apply is isolated so one artist failing doesn't abort the rest.
     """
@@ -104,8 +100,7 @@ def sync_artists(db: Session, artists: list[Artist]) -> None:
     if not syncable:
         return
 
-    with ThreadPoolExecutor(max_workers=min(len(syncable), SYNC_POOL_SIZE)) as pool:
-        results = list(pool.map(lambda a: fetch_artist_data(a.browse_id, a.avatar_url), syncable))
+    results = list(music.pool.map(lambda a: fetch_artist_data(a.browse_id, a.avatar_url), syncable))
 
     for artist, result in zip(syncable, results, strict=True):
         try:

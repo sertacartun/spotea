@@ -1112,3 +1112,11 @@ def test_a_different_channel_and_name_is_still_not_the_artist(client):
     client(search=[SONG])
 
     assert music.find_song_version("Biliyorsun", "Someone Else", "UCsomeoneelse0000000") is None
+
+
+def test_pool_workers_keep_their_client_between_batches():
+    """A client's first call fetches the homepage for a visitor id, so a warmed client must survive a batch."""
+    first = set(music.pool.map(lambda _: id(music._client()), range(music.POOL_SIZE * 5)))
+    second = set(music.pool.map(lambda _: id(music._client()), range(music.POOL_SIZE * 5)))
+
+    assert len(first | second) <= music.POOL_SIZE
