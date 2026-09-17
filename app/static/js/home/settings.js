@@ -1,5 +1,5 @@
 import { api, confirmDialog, setupOverlay, showToast } from "../core.js";
-import { refreshFragments } from "../fragments.js";
+import { onFragmentsSwapped, refreshFragments } from "../fragments.js";
 import { reloadRecommendations } from "./explore.js";
 import { activate } from "./tabs.js";
 
@@ -15,43 +15,101 @@ async function clearCache() {
   if (ok) refreshFragments();
 }
 
+const EXPORT_FILENAME = "spotea-downloads.zip";
+const EXPORT_LABEL = "Export all";
+const EXPORT_READY_LABEL = "Share export";
+
 // A same-window navigation to a zip download traps iOS home-screen installs in a
-// full-screen "Open in..." view with no way back (WebKit bug 236943) — fetch it as a
-// blob and hand it to the share sheet instead, which iOS can actually dismiss.
-async function exportDownloads(button) {
-  button.disabled = true;
+// full-screen "Open in..." view with no way back (WebKit bug 236943), so the zip goes to
+// the share sheet instead, which iOS can actually dismiss.
+//
+// But iOS only runs navigator.share() while the tap that asked for it still counts as
+// user activation — a few seconds — and building and fetching a multi-song zip takes
+// longer than that. Sharing straight after the fetch therefore failed with
+// NotAllowedError. So the first tap only prepares the file; the second one shares it with
+// no await in front of the share() call.
+let preparedExport = null;
+
+function canShareFiles() {
+  // Probed with an empty file of the same type: there is nothing to share yet.
+  return Boolean(navigator.canShare?.({ files: [new File([], EXPORT_FILENAME, { type: "application/zip" })] }));
+}
+
+function markExportReady(button) {
+  button.textContent = EXPORT_READY_LABEL;
+  button.classList.add("is-ready");
+}
+
+function resetExportButton(button) {
+  preparedExport = null;
+  button.textContent = EXPORT_LABEL;
+  button.classList.remove("is-ready");
+}
+
+/** The zip as a File, or null when it couldn't be built (the toast is already up). */
+async function fetchExport() {
+  let res;
   try {
-    let res;
-    try {
-      res = await fetch("/storage/export");
-    } catch {
-      showToast("Could not build the export");
-      return;
-    }
-    if (!res.ok) {
-      const data = await res.json().catch(() => null);
-      showToast(data?.detail || "Could not build the export");
-      return;
-    }
-    const blob = await res.blob();
-    const file = new File([blob], "spotea-downloads.zip", { type: "application/zip" });
+    res = await fetch("/storage/export");
+  } catch {
+    showToast("Could not build the export");
+    return null;
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    showToast(data?.detail || "Could not build the export");
+    return null;
+  }
+  return new File([await res.blob()], EXPORT_FILENAME, { type: "application/zip" });
+}
 
-    if (navigator.canShare?.({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file] });
-      } catch (err) {
-        // AbortError: the user dismissed the share sheet — not a failure.
-        if (err.name !== "AbortError") showToast("Could not share the export");
-      }
+function saveExport(file) {
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = EXPORT_FILENAME;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Nothing may be awaited before share(): an await here is what spends the activation. */
+async function shareExport(button) {
+  const file = preparedExport;
+  try {
+    await navigator.share({ files: [file] });
+  } catch (err) {
+    // AbortError: the share sheet was dismissed. Either way the file stays ready for another tap.
+    if (err.name === "AbortError") return;
+    showToast(
+      err.name === "NotAllowedError" ? "Tap Share export again" : "Could not share the export"
+    );
+    return;
+  }
+  resetExportButton(button);
+}
+
+async function exportDownloads(button) {
+  if (preparedExport) {
+    await shareExport(button);
+    return;
+  }
+
+  const sharing = canShareFiles();
+  button.disabled = true;
+  button.textContent = sharing ? "Preparing…" : "Exporting…";
+  try {
+    const file = await fetchExport();
+    if (!file) {
+      button.textContent = EXPORT_LABEL;
       return;
     }
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "spotea-downloads.zip";
-    link.click();
-    URL.revokeObjectURL(url);
+    if (!sharing) {
+      saveExport(file);
+      button.textContent = EXPORT_LABEL;
+      return;
+    }
+    preparedExport = file;
+    markExportReady(button);
   } finally {
     button.disabled = false;
   }
@@ -80,6 +138,12 @@ export function setupStorage() {
   document.getElementById("settings-downloads-actions")?.addEventListener("click", (event) => {
     const button = event.target.closest("#export-downloads");
     if (button) exportDownloads(button);
+  });
+
+  // A refresh re-renders the button from the server, which doesn't know a zip is waiting.
+  onFragmentsSwapped(() => {
+    const button = document.getElementById("export-downloads");
+    if (preparedExport && button) markExportReady(button);
   });
 }
 

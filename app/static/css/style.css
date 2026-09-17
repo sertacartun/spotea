@@ -686,6 +686,11 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   background-image: var(--hover-lift);
 }
 
+/* The export is built and waiting for the tap that hands it to the share sheet. */
+.settings-row-actions > .btn-quiet.is-ready {
+  color: var(--accent);
+}
+
 /* Same treatment as .btn-danger:disabled — both stay on their row with nothing to do. */
 .settings-row > .btn-quiet:disabled,
 .settings-row-actions > .btn-quiet:disabled {

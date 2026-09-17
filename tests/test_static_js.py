@@ -7,6 +7,24 @@ CORE_JS = Path("app/static/js/core.js")
 JS_DIR = Path("app/static/js")
 
 
+def _function_body_of(source: str, name: str) -> str:
+    """The text of a module-private `[async] function <name>(...) { ... }`, brace-matched."""
+    needle = f"async function {name}("
+    if needle not in source:
+        needle = f"function {name}("
+    start = source.index(needle)
+    open_brace = source.index("{", start)
+    depth = 0
+    for index in range(open_brace, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[open_brace : index + 1]
+    raise AssertionError(f"unbalanced braces in {name}")
+
+
 def _function_body(source: str, name: str) -> str:
     """The text of `export [async] function <name>(...) { ... }`, brace-matched."""
     needle = f"export function {name}("
@@ -1483,3 +1501,23 @@ def test_page_links_route_in_place_rather_than_reloading() -> None:
     body = source[source.index("function interceptAppLinks()") :]
     assert "event.defaultPrevented" in body, "the link router would run a second time after a panel's own handler"
     assert "classifyPath(link.pathname, link.search)" in body
+
+
+def test_the_export_is_shared_without_awaiting_anything_first() -> None:
+    """iOS drops the tap's user activation across an await, and share() then fails with NotAllowedError."""
+    source = (JS_DIR / "home" / "settings.js").read_text()
+
+    share = _function_body_of(source, "shareExport")
+    assert "await navigator.share(" in share
+    before_share = share[: share.index("await navigator.share(")]
+    assert "await" not in before_share, (
+        "shareExport awaits something before share() — the zip must already be in hand by then"
+    )
+    assert "fetch(" not in share, "the share path fetches the zip again instead of using the prepared file"
+
+    # The first tap prepares, the second shares: without this branch the fetch is always in the way.
+    body = _function_body_of(source, "exportDownloads")
+    assert body.index("preparedExport") < body.index("await fetchExport()")
+    assert 'err.name === "NotAllowedError"' in source, (
+        "a refused share is reported as a generic failure, so nobody learns to tap again"
+    )
