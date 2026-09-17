@@ -7,6 +7,7 @@ because the parser matches translated section headers. Failures flatten to None/
 import logging
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 
 from ytmusicapi import YTMusic
@@ -57,9 +58,17 @@ ARTIST_PREVIEW_SONGS = 10
 ARTIST_RELEASE_LIMIT = 10
 
 
-# YTMusic's requests.Session isn't thread-safe and recommendations search from a thread pool;
-# construction costs no network, so one client per thread.
+# YTMusic's requests.Session isn't thread-safe, so one client per thread. Construction is free, but a
+# client's first call downloads the music.youtube.com homepage (~375 KB) for a visitor id.
 _local = threading.local()
+
+# Unauthenticated requests: a larger burst risks 429s.
+POOL_SIZE = 8
+
+# Fan-out work shares this one long-lived pool so its threads, and their warmed-up clients, outlive a
+# single sync. A pool per call paid the homepage fetch again in every worker, doubling the requests.
+# Work submitted here must not submit to it again, or it can deadlock waiting on its own workers.
+pool = ThreadPoolExecutor(max_workers=POOL_SIZE, thread_name_prefix="youtube-music")
 
 
 def _client() -> YTMusic:
