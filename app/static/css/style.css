@@ -681,9 +681,16 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   color: var(--text-primary);
 }
 
-.settings-row > .btn-quiet:hover,
-.settings-row-actions > .btn-quiet:hover {
+.settings-row > .btn-quiet:hover:not(:disabled),
+.settings-row-actions > .btn-quiet:hover:not(:disabled) {
   background-image: var(--hover-lift);
+}
+
+/* Same treatment as .btn-danger:disabled — both stay on their row with nothing to do. */
+.settings-row > .btn-quiet:disabled,
+.settings-row-actions > .btn-quiet:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .settings-row-label {
@@ -2481,6 +2488,13 @@ button.track-link {
 .btn-danger:hover {
   color: var(--danger);
   background-image: var(--hover-lift);
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: default;
+  color: var(--text-secondary);
+  background-image: none;
 }
 
 .btn-primary {

@@ -232,7 +232,7 @@ def test_storage_fragment_splits_downloads_from_cache(client, db_session):
     fragment = client.get("/partials/storage-summary").text
 
     assert _fragment_body(fragment, "settings-downloads-desc") == "3.0 MB across 1 song"
-    assert 'href="/storage/export"' in _fragment_body(fragment, "settings-downloads-actions")
+    assert 'id="export-downloads"' in _fragment_body(fragment, "settings-downloads-actions")
     assert _fragment_body(fragment, "settings-cache-desc").startswith("1.0 MB across 1 song · ")
     assert 'id="clear-cache"' in _fragment_body(fragment, "settings-cache-actions")
 
@@ -246,10 +246,11 @@ def test_fragments_are_empty_but_valid_for_a_fresh_profile(client):
 
     # The interests overlay lives in the page, not this fragment, so this renders the empty branch.
     assert "Nothing played yet" in client.get("/partials/home").text
-    # Nothing to export or clear.
+    # Nothing to export or clear: both buttons stay on their row, disabled.
     storage = client.get("/partials/storage-summary").text
-    assert "/storage/export" not in storage
-    assert "clear-cache" not in storage
+    assert 'id="export-downloads" class="btn-quiet" disabled' in _fragment_body(storage, "settings-downloads-actions")
+    assert "No cached songs · " in _fragment_body(storage, "settings-cache-desc")
+    assert 'id="clear-cache" class="btn-danger" disabled' in _fragment_body(storage, "settings-cache-actions")
 
 
 def test_fragments_require_login():

@@ -1,3 +1,1 @@
-{%- if downloads.count -%}
-<a href="/storage/export" download class="btn-quiet">Export all</a>
-{%- endif -%}
+<button type="button" id="export-downloads" class="btn-quiet"{% if not downloads.count %} disabled{% endif %}>Export all</button>
