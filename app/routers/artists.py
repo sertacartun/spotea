@@ -2,23 +2,22 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.content_query import followed_artists
 from app.deps import get_current_user, get_db, require_login
 from app.models import Artist, Content, OfflinePin, User
 from app.schemas import (
     ArtistAddResult,
     ArtistCreate,
     ArtistOut,
-    RefreshResult,
+    SyncResult,
 )
 from app.services.artist_follow import AlreadyFollowingError, NotAnArtistError, follow_artist_by_url
-from app.services.artist_sync import refresh_feeds as sync_refresh_feeds
 from app.services.initial_sync import (
     mark_syncing,
     run_initial_sync_task,
     sync_progress,
     syncing_artist_ids,
 )
+from app.services.refresh import sync_if_due
 from app.storage import purge_content
 
 router = APIRouter(prefix="/artists", tags=["artists"], dependencies=[Depends(require_login)])
@@ -32,7 +31,7 @@ def add_feed(
     db: Session = Depends(get_db),
 ) -> ArtistAddResult:
     try:
-        artist, new_count = follow_artist_by_url(
+        artist = follow_artist_by_url(
             db,
             payload.channel_url,
             user.id,
@@ -48,7 +47,8 @@ def add_feed(
     mark_syncing(artist.id)
     background_tasks.add_task(run_initial_sync_task, artist.id)
 
-    return ArtistAddResult(artist=ArtistOut.model_validate(artist), new_content_count=new_count)
+    return ArtistAddResult(artist=ArtistOut.model_validate(artist))
+
 
 @router.get("/syncing", response_model=list[int])
 def list_backfilling_feeds(
@@ -96,9 +96,7 @@ def delete_feed(
     sync_progress.discard(artist_id)
 
 
-@router.post("/refresh", response_model=RefreshResult)
-def refresh_feeds(
-    user: User = Depends(get_current_user), db: Session = Depends(get_db)
-) -> RefreshResult:
-    artists = followed_artists(db, user.id).all()
-    return RefreshResult(new_content_count=sync_refresh_feeds(db, artists))
+@router.post("/sync", response_model=SyncResult)
+def sync_releases(user: User = Depends(get_current_user)) -> SyncResult:
+    """Called on open and on return to the foreground; a no-op unless a check is due."""
+    return SyncResult(checked=sync_if_due(user.id))

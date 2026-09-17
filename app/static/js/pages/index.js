@@ -2,7 +2,7 @@ import { watchConnection } from "../core.js";
 import { setupAmbientTint } from "../home/ambient.js";
 import { setupDeviceStorage, setupOfflineMode } from "../home/device.js";
 import { handleInitialRoute, setupDetailPanel } from "../home/detail.js";
-import { refreshRecommendations, setupExploreSearch, setupRecommendations } from "../home/explore.js";
+import { setupExploreSearch, setupRecommendations } from "../home/explore.js";
 import {
   setupHomeArtists,
   setupHorizontalScrollers,
@@ -10,7 +10,7 @@ import {
   setupLibrarySearch,
   setupMobileMenu,
   setupPreparingArtists,
-  setupRefreshButton,
+  setupReleaseSync,
   setupSplash,
 } from "../home/library.js";
 import { setupLyricsPanel } from "../home/lyrics.js";
@@ -63,5 +63,5 @@ setupLibraryArtistGrid();
 setupLibrarySearch();
 setupPreparingArtists();
 setupHorizontalScrollers();
-setupRefreshButton(refreshRecommendations);
-setupMobileMenu(refreshRecommendations);
+setupReleaseSync();
+setupMobileMenu();

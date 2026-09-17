@@ -213,11 +213,11 @@ class VideoBatchResult(BaseModel):
 
 class ArtistAddResult(BaseModel):
     artist: ArtistOut
-    new_content_count: int
 
 
-class RefreshResult(BaseModel):
-    new_content_count: int
+class SyncResult(BaseModel):
+    # True when the library may have changed since the page rendered, so the client re-renders.
+    checked: bool
 
 
 class SettingsOut(BaseModel):

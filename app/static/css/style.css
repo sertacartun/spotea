@@ -370,10 +370,6 @@ select {
   cursor: default;
 }
 
-.btn-icon.is-spinning svg {
-  animation: spin 0.8s linear infinite;
-}
-
 .btn-ghost {
   background: none;
   border: none;
@@ -2209,20 +2205,6 @@ button.track-link {
   }
 }
 
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(10, 10, 10, 0.94);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.overlay[hidden] {
-  display: none;
-}
-
 /* Above every overlay (next highest: .toast-container 1200). The explicit
    [hidden] rule is needed because `display` here beats the attribute. */
 .app-splash {
@@ -3717,9 +3699,7 @@ body.has-mini-player .layout {
 body.is-offline .tab-btn[data-tab="home"],
 body.is-offline .tab-btn[data-tab="explore"],
 body.is-offline .tab-btn[data-tab="settings"],
-body.is-offline #library-grid .channel-card:not([data-detail-kind="downloads"]),
-body.is-offline #refresh-artists-btn,
-body.is-offline #mobile-menu-refresh {
+body.is-offline #library-grid .channel-card:not([data-detail-kind="downloads"]) {
   pointer-events: none;
   opacity: 0.35;
   /* Overrides the html[data-active-tab] selected colour. */

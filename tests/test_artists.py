@@ -1,4 +1,4 @@
-"""Following an artist, syncing what they release, and unfollowing. Nothing here goes online."""
+"""Following an artist, syncing their page, and unfollowing. Nothing here goes online."""
 
 import json
 import logging
@@ -14,7 +14,7 @@ from app.models import Artist, Content, User
 from app.services.artist_follow import NotAnArtistError, follow_artist
 from app.services.artist_sync import ArtistFetchResult, apply_artist_data
 from app.youtube.models import ChannelSearchResult, VideoSearchResult
-from app.youtube.music import ArtistProfile, ArtistRelease, ReleaseDetail
+from app.youtube.music import ArtistProfile, ArtistRelease
 
 USER_ID = 1
 
@@ -79,7 +79,7 @@ def test_following_a_musicians_own_channel_keys_on_their_topic_channel(db_sessio
     """Official and Topic channel ids must resolve to one row."""
     _stub_artist_lookup(monkeypatch, _artist())
 
-    artist, _ = follow_artist(
+    artist = follow_artist(
         db_session, f"https://www.youtube.com/channel/{OFFICIAL_ID}", USER_ID, sync=False
     )
 
@@ -91,7 +91,7 @@ def test_following_a_musicians_own_channel_keys_on_their_topic_channel(db_sessio
 def test_the_card_is_titled_with_the_artists_name(db_session, monkeypatch):
     _stub_artist_lookup(monkeypatch, _artist())
 
-    artist, _ = follow_artist(
+    artist = follow_artist(
         db_session, f"https://www.youtube.com/channel/{OFFICIAL_ID}", USER_ID, sync=False
     )
 
@@ -148,7 +148,7 @@ def test_following_a_previously_previewed_artist_upgrades_the_placeholder(db_ses
     db_session.commit()
     _stub_artist_lookup(monkeypatch, _artist())
 
-    artist, _ = follow_artist(
+    artist = follow_artist(
         db_session, f"https://www.youtube.com/channel/{OFFICIAL_ID}", USER_ID, sync=False
     )
 
@@ -181,23 +181,17 @@ def _followed(db_session, **kwargs):
     return artist
 
 
-def test_a_first_sync_records_the_catalogue_without_importing_it(db_session, monkeypatch):
+def test_a_sync_records_the_catalogue_without_importing_it(db_session, monkeypatch):
     monkeypatch.setattr(
         artist_sync,
         "fetch_artist",
         lambda browse_id, all_songs=True: _artist(singles=[_release(), _release("MPREb_bbbbbbbbbbb")]),
     )
 
-    def explode(browse_id):
-        raise AssertionError("a first sync must not open any release")
-
-    monkeypatch.setattr(artist_sync, "fetch_release", explode)
-
     artist = _followed(db_session)
-    result = artist_sync.fetch_artist_data(artist.browse_id, artist.release_snapshot, None)
-    new_count = apply_artist_data(db_session, artist, result)
+    result = artist_sync.fetch_artist_data(artist.browse_id, None)
+    apply_artist_data(db_session, artist, result)
 
-    assert new_count == 0
     assert db_session.query(Content).count() == 0
     # The whole release is stored: Home's "New releases" shelf renders from it without fetching.
     stored = json.loads(artist.release_snapshot)
@@ -206,16 +200,24 @@ def test_a_first_sync_records_the_catalogue_without_importing_it(db_session, mon
     assert stored[0]["year"] == "2026"
 
 
-def test_a_first_sync_still_records_monthly_listeners(db_session, monkeypatch):
+def test_every_sync_replaces_the_snapshot_with_what_the_page_lists_now(db_session, monkeypatch):
     monkeypatch.setattr(
-        artist_sync, "fetch_artist", lambda browse_id, all_songs=True: _artist(monthly_listeners="1.91M")
+        artist_sync,
+        "fetch_artist",
+        lambda browse_id, all_songs=True: _artist(
+            singles=[_release("MPREb_new00000000", title="New Single"), _release()]
+        ),
     )
 
     artist = _followed(db_session)
-    result = artist_sync.fetch_artist_data(artist.browse_id, artist.release_snapshot, None)
-    apply_artist_data(db_session, artist, result)
+    artist.release_snapshot = json.dumps([{"browse_id": "MPREb_aaaaaaaaaaa", "title": "A Single"}])
+    db_session.commit()
 
-    assert artist.monthly_listeners == "1.91M"
+    apply_artist_data(db_session, artist, artist_sync.fetch_artist_data(artist.browse_id, None))
+
+    stored = [entry["browse_id"] for entry in json.loads(artist.release_snapshot)]
+    assert stored == ["MPREb_new00000000", "MPREb_aaaaaaaaaaa"]
+    assert db_session.query(Content).count() == 0
 
 
 def test_monthly_listeners_is_refreshed_on_every_sync(db_session, monkeypatch):
@@ -225,7 +227,7 @@ def test_monthly_listeners_is_refreshed_on_every_sync(db_session, monkeypatch):
 
     artist = _followed(db_session, release_snapshot="[]")
     artist.monthly_listeners = "1.91M"
-    result = artist_sync.fetch_artist_data(artist.browse_id, artist.release_snapshot, None)
+    result = artist_sync.fetch_artist_data(artist.browse_id, None)
     apply_artist_data(db_session, artist, result)
 
     assert artist.monthly_listeners == "2.4M"
@@ -241,22 +243,6 @@ def _related(channel_id, title):
     )
 
 
-def test_a_first_sync_still_records_related_artists(db_session, monkeypatch):
-    monkeypatch.setattr(
-        artist_sync,
-        "fetch_artist",
-        lambda browse_id, all_songs=True: _artist(
-            related=[_related("UCrelatedaaaaaaaaaaaaaaa", "Related One")]
-        ),
-    )
-
-    artist = _followed(db_session)
-    result = artist_sync.fetch_artist_data(artist.browse_id, artist.release_snapshot, None)
-    apply_artist_data(db_session, artist, result)
-
-    stored = json.loads(artist.related_artists)
-    assert [r["title"] for r in stored] == ["Related One"]
-
 
 def test_related_artists_is_refreshed_on_every_sync(db_session, monkeypatch):
     monkeypatch.setattr(
@@ -269,7 +255,7 @@ def test_related_artists_is_refreshed_on_every_sync(db_session, monkeypatch):
 
     artist = _followed(db_session, release_snapshot="[]")
     artist.related_artists = json.dumps([{"channel_id": "UCstale", "title": "Stale"}])
-    result = artist_sync.fetch_artist_data(artist.browse_id, artist.release_snapshot, None)
+    result = artist_sync.fetch_artist_data(artist.browse_id, None)
     apply_artist_data(db_session, artist, result)
 
     stored = json.loads(artist.related_artists)
@@ -281,25 +267,11 @@ def test_an_artist_with_no_related_artists_clears_a_stale_list(db_session, monke
 
     artist = _followed(db_session, release_snapshot="[]")
     artist.related_artists = json.dumps([{"channel_id": "UCstale", "title": "Stale"}])
-    result = artist_sync.fetch_artist_data(artist.browse_id, artist.release_snapshot, None)
+    result = artist_sync.fetch_artist_data(artist.browse_id, None)
     apply_artist_data(db_session, artist, result)
 
     assert json.loads(artist.related_artists) == []
 
-
-def test_a_first_sync_still_records_top_tracks(db_session, monkeypatch):
-    monkeypatch.setattr(
-        artist_sync,
-        "fetch_artist",
-        lambda browse_id, all_songs=True: _artist(tracks=[_track("trackaaaaaa1", "Popular Song")]),
-    )
-
-    artist = _followed(db_session)
-    result = artist_sync.fetch_artist_data(artist.browse_id, artist.release_snapshot, None)
-    apply_artist_data(db_session, artist, result)
-
-    stored = json.loads(artist.top_tracks)
-    assert [t["title"] for t in stored] == ["Popular Song"]
 
 
 def test_top_tracks_is_refreshed_on_every_sync(db_session, monkeypatch):
@@ -311,85 +283,14 @@ def test_top_tracks_is_refreshed_on_every_sync(db_session, monkeypatch):
 
     artist = _followed(db_session, release_snapshot="[]")
     artist.top_tracks = json.dumps([{"video_id": "stale", "title": "Stale"}])
-    result = artist_sync.fetch_artist_data(artist.browse_id, artist.release_snapshot, None)
+    result = artist_sync.fetch_artist_data(artist.browse_id, None)
     apply_artist_data(db_session, artist, result)
 
     stored = json.loads(artist.top_tracks)
     assert [t["title"] for t in stored] == ["New Preview"]
 
 
-def test_a_later_sync_imports_only_what_appeared_since(db_session, monkeypatch):
-    monkeypatch.setattr(
-        artist_sync,
-        "fetch_artist",
-        lambda browse_id, all_songs=True: _artist(
-            singles=[_release("MPREb_new00000000"), _release("MPREb_aaaaaaaaaaa")]
-        ),
-    )
-    opened = []
 
-    def fake_release(browse_id):
-        opened.append(browse_id)
-        return ReleaseDetail(
-            title="New Single", year="2026", kind="Single", cover_url=None,
-            artist_names="Shirin David", tracks=[_track("newtrack001")],
-        )
-
-    monkeypatch.setattr(artist_sync, "fetch_release", fake_release)
-
-    artist = _followed(db_session, release_snapshot='["MPREb_aaaaaaaaaaa"]')
-    result = artist_sync.fetch_artist_data(artist.browse_id, artist.release_snapshot, None)
-    new_count = apply_artist_data(db_session, artist, result)
-
-    assert opened == ["MPREb_new00000000"], "an already-known release was opened again"
-    assert new_count == 1
-    row = db_session.query(Content).one()
-    assert row.video_id == "newtrack001"
-    assert row.duration_seconds == 200, "the duration has to survive — RSS never carried one"
-    assert row.published_at is not None
-
-
-def test_a_release_that_will_not_open_is_retried_next_time(db_session, monkeypatch):
-    monkeypatch.setattr(
-        artist_sync,
-        "fetch_artist",
-        lambda browse_id, all_songs=True: _artist(singles=[_release("MPREb_broken00000")]),
-    )
-    monkeypatch.setattr(artist_sync, "fetch_release", lambda browse_id: None)
-
-    artist = _followed(db_session, release_snapshot="[]")
-    result = artist_sync.fetch_artist_data(artist.browse_id, artist.release_snapshot, None)
-    apply_artist_data(db_session, artist, result)
-
-    assert artist.release_snapshot == "[]"
-
-
-def test_a_track_already_in_the_library_is_not_inserted_twice(db_session, monkeypatch):
-    """Content's (user_id, video_id) is unique across artists, e.g. a collaboration."""
-    other = _followed(db_session, channel_id="https://example.com/other", browse_id="UCother")
-    db_session.add(
-        Content(artist_id=other.id, user_id=USER_ID, video_id="shared00001", title="Already here")
-    )
-    db_session.commit()
-
-    monkeypatch.setattr(
-        artist_sync, "fetch_artist", lambda browse_id, all_songs=True: _artist(singles=[_release()])
-    )
-    monkeypatch.setattr(
-        artist_sync,
-        "fetch_release",
-        lambda browse_id: ReleaseDetail(
-            title="Feature", year="2026", kind="Single", cover_url=None, artist_names="x",
-            tracks=[_track("shared00001"), _track("brandnew001")],
-        ),
-    )
-
-    artist = _followed(db_session, channel_id="UCanother0000000000000")
-    result = artist_sync.fetch_artist_data(artist.browse_id, "[]", None)
-    new_count = apply_artist_data(db_session, artist, result)
-
-    assert new_count == 1
-    assert db_session.query(Content).count() == 2
 
 
 def test_an_unreadable_artist_page_is_a_skip_not_a_failure(db_session, monkeypatch, caplog):
@@ -397,21 +298,22 @@ def test_an_unreadable_artist_page_is_a_skip_not_a_failure(db_session, monkeypat
 
     artist = _followed(db_session, release_snapshot="[]")
     with caplog.at_level(logging.WARNING):
-        result = artist_sync.fetch_artist_data(artist.browse_id, artist.release_snapshot, None)
+        result = artist_sync.fetch_artist_data(artist.browse_id, None)
 
     assert result.ok is False
-    assert apply_artist_data(db_session, artist, result) == 0
+    apply_artist_data(db_session, artist, result)
+    assert artist.release_snapshot == "[]", "an unreadable page must not blank the shelf"
     assert "no page to read" in caplog.text
 
 
-def test_refresh_isolates_one_failing_artist(db_session, monkeypatch):
+def test_sync_isolates_one_failing_artist(db_session, monkeypatch):
     good = _followed(db_session, channel_id="https://example.com/good")
     bad = _followed(db_session, channel_id="https://example.com/bad", browse_id="UCbad")
 
     monkeypatch.setattr(
         artist_sync,
         "fetch_artist_data",
-        lambda browse_id, snapshot, avatar_url: ArtistFetchResult(ok=True, releases=[]),
+        lambda browse_id, avatar_url: ArtistFetchResult(ok=True, releases=[]),
     )
 
     real_apply = artist_sync.apply_artist_data
@@ -423,7 +325,7 @@ def test_refresh_isolates_one_failing_artist(db_session, monkeypatch):
 
     monkeypatch.setattr(artist_sync, "apply_artist_data", flaky)
 
-    artist_sync.refresh_feeds(db_session, [bad, good])
+    artist_sync.sync_artists(db_session, [bad, good])
 
     db_session.expire_all()
     assert db_session.get(Artist, good.id).release_snapshot == "[]", "the good artist was skipped too"
@@ -437,7 +339,7 @@ def test_a_feed_with_no_artist_behind_it_is_skipped(db_session, monkeypatch):
 
     monkeypatch.setattr(artist_sync, "fetch_artist_data", explode)
 
-    assert artist_sync.refresh_feeds(db_session, [placeholder]) == 0
+    artist_sync.sync_artists(db_session, [placeholder])
 
 
 def _seed_feed_with_content(db_session, **content_kwargs):
@@ -502,7 +404,7 @@ def test_unfollowing_keeps_favorited_content(client, db_session):
 
 
 def _stub_initial_fetch(monkeypatch, spy=None):
-    def fake(browse_id, snapshot, avatar_url):
+    def fake(browse_id, avatar_url):
         if spy:
             spy()
         return ArtistFetchResult(ok=True, releases=[])
@@ -546,7 +448,7 @@ def test_adding_a_feed_answers_before_it_fetches_anything(client, monkeypatch):
     )
     monkeypatch.setattr(
         artist_sync, "fetch_artist_data",
-        lambda browse_id, snapshot, avatar_url: fetched.append(browse_id) or ArtistFetchResult(ok=True),
+        lambda browse_id, avatar_url: fetched.append(browse_id) or ArtistFetchResult(ok=True),
     )
     monkeypatch.setattr(artists_router, "run_initial_sync_task", lambda artist_id: scheduled.append(artist_id))
 
@@ -617,29 +519,6 @@ def test_library_marks_a_feed_that_is_still_being_fetched(client, db_session):
     assert "data-preparing" not in body, "the card kept saying it was fetching after the sync ended"
 
 
-def test_an_old_bare_id_snapshot_is_not_treated_as_unseen(db_session, monkeypatch):
-    """The legacy bare-id snapshot must still be read, or every release looks new after upgrade."""
-    monkeypatch.setattr(
-        artist_sync,
-        "fetch_artist",
-        lambda browse_id, all_songs=True: _artist(singles=[_release(), _release("MPREb_bbbbbbbbbbb")]),
-    )
-
-    def explode(browse_id):
-        raise AssertionError("a release already in the snapshot must not be opened")
-
-    monkeypatch.setattr(artist_sync, "fetch_release", explode)
-
-    artist = _followed(db_session)
-    artist.release_snapshot = '["MPREb_aaaaaaaaaaa", "MPREb_bbbbbbbbbbb"]'
-    db_session.commit()
-
-    result = artist_sync.fetch_artist_data(artist.browse_id, artist.release_snapshot, None)
-    new_count = apply_artist_data(db_session, artist, result)
-
-    assert new_count == 0
-    assert db_session.query(Content).count() == 0
-
 
 def test_an_old_snapshot_is_rewritten_in_the_new_shape(db_session, monkeypatch):
     monkeypatch.setattr(
@@ -649,7 +528,7 @@ def test_an_old_snapshot_is_rewritten_in_the_new_shape(db_session, monkeypatch):
     artist.release_snapshot = '["MPREb_aaaaaaaaaaa"]'
     db_session.commit()
 
-    result = artist_sync.fetch_artist_data(artist.browse_id, artist.release_snapshot, None)
+    result = artist_sync.fetch_artist_data(artist.browse_id, None)
     apply_artist_data(db_session, artist, result)
 
     assert json.loads(artist.release_snapshot) == [
@@ -664,38 +543,18 @@ def test_an_old_snapshot_is_rewritten_in_the_new_shape(db_session, monkeypatch):
 
 
 def test_snapshot_readers_survive_junk():
-    from app.services.artist_sync import snapshot_release_ids, snapshot_releases
+    from app.services.artist_sync import snapshot_releases
 
-    for junk in (None, "", "not json", "{}", "[1, 2]"):
+    for junk in (None, "", "not json", "{}", "[1, 2]", '["MPREb_bareid00000"]'):
         assert snapshot_releases(junk) == []
-        assert snapshot_release_ids(junk) == set()
 
 
-def test_a_release_that_wont_open_stays_out_of_the_snapshot(db_session, monkeypatch):
+def test_a_failing_thumbnail_task_cannot_cancel_the_tasks_behind_it(monkeypatch):
+    """FastAPI runs background tasks in sequence, so a raising thumbnail task would cancel the rest."""
     monkeypatch.setattr(
         artist_sync,
-        "fetch_artist",
-        lambda browse_id, all_songs=True: _artist(
-            singles=[_release(), _release("MPREb_bbbbbbbbbbb", title="Broken")]
-        ),
-    )
-    monkeypatch.setattr(
-        artist_sync,
-        "fetch_release",
-        lambda browse_id: None
-        if browse_id == "MPREb_bbbbbbbbbbb"
-        else ReleaseDetail(
-            title="A Single", year="2026", kind="Single", cover_url=None,
-            artist_names="An Artist", tracks=[_track("newtrack001")],
-        ),
+        "download_thumbnail",
+        lambda video_id, url: (_ for _ in ()).throw(ValueError("unknown url type")),
     )
 
-    artist = _followed(db_session)
-    artist.release_snapshot = "[]"
-    db_session.commit()
-
-    result = artist_sync.fetch_artist_data(artist.browse_id, artist.release_snapshot, None)
-    apply_artist_data(db_session, artist, result)
-
-    stored = [entry["browse_id"] for entry in json.loads(artist.release_snapshot)]
-    assert stored == ["MPREb_aaaaaaaaaaa"]
+    assert artist_sync.cache_thumbnail("vid00000001", "/image-proxy?u=whatever") is None

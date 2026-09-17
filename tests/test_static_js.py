@@ -229,6 +229,31 @@ def test_opening_explore_never_shows_a_loading_placeholder() -> None:
         "shelf, and every <img> in it, identically"
     )
 
+def test_new_releases_are_checked_on_open_and_on_return_to_the_foreground() -> None:
+    """No Refresh button: an installed PWA stays open for days, so opening alone would never check again."""
+    library = (JS_DIR / "home" / "library.js").read_text()
+    setup = _function_body(library, "setupReleaseSync")
+
+    assert "syncReleases()" in setup and "visibilitychange" in setup, (
+        "setupReleaseSync no longer asks both on open and on return to the foreground"
+    )
+    assert '"/artists/sync"' in library
+    assert "setupReleaseSync();" in (JS_DIR / "pages" / "index.js").read_text()
+
+    index = Path("app/templates/index.html").read_text()
+    assert "refresh-artists-btn" not in index and "mobile-menu-refresh" not in index, (
+        "a manual Refresh control is back; freshness is the server's call"
+    )
+
+
+def test_explore_re_checks_on_return_to_the_foreground() -> None:
+    """The server rebuilds a stale batch, but only when asked."""
+    setup = _function_body((JS_DIR / "home" / "explore.js").read_text(), "setupRecommendations")
+
+    foreground = setup[setup.index("visibilitychange") :]
+    assert "loadRecommendations()" in foreground and "placeholder" not in foreground
+
+
 def test_an_artist_name_is_only_a_link_when_there_is_an_artist_to_open() -> None:
     """A song result doesn't always carry a channel id; without one the name is text, not a dead button."""
     source = (JS_DIR / "home" / "explore.js").read_text()

@@ -44,7 +44,7 @@ def run_initial_sync(artist_id: int, db: Session) -> None:
 
     mark_syncing(artist_id)
     try:
-        result = fetch_artist_data(artist.browse_id, artist.release_snapshot, artist.avatar_url)
+        result = fetch_artist_data(artist.browse_id, artist.avatar_url)
         apply_artist_data(db, artist, result)
     except Exception:
         # Must still clear the phase, or the card says "Fetching uploads…" forever.

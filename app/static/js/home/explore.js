@@ -209,7 +209,7 @@ function renderRecommendations(data) {
 
   body.innerHTML =
     shelves ||
-    `<p class="muted">Nothing came back this time. Try refreshing, or add a different interest in Settings.</p>`;
+    `<p class="muted">Nothing came back this time. Try again later, or add a different interest in Settings.</p>`;
   // Shelves built here skip the fragment swap that normally wires drag-scrolling.
   wireScrollers();
 }
@@ -221,13 +221,13 @@ let renderedPayload = null;
 let inFlight = null;
 
 /**
- * Only the boot fetch and the app-wide Refresh pass `placeholder`; opening
- * Explore re-checks quietly so the tab never blanks out.
+ * Only the boot fetch passes `placeholder`; opening Explore or returning to the app
+ * re-checks quietly so the tab never blanks out. The server rebuilds a stale batch.
  */
-async function loadRecommendations({ force = false, placeholder = false } = {}) {
+async function loadRecommendations({ placeholder = false } = {}) {
   const body = document.getElementById("recommendations-body");
   if (!body) return;
-  if (inFlight && !force) return inFlight;
+  if (inFlight) return inFlight;
 
   if (document.body.classList.contains("is-offline")) {
     if (placeholder) {
@@ -241,10 +241,7 @@ async function loadRecommendations({ force = false, placeholder = false } = {}) 
   }
 
   const load = (async () => {
-    const { ok, data } = await api(force ? "/recommendations/refresh" : "/recommendations", {
-      method: force ? "POST" : "GET",
-      errorMessage: "Could not load recommendations",
-    });
+    const { ok, data } = await api("/recommendations", { errorMessage: "Could not load recommendations" });
 
     if (!ok) {
       if (placeholder) {
@@ -259,7 +256,7 @@ async function loadRecommendations({ force = false, placeholder = false } = {}) 
     renderRecommendations(data);
   })();
 
-  if (!force) inFlight = load;
+  inFlight = load;
   try {
     await load;
   } finally {
@@ -271,10 +268,6 @@ export function reloadRecommendations() {
   return loadRecommendations();
 }
 
-export async function refreshRecommendations() {
-  await loadRecommendations({ force: true, placeholder: true });
-}
-
 export function setupRecommendations() {
   const body = document.getElementById("recommendations-body");
   if (!body) return;
@@ -283,6 +276,9 @@ export function setupRecommendations() {
 
   onTabActivated((tab) => {
     if (tab === "explore") loadRecommendations();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) loadRecommendations();
   });
 
   body.addEventListener("click", (event) => {

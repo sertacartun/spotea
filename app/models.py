@@ -25,7 +25,7 @@ class User(Base):
     audio_quality: Mapped[str] = mapped_column(String(10), default="low")
     # Format owned by app/interests.py.
     interests: Mapped[str | None] = mapped_column(Text, default=None)
-    # None means never checked, the only state that makes a library due automatically.
+    # Last release check; due again once a refresh boundary passes (services/refresh.py).
     refreshed_at: Mapped[datetime | None] = mapped_column(default=None)
 
     artists: Mapped[list["Artist"]] = relationship(back_populates="user", cascade="all, delete-orphan")
