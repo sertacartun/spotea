@@ -82,19 +82,12 @@
     <span class="spinner app-splash-spinner" role="status" aria-label="Loading"></span>
   </div>
 
-  <div id="refresh-overlay" class="overlay" hidden>
-    <span class="spinner spinner-lg" role="status" aria-label="Refreshing"></span>
-  </div>
-
   <div class="app-header-sticky">
   <header class="topbar">
     <div class="topbar-inner">
       <h1 class="brand">Spotea</h1>
       <div class="topbar-actions">
         <div class="topbar-actions-inline">
-          <button type="button" id="refresh-artists-btn" class="btn-icon" aria-label="Refresh" title="Check for new releases">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-refresh" /></svg>
-          </button>
           <form method="post" action="/logout">
             <button type="submit" class="btn-ghost">Log out</button>
           </form>
@@ -104,10 +97,6 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-menu" /></svg>
         </button>
         <div id="mobile-menu" class="mobile-menu" role="menu" hidden>
-          <button type="button" id="mobile-menu-refresh" class="mobile-menu-item" role="menuitem" title="Check for new releases">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-refresh" /></svg>
-            <span>Refresh</span>
-          </button>
           <form method="post" action="/logout" class="mobile-menu-form">
             <button type="submit" class="mobile-menu-item" role="menuitem">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-logout" /></svg>

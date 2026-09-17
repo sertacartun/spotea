@@ -53,7 +53,7 @@ app/
   config.py          env-backed settings
   middleware.py      selective gzip, security headers
   scheduler.py       background loop: sweep disk
-  services/refresh.py  when opening the app goes and looks for new releases
+  services/refresh.py  whether a library is due a release check (twice a day, on open)
   storage.py         disk accounting, purge, orphan sweeps, export
   downloader.py      yt-dlp audio extraction — the only yt-dlp importer
   images.py          avatar/thumbnail fetch + cache, /image-proxy helpers (songs and releases too)
@@ -61,17 +61,17 @@ app/
   page_context.py    the context every page and fragment renders from
   progress.py        expiring in-memory registries (downloads, syncs)
   interests.py       the free-text interest list's format
-  timeutil.py        naive-UTC helpers
+  timeutil.py        naive-UTC helpers, the 00:00/12:00 UTC refresh boundary
   formatting.py      filename/size/duration formatting
   templating.py      Jinja environment
 
   routers/
     pages.py         GET / — the whole app is one document
     partials.py      /partials/* — fragment re-renders of one region
-    artists.py       follow, unfollow, refresh, which are still syncing
+    artists.py       follow, unfollow, release check, which are still syncing
     explore.py       search, and turning a remote row into a playable one
     content.py       download, stream, favorite, save, queues
-    recommendations.py  the Explore batch (GET/POST)
+    recommendations.py  the Explore batch
     settings.py      audio quality, interests
     storage.py       clear all, export zip
     auth.py          register, login, logout
@@ -116,7 +116,7 @@ profiles); the profile model is gone.
 | `username`, `password_hash` | username lowercased at the router; unique. Was `email` until logins stopped pretending to need one — an existing database is renamed and shortened to the local part at startup (`main._rename_email_to_username`) |
 | `audio_quality` | `high` / `low`, both remux rather than re-encode; `low` by default |
 | `interests` | newline-separated free text; owned by `app/interests.py` |
-| `refreshed_at` | NULL means never, and never is the only thing that counts as due — every later check is the Refresh button |
+| `refreshed_at` | when the library was last checked for new releases; due again once a 00:00 or 12:00 UTC boundary has passed since (`timeutil.last_refresh_boundary`) |
 
 ### `artists`
 
@@ -126,7 +126,7 @@ profiles); the profile model is gone.
 | `browse_id` | how YouTube Music addresses their page; opens their profile, and what the sync asks about. NULL only on placeholder rows |
 | `name`, `avatar_url` | display, filled in by the first sync |
 | `followed` | False for a placeholder created to hold one Explore track, and for an artist unfollowed while keeping some of their content |
-| `release_snapshot` | JSON array of every release the page listed last time — browse id, title, year, kind, cover. The change-detection mechanism *and* what both **New releases** surfaces render from. NULL means never synced. Tolerates the bare-id shape it used to hold; see `snapshot_release_ids` |
+| `release_snapshot` | JSON array of every release the page listed last time — browse id, title, year, kind, cover. What both **New releases** surfaces render from, overwritten by every sync. NULL means never synced. The bare-id shape it used to hold is skipped when read and replaced on the next sync |
 | `monthly_listeners` | YouTube Music's own count string ("1.91M"), refreshed every sync |
 | `related_artists` | JSON array of their "fans also like" artists, refreshed every sync — feeds Explore's **Artists you may like** shelf |
 | `top_tracks` | JSON array of their page-preview songs, refreshed every sync — feeds Explore's **Songs** shelf |
@@ -218,27 +218,49 @@ against `GET /artists/syncing`).
 
 ### Noticing a release
 
-`services/artist_sync.py`, triggered two ways: opening the app when the
-library is due (`services/refresh.py`, queued behind the response so the page
-never waits — that render shows what was already stored, the next one shows
-what arrived), and the Refresh button. "Due" means "never checked": a library
-is looked at once, the first time its owner opens the app, and every check
-after that is the button. There was an interval in Settings for a while,
-governing how stale a library was allowed to get before an opening triggered
-another look; it is gone, along with the column behind it.
+There is no Refresh button and no clock. The client asks
+`POST /artists/sync` when the app opens and every time it returns to the
+foreground — an installed PWA can stay open for days without reloading, so
+opening alone would not be enough. `services/refresh.py` answers with one
+comparison: the library is due once a **00:00 or 12:00 UTC boundary** has
+passed since `users.refreshed_at`. Not due, and nothing else happens. Due,
+and it syncs every followed artist inside that request, stamps the user, and
+answers `checked: true`; the client then refreshes its fragments, so what
+arrived shows up in the same session.
 
-There is no background refresh loop. There was one, ticking every five
-minutes whether or not anyone was using the app; with the feed gone there is
-nothing that goes stale while the tab is closed, so a 150-artist library was
-being fetched around the clock to keep a page nobody was looking at correct.
-`scheduler.py` still runs, for the disk and row sweeps that genuinely belong
-on a clock.
-For each followed artist: read their page, take albums + singles, diff the
-release ids against `release_snapshot`, open each genuinely new release for
-its tracks, insert them. The whole release — title, year, kind, cover — is
-written back to the snapshot, not just its id: the page hands all of it over
-in this same response, and keeping it is what lets both **New releases**
-surfaces render without a request of their own.
+Fixed boundaries rather than "twelve hours since the last check": a rolling
+window drifts with when someone opens the app, so a check made on Thursday
+evening would still be fresh on Friday morning and hide a release that went
+live at midnight. 00:00 UTC lands a few hours after local midnight across
+Europe, when releases go live. They are UTC and not per user on purpose: the
+server's IP decides what YouTube shows, so a user's own timezone would not
+make a release visible any sooner.
+
+Several tabs and devices ask at once. One per user syncs; the others wait for
+it and answer `checked: true` rather than starting their own. A failed or
+empty check is stamped all the same, so a bad window costs one attempt, not
+one per open.
+
+This is the fourth shape of the trigger. A background loop ticked every five
+minutes whether or not anyone was using the app; an interval in Settings then
+governed how stale a library could get before opening it triggered a look;
+then a library was checked once, the first time it was opened, and every
+check after that was the Refresh button — which meant a brand-new account was
+stamped with nothing followed and "New releases" only moved when someone
+remembered to press it. `scheduler.py` still runs, for the disk and row sweeps
+that genuinely belong on a clock.
+
+For each followed artist a sync reads their page — one request, **0.38–0.76s**
+measured live — and writes back the albums and singles as
+`release_snapshot`, along with monthly listeners, related artists and top
+tracks. The whole release is stored — title, year, kind, cover — not just its
+id: the page hands all of it over in this same response, and keeping it is
+what lets both **New releases** surfaces render without a request of their
+own. Nothing is opened and no tracks are imported. The sync used to open
+every new release and insert its tracks as `content` rows, but nothing ever
+listed those rows — Home's shelf, Library's tile and the artist profile all
+read the snapshot or YouTube — so it cost a request per release to write rows
+nobody saw.
 
 Those two surfaces are the same data at two sizes: Home's shelf shows twelve
 and links to Library's tile, which shows all of them. Both are **this
@@ -252,30 +274,25 @@ Neither has a Play all. A release carries no video ids until it is opened, so
 playing a page of them would be one live request each; open one and it has
 its own. A release holding exactly one track skips the panel and plays (§7).
 
-Measured live per artist per refresh: **0.38–0.76s** for the page, plus
-**0.09–0.20s** per new release — and usually there is no new release at all.
-
-A first sync records the snapshot and imports nothing. Following means "tell
-me what they put out from now on"; the back catalogue is a click away on
-their profile.
-
 **What this replaced.** An RSS read of the Topic channel, plus a yt-dlp call
 per channel to find out how long anything was, plus a Shorts filter. What it
 gives up is the exact publish timestamp — YouTube Music reports a year and
-nothing finer, so a new release is stamped with when it was first seen, which
-is as close to the truth as the last press of Refresh. What it gains:
-durations and cover art arrive with the tracks, and a guest verse on someone
-else's record is caught, which never reaches the artist's own Topic channel
-at all.
+nothing finer. What it gains: cover art and the release's shape arrive in one
+request, and a guest verse on someone else's record is caught, which never
+reaches the artist's own Topic channel at all.
 
 ---
 
 ## 5. Explore & recommendations
 
 `services/recommendations.py` builds one batch of shelves per user, cached in
-`recommendation_cache` and rebuilt when it goes stale, the interest list
-changes, or the Refresh button is pressed (`GET/POST /recommendations`,
-`/recommendations/refresh`). Six shelves, three different sources:
+`recommendation_cache` and rebuilt when the interest list changes or a
+00:00/12:00 UTC boundary has passed since it was built — the same boundary as
+the release check (`GET /recommendations`, asked on open, on entering Explore
+and on return to the foreground). A rebuild whose every fetched shelf comes
+back empty keeps the previous batch until the next boundary: the searches
+flatten YouTube failures to empty lists, so an outage would otherwise blank
+Explore for half a day. Six shelves, three different sources:
 
 | shelf | source | cost |
 |---|---|---|
@@ -323,7 +340,7 @@ list. Picking a playlist from there opens it the ordinary
 | GET | `/partials/detail/yt-playlist/{playlist_id}` | a YouTube Music playlist |
 | GET | `/partials/detail/yt-mood/{params}` | a mood's playlists |
 | POST/DELETE | `/artists`, `/artists/{id}` | follow, unfollow |
-| POST | `/artists/refresh` | sync now |
+| POST | `/artists/sync` | check for new releases if due |
 | GET | `/artists/syncing` | which are still filling in |
 | GET | `/explore/artists`, `/explore/songs` | search |
 | POST | `/explore/tracks`, `/explore/tracks/batch` | make a remote row playable |
@@ -333,7 +350,7 @@ list. Picking a playlist from there opens it the ordinary
 | GET | `/content/queue/playlist/{kind}` | the ids behind a Play all |
 | POST/DELETE | `/content/{id}/{favorite,save}` | engagement flags |
 | GET/PUT | `/settings` | quality, interests |
-| GET/POST | `/recommendations`, `/recommendations/refresh` | the Explore batch |
+| GET | `/recommendations` | the Explore batch |
 | DELETE/GET | `/storage`, `/storage/export` | clear all, zip |
 | GET | `/avatars/*`, `/thumbnails/*`, `/image-proxy` | images |
 | POST | `/register`, `/login`, `/logout` | auth |

@@ -17,13 +17,14 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.interests import interests_signature, parse_interests
 from app.models import Artist, Content, RecommendationCache, User
-from app.timeutil import utcnow
+from app.timeutil import is_stale, utcnow
 from app.youtube.music import fetch_charts_for, fetch_mood_categories
 from app.youtube.music import search_playlists as search_music_playlists
 
 logger = logging.getLogger(__name__)
 
-# A cached batch never expires by age: only a change in interests or PAYLOAD_VERSION, or Refresh, rebuilds it.
+# A cached batch is rebuilt when the interests or PAYLOAD_VERSION change, or once a refresh boundary passes
+# (00:00 and 12:00 UTC, see timeutil.last_refresh_boundary).
 
 # Each sampled interest costs one search; this bounds a run's request count.
 INTERESTS_PER_RUN = 3
@@ -77,7 +78,7 @@ _BROWSE_BUILDERS = (_charts_shelves, _mood_categories)
 
 
 def _sample(interests: list[str]) -> list[str]:
-    """Random rather than the first few, so Refresh works its way around a long list."""
+    """Random rather than the first few, so rebuilds work their way around a long list."""
     if len(interests) <= INTERESTS_PER_RUN:
         return list(interests)
     return random.sample(interests, INTERESTS_PER_RUN)
@@ -134,21 +135,30 @@ def build_batch(interests: list[str]) -> dict:
     return batch
 
 
-def _cached_batch(
-    cache: RecommendationCache | None, signature: str, *, not_before: datetime | None
-) -> tuple[dict, datetime] | None:
-    """The cached batch if usable, else None.
-
-    A refresh passes `not_before` so it only accepts a batch built while it waited for the lock.
-    """
+def _cached_payload(cache: RecommendationCache | None, signature: str) -> dict | None:
+    """The stored batch for these interests regardless of age; None if absent, for others, or corrupt."""
     if cache is None or cache.interests_signature != signature:
         return None
-    if not_before is not None and cache.generated_at < not_before:
-        return None
     try:
-        return json.loads(cache.payload), cache.generated_at
+        return json.loads(cache.payload)
     except json.JSONDecodeError:
         return None
+
+
+def _cached_batch(cache: RecommendationCache | None, signature: str) -> tuple[dict, datetime] | None:
+    """The cached batch if still usable, else None."""
+    if cache is None or is_stale(cache.generated_at):
+        return None
+    payload = _cached_payload(cache, signature)
+    return None if payload is None else (payload, cache.generated_at)
+
+
+# Searches flatten YouTube failures to empty lists, so an all-empty build usually means an outage.
+_FETCHED_SHELVES = ("playlists", "charts", "chart_artists", "moods")
+
+
+def _came_back_empty(batch: dict) -> bool:
+    return not any(batch[shelf] for shelf in _FETCHED_SHELVES)
 
 
 def _merge_from_followed(db: Session, user: User, column, exclude_ids: set[str], identity_field: str) -> list[dict]:
@@ -226,11 +236,9 @@ def _drop_already_in_library(db: Session, user: User, batch: dict) -> dict:
     }
 
 
-def get_recommendations(
-    db: Session, user: User, *, force: bool = False
-) -> tuple[dict, datetime]:
-    """The current batch (rebuilt if missing, stale or forced), filtered against the library."""
-    batch, generated_at = _get_or_build_batch(db, user, force=force)
+def get_recommendations(db: Session, user: User) -> tuple[dict, datetime]:
+    """The current batch (rebuilt if missing or stale), filtered against the library."""
+    batch, generated_at = _get_or_build_batch(db, user)
     return _drop_already_in_library(db, user, batch), generated_at
 
 
@@ -238,31 +246,26 @@ def _cache_signature(interests: list[str]) -> str:
     return f"{PAYLOAD_VERSION}:{interests_signature(interests)}"
 
 
-def _get_or_build_batch(
-    db: Session, user: User, *, force: bool
-) -> tuple[dict, datetime]:
+def _get_or_build_batch(db: Session, user: User) -> tuple[dict, datetime]:
     """The caching/locking half of get_recommendations, unfiltered."""
     interests = parse_interests(user.interests)
-
-    # Taken before the lock, so a waiting refresh can tell "built while I waited" from "already there".
-    started = utcnow()
     signature = _cache_signature(interests)
-    if not force:
-        cached = _cached_batch(user.recommendation_cache, signature, not_before=None)
-        if cached:
-            return cached
+    cached = _cached_batch(user.recommendation_cache, signature)
+    if cached:
+        return cached
 
     with _build_lock:
         # Ends the read transaction so the re-read sees a batch committed while waiting;
         # otherwise SQLite keeps serving this session's older snapshot.
         db.rollback()
         cache = db.get(RecommendationCache, user.id)
-        cached = _cached_batch(cache, signature, not_before=started if force else None)
+        cached = _cached_batch(cache, signature)
         if cached:
             return cached
 
         batch = build_batch(interests)
         generated_at = utcnow()
+        previous = _cached_payload(cache, signature)
         if cache is None:
             db.add(
                 RecommendationCache(
@@ -272,6 +275,11 @@ def _get_or_build_batch(
                     generated_at=generated_at,
                 )
             )
+        elif previous is not None and _came_back_empty(batch) and not _came_back_empty(previous):
+            # Keep the last good batch until the next boundary instead of blanking Explore.
+            logger.warning("Recommendations came back empty; keeping the previous batch")
+            batch = previous
+            cache.generated_at = generated_at
         else:
             cache.interests_signature = signature
             cache.payload = json.dumps(batch)

@@ -7,7 +7,7 @@ import pytest
 
 from app.models import Artist, Content, RecommendationCache, User
 from app.services import recommendations as rec
-from app.timeutil import utcnow
+from app.timeutil import is_stale, last_refresh_boundary, utcnow
 from app.youtube.models import ChannelSearchResult, PlaylistSearchResult
 
 USER_ID = 1
@@ -361,18 +361,66 @@ def test_reordering_the_interests_does_not_invalidate_the_cache(client, db_sessi
     assert fake_search == []
 
 
-def test_a_batch_never_expires_on_age_alone(client, db_session, fake_search):
-    """Age alone never invalidates a batch; only an interest change or Refresh does."""
+def _age_batch(db_session, generated_at):
+    cache = db_session.get(RecommendationCache, USER_ID)
+    cache.generated_at = generated_at
+    db_session.commit()
+
+
+def test_a_batch_built_in_this_window_is_served_from_cache(client, db_session, fake_search):
     _set_interests(db_session, "jazz")
     client.get("/recommendations")
     fake_search.clear()
 
-    cache = db_session.get(RecommendationCache, USER_ID)
-    cache.generated_at = utcnow() - timedelta(days=365)
-    db_session.commit()
+    _age_batch(db_session, last_refresh_boundary() + timedelta(seconds=1))
 
     client.get("/recommendations")
     assert fake_search == []
+
+
+def test_a_batch_from_before_the_last_boundary_is_rebuilt(client, db_session, fake_search):
+    _set_interests(db_session, "jazz")
+    client.get("/recommendations")
+    fake_search.clear()
+
+    _age_batch(db_session, last_refresh_boundary() - timedelta(seconds=1))
+
+    client.get("/recommendations")
+    assert [q for _, q in fake_search] == ["jazz"]
+    db_session.expire_all()
+    assert not is_stale(db_session.get(RecommendationCache, USER_ID).generated_at)
+
+
+def test_an_empty_rebuild_keeps_the_previous_batch_until_the_next_boundary(
+    client, db_session, fake_search, monkeypatch, caplog
+):
+    """Searches flatten YouTube failures to empty lists; an outage must not blank Explore."""
+    _set_interests(db_session, "jazz")
+    before = client.get("/recommendations").json()["playlists"]
+    assert before
+
+    _age_batch(db_session, last_refresh_boundary() - timedelta(seconds=1))
+    monkeypatch.setattr(rec, "_SEARCHERS", {"playlists": lambda query: []})
+
+    assert client.get("/recommendations").json()["playlists"] == before
+    assert "keeping the previous batch" in caplog.text
+    # Stamped, so the next request doesn't hit YouTube again inside the same window.
+    db_session.expire_all()
+    assert not is_stale(db_session.get(RecommendationCache, USER_ID).generated_at)
+
+
+def test_an_empty_rebuild_for_new_interests_does_not_bring_back_the_old_ones(
+    client, db_session, fake_search, monkeypatch
+):
+    _set_interests(db_session, "jazz")
+    client.get("/recommendations")
+
+    monkeypatch.setattr(rec, "_SEARCHERS", {"playlists": lambda query: []})
+    client.put("/settings", json={"interests": ["funk"]})
+
+    body = client.get("/recommendations").json()
+    assert body["playlists"] == []
+    assert body["interests_used"] == ["funk"]
 
 
 def test_an_old_batch_is_still_rebuilt_when_the_interests_change(client, db_session, fake_search):
@@ -388,24 +436,6 @@ def test_an_old_batch_is_still_rebuilt_when_the_interests_change(client, db_sess
     client.get("/recommendations")
 
     assert fake_search != []
-
-
-def test_refresh_rebuilds_even_when_the_cache_is_fresh(client, db_session, fake_search):
-    _set_interests(db_session, "jazz")
-    client.get("/recommendations")
-    fake_search.clear()
-
-    body = client.post("/recommendations/refresh").json()
-
-    assert fake_search != []
-    assert body["interests_used"] == ["jazz"]
-
-
-def test_refresh_with_no_interests_runs_no_interest_searches(client, db_session, fake_search):
-    body = client.post("/recommendations/refresh").json()
-
-    assert body["interests_used"] == []
-    assert fake_search == []
 
 
 def test_only_a_sample_of_a_long_interest_list_is_searched(client, db_session, fake_search):
@@ -484,7 +514,6 @@ def test_recommendation_routes_require_login():
 
     with TestClient(app) as anonymous:
         assert anonymous.get("/recommendations", follow_redirects=False).status_code == 303
-        assert anonymous.post("/recommendations/refresh", follow_redirects=False).status_code == 303
 
 
 def test_similar_artists_interleaves_instead_of_draining_one_artist(client, db_session, fake_browse):

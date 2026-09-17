@@ -12,7 +12,6 @@ from app.page_context import (
     queue_thumbnail_caching,
     storage_summary_context,
 )
-from app.services.refresh import queue_due_refresh
 from app.templating import templates
 
 router = APIRouter(dependencies=[Depends(require_login)])
@@ -28,8 +27,6 @@ def home(
     """index.html is the whole app: one render builds every tab panel's context."""
     home = home_context(db, user.id)
     queue_thumbnail_caching(background_tasks, home_shelf_items(home))
-    # Opening the app triggers the new-release check, queued behind this response.
-    queue_due_refresh(background_tasks, user)
     interests = parse_interests(user.interests)
 
     return templates.TemplateResponse(

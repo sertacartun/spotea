@@ -55,7 +55,7 @@ def follow_artist(
     channel_id: str,
     user_id: int,
     sync: bool = True,
-) -> tuple[Artist, int]:
+) -> Artist:
     """DB half of following an artist, given a URL that names a channel.
 
     Resolution runs before the duplicate check: it can reduce two channel ids to one key.
@@ -89,12 +89,12 @@ def follow_artist(
     db.refresh(artist)
 
     if not sync:
-        return artist, 0
+        return artist
 
     from app.services.artist_sync import apply_artist_data, fetch_artist_data
 
-    result = fetch_artist_data(artist.browse_id, artist.release_snapshot, artist.avatar_url)
-    return artist, apply_artist_data(db, artist, result)
+    apply_artist_data(db, artist, fetch_artist_data(artist.browse_id, artist.avatar_url))
+    return artist
 
 
 def follow_artist_by_url(
@@ -102,5 +102,5 @@ def follow_artist_by_url(
     channel_url: str,
     user_id: int,
     sync: bool = True,
-) -> tuple[Artist, int]:
+) -> Artist:
     return follow_artist(db, channel_url.strip(), user_id, sync=sync)

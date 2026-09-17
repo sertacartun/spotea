@@ -1,4 +1,4 @@
-"""What still runs on a clock: the disk and row sweeps. Refreshing moved to on-open."""
+"""What still runs on a clock: the disk and row sweeps. Release checks are asked for by the client."""
 
 import asyncio
 from pathlib import Path
@@ -62,9 +62,11 @@ def test_run_scheduler_sweeps_disk_every_tick(monkeypatch):
 
 
 def test_the_scheduler_no_longer_refreshes_anyone():
-    """The artist-refresh loop must stay gone; refreshing happens on open."""
+    """The artist-refresh loop must stay gone; the client asks for release checks."""
     import app.scheduler as scheduler_module
 
     assert not hasattr(scheduler_module, "_refresh_due_users")
     assert not hasattr(scheduler_module, "_due_users")
-    assert "refresh_feeds" not in Path(scheduler_module.__file__).read_text()
+    source = Path(scheduler_module.__file__).read_text()
+    assert "sync_artists" not in source
+    assert "sync_if_due" not in source

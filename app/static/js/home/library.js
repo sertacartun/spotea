@@ -1,4 +1,4 @@
-import { api, setupSearchClear, showToast } from "../core.js";
+import { api, setupSearchClear } from "../core.js";
 import { onFragmentsSwapped, refreshFragments } from "../fragments.js";
 import { wireScrollers } from "./scrollers.js";
 import { openDetail } from "./detail.js";
@@ -133,41 +133,29 @@ export function setupHorizontalScrollers() {
   onFragmentsSwapped(wireScrollers);
 }
 
-// The overlay is the feedback because refresh-artists-btn is hidden under the mobile-menu breakpoint.
-async function refreshArtists(alsoRefresh) {
-  const overlay = document.getElementById("refresh-overlay");
-  const btn = document.getElementById("refresh-artists-btn");
-  if (overlay) overlay.hidden = false;
-  if (btn) {
-    btn.disabled = true;
-    btn.classList.add("is-spinning");
-  }
+let releaseSyncInFlight = false;
 
-  const [{ ok }] = await Promise.all([
-    api("/artists/refresh", { method: "POST" }),
-    alsoRefresh ? alsoRefresh() : Promise.resolve(),
-  ]);
-
-  // Always re-render: new_content_count misses rewritten release snapshots and
-  // content other triggers (background job, other tabs) added since page load.
-  if (ok) await refreshFragments();
-  else showToast("Could not refresh feeds");
-
-  if (overlay) overlay.hidden = true;
-  if (btn) {
-    btn.disabled = false;
-    btn.classList.remove("is-spinning");
+// The server decides whether a check is due (once per 12-hour UTC window), so asking is one comparison.
+async function syncReleases() {
+  if (releaseSyncInFlight || document.body.classList.contains("is-offline")) return;
+  releaseSyncInFlight = true;
+  try {
+    const { ok, data } = await api("/artists/sync", { method: "POST" });
+    if (ok && data.checked) await refreshFragments();
+  } finally {
+    releaseSyncInFlight = false;
   }
 }
 
-// `alsoRefresh` is injected to avoid a library.js <-> explore.js import cycle.
-export function setupRefreshButton(alsoRefresh) {
-  document
-    .getElementById("refresh-artists-btn")
-    ?.addEventListener("click", () => refreshArtists(alsoRefresh));
+/** Checks for new releases on open and on every return to the foreground, where an installed PWA lives for days. */
+export function setupReleaseSync() {
+  syncReleases();
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) syncReleases();
+  });
 }
 
-export function setupMobileMenu(alsoRefresh) {
+export function setupMobileMenu() {
   const btn = document.getElementById("mobile-menu-btn");
   const menu = document.getElementById("mobile-menu");
   if (!btn || !menu) return;
@@ -188,10 +176,5 @@ export function setupMobileMenu(alsoRefresh) {
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !menu.hidden) setOpen(false);
-  });
-
-  document.getElementById("mobile-menu-refresh")?.addEventListener("click", () => {
-    setOpen(false);
-    refreshArtists(alsoRefresh);
   });
 }

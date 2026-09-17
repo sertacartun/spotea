@@ -1,4 +1,8 @@
-"""Refreshing a library's new releases when the app is opened, one refresh per user at a time."""
+"""Checking a library's followed artists for new releases, at most once per 12-hour UTC window.
+
+There is no Refresh button and no clock: the client asks on open and on return to the foreground,
+and this decides whether a check is due (see timeutil.last_refresh_boundary).
+"""
 
 import logging
 import threading
@@ -6,56 +10,48 @@ import threading
 from app.content_query import followed_artists
 from app.database import SessionLocal
 from app.models import User
-from app.services.artist_sync import refresh_feeds
-from app.timeutil import utcnow
+from app.services.artist_sync import sync_artists
+from app.timeutil import is_stale, utcnow
 
 logger = logging.getLogger(__name__)
 
 # Process-local is enough: the app runs single-worker by design (see tests/test_single_worker_guard.py).
-_in_flight: set[int] = set()
-_lock = threading.Lock()
+_user_locks: dict[int, threading.Lock] = {}
+_user_locks_guard = threading.Lock()
+
+
+def _lock_for(user_id: int) -> threading.Lock:
+    with _user_locks_guard:
+        return _user_locks.setdefault(user_id, threading.Lock())
 
 
 def is_due(user: User) -> bool:
-    """Only true for a library never checked; afterwards only the Refresh button checks."""
-    return user.refreshed_at is None
+    return is_stale(user.refreshed_at)
 
 
-def refresh_if_due(user_id: int) -> None:
-    """Refresh this user's artists if still due and not already in flight.
+def sync_if_due(user_id: int) -> bool:
+    """Sync this user's artists if due; True when the library may have changed since the caller rendered.
 
-    Runs as a BackgroundTask; re-checks due-ness because another tab may have refreshed meanwhile.
+    Several tabs and devices ask at once. Only one syncs; the rest wait for it and report its result
+    rather than starting their own.
     """
-    with _lock:
-        if user_id in _in_flight:
-            return
-        _in_flight.add(user_id)
+    lock = _lock_for(user_id)
+    waited = not lock.acquire(blocking=False)
+    if waited:
+        lock.acquire()
     try:
         with SessionLocal() as db:
             user = db.get(User, user_id)
             if user is None or not is_due(user):
-                return
-            artists = followed_artists(db, user_id=user_id).all()
-            new_count = refresh_feeds(db, artists)
-            # Stamped even with no artists, or an empty library is due on every page load.
+                return waited
+            try:
+                sync_artists(db, followed_artists(db, user_id=user_id).all())
+            except Exception:
+                db.rollback()
+                logger.exception("Release check failed for user %d", user_id)
+            # Stamped even on failure or with no artists, so a bad window costs one attempt, not one per open.
             user.refreshed_at = utcnow()
             db.commit()
-            if new_count:
-                logger.info(
-                    "Refresh on open added %d new item(s) across %d artist(s) for user %d",
-                    new_count,
-                    len(artists),
-                    user_id,
-                )
-    except Exception:
-        # The page is already sent; a failure must not take the task runner down with it.
-        logger.exception("Refresh on open failed for user %d", user_id)
+            return True
     finally:
-        with _lock:
-            _in_flight.discard(user_id)
-
-
-def queue_due_refresh(background_tasks, user: User) -> None:
-    """Queue a refresh behind this response if the user is due; refresh_if_due re-checks."""
-    if is_due(user):
-        background_tasks.add_task(refresh_if_due, user.id)
+        lock.release()
