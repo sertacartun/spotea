@@ -1,4 +1,4 @@
-import { api, confirmDialog, setupOverlay } from "../core.js";
+import { api, confirmDialog, setupOverlay, showToast } from "../core.js";
 import { refreshFragments } from "../fragments.js";
 import { reloadRecommendations } from "./explore.js";
 import { activate } from "./tabs.js";
@@ -13,6 +13,48 @@ async function clearCache() {
   if (!confirmed) return;
   const { ok } = await api("/storage/cache", { method: "DELETE", errorMessage: "Could not clear the cache" });
   if (ok) refreshFragments();
+}
+
+// A same-window navigation to a zip download traps iOS home-screen installs in a
+// full-screen "Open in..." view with no way back (WebKit bug 236943) — fetch it as a
+// blob and hand it to the share sheet instead, which iOS can actually dismiss.
+async function exportDownloads(button) {
+  button.disabled = true;
+  try {
+    let res;
+    try {
+      res = await fetch("/storage/export");
+    } catch {
+      showToast("Could not build the export");
+      return;
+    }
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      showToast(data?.detail || "Could not build the export");
+      return;
+    }
+    const blob = await res.blob();
+    const file = new File([blob], "spotea-downloads.zip", { type: "application/zip" });
+
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] });
+      } catch (err) {
+        // AbortError: the user dismissed the share sheet — not a failure.
+        if (err.name !== "AbortError") showToast("Could not share the export");
+      }
+      return;
+    }
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "spotea-downloads.zip";
+    link.click();
+    URL.revokeObjectURL(url);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 export function setupStorage() {
@@ -32,6 +74,12 @@ export function setupStorage() {
   // Delegated: the storage fragment swap replaces #clear-cache.
   document.getElementById("settings-cache-actions")?.addEventListener("click", (event) => {
     if (event.target.closest("#clear-cache")) clearCache();
+  });
+
+  // Delegated: the storage fragment swap replaces #export-downloads.
+  document.getElementById("settings-downloads-actions")?.addEventListener("click", (event) => {
+    const button = event.target.closest("#export-downloads");
+    if (button) exportDownloads(button);
   });
 }
 

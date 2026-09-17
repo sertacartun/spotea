@@ -24,7 +24,7 @@ from app.storage import backfill_file_sizes, storage_split
 from app.timeutil import utcnow
 
 HOME_SHELF_LIMIT = 12
-HOME_CHANNEL_LIMIT = 8
+HOME_CHANNEL_LIMIT = 12
 
 
 def queue_thumbnail_caching(background_tasks: BackgroundTasks, items: Iterable[Content]) -> None:

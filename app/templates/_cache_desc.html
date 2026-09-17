@@ -1,2 +1,1 @@
-{%- if cache.count -%}{% with usage = cache %}{% include "_storage_summary.html" %}{% endwith %} · {% endif -%}
-Songs you played, removed a week after their last play.
+{%- if cache.count -%}{% with usage = cache %}{% include "_storage_summary.html" %}{% endwith %}{%- else -%}No cached songs{%- endif %} · Songs you played, removed a week after their last play.
