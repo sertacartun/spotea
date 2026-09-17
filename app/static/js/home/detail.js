@@ -1,5 +1,5 @@
 import { unfollowArtist } from "../content-actions.js";
-import { classifyHash, noteConnection, showToast } from "../core.js";
+import { classifyLocation, classifyPath, detailPath, noteConnection, showToast, tabPath } from "../core.js";
 import { refreshFragments, swapFragmentHtml } from "../fragments.js";
 import { applyAmbientTint } from "./ambient.js";
 import { decorateDetailPanel, deviceTrackIds, renderDownloadsPanel } from "./device.js";
@@ -30,19 +30,9 @@ let current = null;
 
 const hasId = (kind) => isRemoteKind(kind) || kind === "user-playlist";
 
-function detailUrl(kind, id, page, title) {
+function detailUrl(kind, id, page) {
   const base = hasId(kind) ? `/partials/detail/${kind}/${id}` : `/partials/detail/playlist/${kind}`;
-  const params = new URLSearchParams();
-  if (page > 1) params.set("page", page);
-  // Display-only optimization for yt-mood: saves one server-side lookup.
-  if (title) params.set("title", title);
-  const query = params.toString();
-  return query ? `${base}?${query}` : base;
-}
-
-function hashFor(kind, id, page) {
-  const path = hasId(kind) ? `${kind}/${id}` : kind;
-  return page > 1 ? `#${path}?page=${page}` : `#${path}`;
+  return page > 1 ? `${base}?page=${page}` : base;
 }
 
 function showLoading() {
@@ -101,7 +91,7 @@ async function resolveRelease(browseId) {
  * `replace` is for syncing to a URL that's already current (boot, popstate,
  * pagination); a fresh open pushes a history entry.
  */
-export async function openDetail(kind, id, { page = 1, replace = false, title } = {}) {
+export async function openDetail(kind, id, { page = 1, replace = false } = {}) {
   if (!isDeviceKind(kind) && document.body.classList.contains("is-offline")) {
     showToast("You're offline — only your Downloads are available");
     activate("library");
@@ -125,9 +115,9 @@ export async function openDetail(kind, id, { page = 1, replace = false, title } 
   current = { kind, id, page, pushed };
   document.documentElement.dataset.detailHome = detailHome(kind);
   activate("detail", { updateHistory: false });
-  const hash = hashFor(kind, id, page);
-  if (replace) history.replaceState(null, "", hash);
-  else history.pushState(null, "", hash);
+  const path = detailPath(kind, id, page);
+  if (replace) history.replaceState(null, "", path);
+  else history.pushState(null, "", path);
 
   if (isDeviceKind(kind)) {
     await renderDownloadsPanel();
@@ -135,7 +125,7 @@ export async function openDetail(kind, id, { page = 1, replace = false, title } 
     return;
   }
 
-  const url = detailUrl(kind, id, page, title);
+  const url = detailUrl(kind, id, page);
   const cached = isRemoteKind(kind) ? remoteFragmentCache.get(url) : undefined;
   if (cached !== undefined) {
     swapFragmentHtml(cached);
@@ -396,16 +386,46 @@ export function setupDetailPanel() {
   });
 
   window.addEventListener("popstate", () => {
-    const info = classifyHash(location.hash.slice(1));
+    const info = classifyLocation();
     if (info.type === "detail") openDetail(info.kind, info.id, { page: info.page, replace: true });
     else if (info.type === "player") openPlayer(info.id);
     else current = null;
+  });
+
+  interceptAppLinks();
+}
+
+/**
+ * Links to page URLs (empty-state CTAs, "See more", ctrl-click-able hrefs) route in place instead of
+ * reloading the app. Bubble phase on document, so a panel's own handler that already called
+ * preventDefault wins.
+ */
+function interceptAppLinks() {
+  document.addEventListener("click", (event) => {
+    if (event.defaultPrevented) return;
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    const link = event.target.closest("a[href]");
+    if (!link || link.target || link.hasAttribute("download") || link.origin !== location.origin) return;
+
+    const info = classifyPath(link.pathname, link.search);
+    if (info.type === "unknown") return;
+    event.preventDefault();
+    if (info.type === "tab") {
+      // Pushed, like the fragment link this replaced: Back returns to where the link was.
+      current = null;
+      history.pushState(null, "", tabPath(info.tab));
+      activate(info.tab, { updateHistory: false });
+    } else if (info.type === "detail") {
+      openDetail(info.kind, info.id, { page: info.page });
+    } else if (info.type === "player") {
+      openPlayer(info.id);
+    }
   });
 }
 
 // Called once at boot, once setupPlayerOverlay can receive an openPlayer call.
 export function handleInitialRoute() {
-  const info = classifyHash(location.hash.slice(1));
+  const info = classifyLocation();
   if (info.type === "detail") openDetail(info.kind, info.id, { page: info.page, replace: true });
   else if (info.type === "player") openPlayer(info.id);
 }

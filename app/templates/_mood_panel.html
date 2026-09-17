@@ -1,4 +1,4 @@
-{# A mood's playlists (GET /partials/detail/yt-mood/{params}). A grid, not .shelf-row, which would
+{# A mood's playlists (GET /partials/detail/yt-mood/{slug}). A grid, not .shelf-row, which would
    bring home/scrollers.js's drag-to-scroll wiring with it. #}
 <button type="button" class="back-link" id="detail-back-btn">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-arrow-left" /></svg>
@@ -16,7 +16,6 @@
     </button>
     <div class="card-body">
       <h3 class="card-title" title="{{ playlist.title }}">{{ playlist.title }}</h3>
-      <p class="card-channel">{{ playlist.channel_title or "Playlist" }}</p>
     </div>
   </article>
   {% endfor %}

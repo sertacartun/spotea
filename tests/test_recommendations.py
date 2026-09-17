@@ -103,7 +103,7 @@ def test_a_profile_with_no_interests_still_gets_the_charts(client, db_session, f
     fake_browse(
         charts=["top-40"],
         chart_artists=["UCchart"],
-        moods=[{"title": "Chill", "params": "abc123", "section": "Moods & moments"}],
+        moods=[{"title": "Chill", "params": "abc123", "section": "Moods & moments", "slug": "chill"}],
     )
 
     body = client.get("/recommendations").json()
@@ -117,13 +117,13 @@ def test_a_profile_with_no_interests_still_gets_the_charts(client, db_session, f
 def test_mood_categories_lists_every_one_not_just_a_sample(monkeypatch):
     from app.youtube.music import MoodCategory
 
-    categories = [MoodCategory(title=f"Mood {i}", params=f"p{i}", section="Moods & moments") for i in range(14)]
+    categories = [MoodCategory(title=f"Mood {i}", params=f"p{i}", section="Moods & moments", slug=f"mood-{i}") for i in range(14)]
     monkeypatch.setattr(rec, "fetch_mood_categories", lambda: categories)
 
     result = rec._mood_categories()
 
     assert [m["title"] for m in result["moods"]] == [c.title for c in categories]
-    assert all("params" in m and "section" in m for m in result["moods"])
+    assert all("params" in m and "slug" in m and "section" in m for m in result["moods"])
 
 
 def test_a_charting_artist_already_followed_is_dropped(client, db_session, fake_browse):

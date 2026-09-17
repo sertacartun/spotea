@@ -48,7 +48,7 @@ setupDetailPanel();
 // After setupDetailPanel: both listen on #detail-panel, and this one must run second.
 setupPlaylists();
 resumeOverlayIfNeeded();
-// After resume: a route hash in the URL takes priority over the previous session's track.
+// After resume: a page URL naming a player or panel takes priority over the previous session's track.
 handleInitialRoute();
 setupExploreSearch();
 // After setupTabs: the tint samples a laid-out <img> and the header observer needs the visible panel.

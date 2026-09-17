@@ -166,7 +166,7 @@ def test_an_artists_library_card_opens_their_profile(client, db_session):
 
     assert 'data-detail-kind="yt-artist"' in body
     assert 'data-detail-id="UC5ZkRnYd3__WBBGnAnWO9Cg"' in body
-    assert 'href="/#yt-artist/UC5ZkRnYd3__WBBGnAnWO9Cg"' in body
+    assert 'href="/artist/UC5ZkRnYd3__WBBGnAnWO9Cg"' in body
 
 
 def test_an_artists_card_prefers_its_own_synced_track_count(client, db_session):
@@ -299,7 +299,7 @@ def test_empty_playlist_detail_fragments_render_their_empty_state(client):
         assert res.status_code == 200, kind
         assert title in res.text, kind
         assert 'class="empty-state-help"' in res.text, kind
-        assert 'href="/#explore"' in res.text, kind
+        assert 'href="/explore"' in res.text, kind
         assert 'id="detail-play-all"' not in res.text, kind
 
 

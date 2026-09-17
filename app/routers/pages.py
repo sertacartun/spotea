@@ -12,19 +12,22 @@ from app.page_context import (
     queue_thumbnail_caching,
     storage_summary_context,
 )
+from app.routes import LIBRARY_LIST_KINDS, SHELL_HEADER, SHELL_PATHS, detail_path
 from app.templating import templates
 
 router = APIRouter(dependencies=[Depends(require_login)])
 
 
-@router.get("/", response_class=HTMLResponse)
-def home(
+def app_shell(
     request: Request,
     background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
-    """index.html is the whole app: one render builds every tab panel's context."""
+    """index.html is the whole app: one render builds every tab panel's context, whatever the path.
+
+    The client routes off location.pathname, so every page URL returns this same document.
+    """
     home = home_context(db, user.id)
     queue_thumbnail_caching(background_tasks, home_shelf_items(home))
     interests = parse_interests(user.interests)
@@ -41,25 +44,19 @@ def home(
             **library_context(db, user.id),
             **storage_summary_context(db, user.id, backfill=True),
         },
+        headers={SHELL_HEADER: "1"},
     )
 
 
-# Legacy URLs, kept so old links still land.
-@router.get("/favorites")
-def favorites_redirect() -> RedirectResponse:
-    return RedirectResponse("/#favorites")
+for path in SHELL_PATHS:
+    router.add_api_route(path, app_shell, methods=["GET"], response_class=HTMLResponse)
 
 
-@router.get("/new-uploads")
-def new_uploads_redirect() -> RedirectResponse:
-    return RedirectResponse("/#new-uploads")
+def _redirect_to(target: str):
+    return lambda: RedirectResponse(target)
 
 
-@router.get("/recently-played")
-def recently_played_redirect() -> RedirectResponse:
-    return RedirectResponse("/#recently-played")
-
-
-@router.get("/player/{content_id}")
-def player_redirect(content_id: int) -> RedirectResponse:
-    return RedirectResponse(f"/#player/{content_id}")
+# Pre-/library URLs, kept so old links and bookmarks still land. Old #fragment links are rewritten client-side.
+for kind in LIBRARY_LIST_KINDS:
+    if kind != "downloads":
+        router.add_api_route(f"/{kind}", _redirect_to(detail_path(kind)), methods=["GET"])

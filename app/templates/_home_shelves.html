@@ -17,7 +17,7 @@
       <h2 class="home-hero-title" id="home-hero-title" title="{{ hero.title }}">{{ hero.title }}</h2>
       <p class="home-hero-artist" title="{{ hero.display_artist }}">{{ hero.display_artist }}</p>
     </div>
-    <a class="home-hero-play" href="/#player/{{ hero.id }}" aria-label="Play {{ hero.title }}">
+    <a class="home-hero-play" href="/player/{{ hero.id }}" aria-label="Play {{ hero.title }}">
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><use href="#i-play" /></svg>
     </a>
   </div>
@@ -28,7 +28,7 @@
     <div class="shelf">
       <div class="shelf-header">
         <h2 class="shelf-title">Recently followed</h2>
-        <a class="shelf-see-more" href="/#library" hidden>See more ›</a>
+        <a class="shelf-see-more" href="/library" hidden>See more ›</a>
       </div>
       <div class="channel-row" id="home-channel-row">
         {% for artist in home_recent_artists %}
@@ -54,7 +54,7 @@
     <div class="shelf shelf--lead">
       <div class="shelf-header">
         <h2 class="shelf-title">New releases</h2>
-        <a class="shelf-see-more" href="/#new-uploads" data-detail-kind="new-uploads" hidden>See more ›</a>
+        <a class="shelf-see-more" href="/library/new-uploads" data-detail-kind="new-uploads" hidden>See more ›</a>
       </div>
       {% if home_new_releases %}
       <div class="shelf-row" id="home-new-releases-row">
@@ -72,7 +72,7 @@
     <div class="shelf" id="home-shelf-recently-played" {% if not home_recently_played %}hidden{% endif %}>
       <div class="shelf-header">
         <h2 class="shelf-title">Recently played</h2>
-        <a class="shelf-see-more" href="/#recently-played" data-detail-kind="recently-played" hidden>See more ›</a>
+        <a class="shelf-see-more" href="/library/recently-played" data-detail-kind="recently-played" hidden>See more ›</a>
       </div>
       <div class="shelf-row" id="home-recently-played-row" data-queue-kind="recently-played">
         {% for item in home_recently_played %}
@@ -84,7 +84,7 @@
     <div class="shelf" id="home-shelf-favorites" {% if not home_favorites %}hidden{% endif %}>
       <div class="shelf-header">
         <h2 class="shelf-title">Favorites</h2>
-        <a class="shelf-see-more" href="/#favorites" data-detail-kind="favorites" hidden>See more ›</a>
+        <a class="shelf-see-more" href="/library/favorites" data-detail-kind="favorites" hidden>See more ›</a>
       </div>
       <div class="shelf-row" id="home-favorites-row" data-queue-kind="favorites">
         {% for item in home_favorites %}

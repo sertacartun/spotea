@@ -318,12 +318,19 @@ let them go stale with the rest of the batch. A profile with nothing
 followed gets neither shelf at all, with no seeded default.
 
 **Opening a mood.** Clicking one in "Moods" opens
-`GET /partials/detail/yt-mood/{params}` — a panel of that mood's playlists
+`GET /partials/detail/yt-mood/{slug}` — a panel of that mood's playlists
 (`templates/_mood_panel.html`, one more live request, paid only for the
 mood actually opened), rendered as a shelf of cards rather than a track
 list. Picking a playlist from there opens it the ordinary
 `yt-playlist` way. Only "Moods & moments" is listed, not YouTube Music's
 "Genres" menu — see §9.
+
+A mood is addressed by a name made from its title (`/moods/feel-good`,
+`urls.mood_slug`), not by YouTube Music's `params` token: that token is
+opaque and not promised to stay the same. The server maps the name back
+through the mood menu, which it remembers for 12 hours
+(`remote_detail._mood_by_slug`) so opening a mood stays one request; a name
+the remembered menu doesn't know re-fetches it before giving up.
 
 ---
 
@@ -331,14 +338,15 @@ list. Picking a playlist from there opens it the ordinary
 
 | method | path | what |
 |---|---|---|
-| GET | `/` | the whole app, one document |
+| GET | `/`, `/library`, `/explore`, `/settings`, `/library/…`, `/artist/…`, `/album/…`, `/playlist/…`, `/moods/…`, `/player/…` | the whole app, one document (`app/routes.py`) |
+| GET | `/favorites`, `/new-uploads`, `/recently-played` | redirect to `/library/…`, for old links |
 | GET | `/partials/{home,library,downloads,storage-summary}` | re-render one region |
 | GET | `/partials/detail/playlist/{kind}` | a pinned playlist |
 | GET | `/partials/detail/yt-artist/{browse_id}` | an artist's profile |
 | GET | `/partials/detail/yt-artist-songs/{browse_id}` | their whole song list |
 | GET | `/partials/detail/yt-release/{browse_id}` | an album's panel, **or** a one-track release's track as JSON (see below) |
 | GET | `/partials/detail/yt-playlist/{playlist_id}` | a YouTube Music playlist |
-| GET | `/partials/detail/yt-mood/{params}` | a mood's playlists |
+| GET | `/partials/detail/yt-mood/{slug}` | a mood's playlists |
 | POST/DELETE | `/artists`, `/artists/{id}` | follow, unfollow |
 | POST | `/artists/sync` | check for new releases if due |
 | GET | `/artists/syncing` | which are still filling in |
@@ -349,7 +357,7 @@ list. Picking a playlist from there opens it the ordinary
 | GET | `/content/{id}/stream` | play it (Range-capable FileResponse) |
 | GET | `/content/queue/playlist/{kind}` | the ids behind a Play all |
 | POST/DELETE | `/content/{id}/{favorite,save}` | engagement flags |
-| GET/PUT | `/settings` | quality, interests |
+| PUT | `/settings` | quality, interests (no GET: that's the Settings page) |
 | GET | `/recommendations` | the Explore batch |
 | DELETE/GET | `/storage`, `/storage/export` | clear all, zip |
 | GET | `/avatars/*`, `/thumbnails/*`, `/image-proxy` | images |
@@ -363,9 +371,25 @@ Everything except auth and `/health` requires a session.
 ## 7. The client
 
 `index.html` is the entire app: Home, Library, Explore, Settings and the
-detail panel are tab panels in one document, routed by the URL hash. An
-inline head script paints the right tab before any module loads, so a reload
-never flashes the wrong one.
+detail panel are tab panels in one document, routed by real paths:
+
+| path | view |
+|---|---|
+| `/`, `/library`, `/explore`, `/settings` | a tab |
+| `/library/{favorites,new-uploads,recently-played,downloads}` | a pinned list |
+| `/library/playlists/{id}` | a hand-made playlist |
+| `/artist/{id}`, `/artist/{id}/songs` | an artist, their whole song list |
+| `/album/{id}`, `/playlist/{id}`, `/moods/{slug}` | YouTube Music content |
+| `/player/{id}` | Home with the player open |
+
+The server returns the same `index.html` for every one of them
+(`app/routes.py`); the client's copy of the table is `core.js`
+(`detailPath`/`classifyPath`), and in-app links to these paths are routed in
+place rather than reloading (`detail.js`'s `interceptAppLinks`). An inline
+head script paints the right tab before any module loads, so a reload never
+flashes the wrong one; it also rewrites the old `/#yt-artist/…` style links
+to their path. The service worker caches only the response marked
+`X-App-Shell` and serves that one copy for any page offline.
 
 Two mechanisms carry almost all of the interactivity:
 

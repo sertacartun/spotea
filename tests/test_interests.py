@@ -70,14 +70,14 @@ def test_signature_changes_when_an_interest_is_added():
 
 
 def test_settings_reports_no_interests_by_default(client):
-    assert client.get("/settings").json()["interests"] == []
+    assert client.put("/settings", json={}).json()["interests"] == []
 
 
 def test_put_stores_interests_and_reports_them_back(client):
     res = client.put("/settings", json={"interests": ["jazz", "türk rock"]})
     assert res.status_code == 200
     assert res.json()["interests"] == ["jazz", "türk rock"]
-    assert client.get("/settings").json()["interests"] == ["jazz", "türk rock"]
+    assert client.put("/settings", json={}).json()["interests"] == ["jazz", "türk rock"]
 
 
 def test_put_normalizes_rather_than_rejecting(client):

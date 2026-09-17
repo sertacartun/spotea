@@ -32,7 +32,7 @@ INTERESTS_PER_RUN = 3
 RESULTS_PER_SHELF = 12
 
 # Part of the cache signature: bump when the stored batch shape changes so old rows rebuild.
-PAYLOAD_VERSION = "v5"
+PAYLOAD_VERSION = "v6"
 
 # Playlists only: artist/song search on free-text genres returns filler channels and
 # instrumentals, so those shelves come from followed artists instead.

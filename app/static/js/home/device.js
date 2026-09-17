@@ -370,7 +370,7 @@ function rowHtml(track, index) {
       </button>`;
   return `
     <div class="track-row" data-content-id="${track.id}" data-status="ready">
-      <a class="track-link" href="/#player/${track.id}" aria-label="Play ${escapeHtml(track.title)}">
+      <a class="track-link" href="/player/${track.id}" aria-label="Play ${escapeHtml(track.title)}">
         <span class="track-index">${index}</span>
         <span class="track-thumb" data-cover-for="${track.id}"></span>
         <span class="track-info">

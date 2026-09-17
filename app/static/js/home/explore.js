@@ -172,8 +172,7 @@ function moodChipHtml(mood) {
     <button
       type="button"
       class="channel-chip"
-      data-mood-params="${escapeHtml(mood.params)}"
-      data-mood-title="${escapeHtml(mood.title)}"
+      data-mood-slug="${escapeHtml(mood.slug)}"
     >
       <span>${escapeHtml(mood.title)}</span>
     </button>
@@ -301,9 +300,9 @@ export function setupRecommendations() {
       return;
     }
 
-    const moodChip = event.target.closest(".channel-chip[data-mood-params]");
+    const moodChip = event.target.closest(".channel-chip[data-mood-slug]");
     if (moodChip) {
-      openDetail("yt-mood", moodChip.dataset.moodParams, { title: moodChip.dataset.moodTitle });
+      openDetail("yt-mood", moodChip.dataset.moodSlug);
       return;
     }
 

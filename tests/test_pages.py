@@ -131,17 +131,44 @@ def test_the_duration_and_filesize_template_filters_are_registered(client, db_se
     assert "1:01" in rows  # duration, from duration_seconds=61
 
 
-def test_channel_and_playlist_pages_redirect_to_their_hash_route(client):
+def test_pre_library_list_urls_redirect_to_their_page(client):
     """These routes only exist so old links and bookmarks still land somewhere."""
-    for path, expected_hash in [
-        ("/favorites", "/#favorites"),
-        ("/new-uploads", "/#new-uploads"),
-        ("/recently-played", "/#recently-played"),
-        ("/player/1", "/#player/1"),
+    for path, expected in [
+        ("/favorites", "/library/favorites"),
+        ("/new-uploads", "/library/new-uploads"),
+        ("/recently-played", "/library/recently-played"),
     ]:
         res = client.get(path, follow_redirects=False)
         assert res.status_code == 307, path
-        assert res.headers["location"] == expected_hash, path
+        assert res.headers["location"] == expected, path
+
+
+def test_every_page_url_serves_the_app_shell(client):
+    """The client routes off the path, so a reload or deep link must get index.html, marked for the SW."""
+    for path in [
+        "/",
+        "/library",
+        "/explore",
+        "/settings",
+        "/library/favorites",
+        "/library/downloads",
+        "/library/playlists/3",
+        "/artist/UC5ZkRnYd3__WBBGnAnWO9Cg",
+        "/artist/UC5ZkRnYd3__WBBGnAnWO9Cg/songs",
+        "/album/MPREb_abc",
+        "/playlist/PLabcdefghijkl",
+        "/moods/feel-good",
+        "/player/1",
+    ]:
+        res = client.get(path, follow_redirects=False)
+        assert res.status_code == 200, path
+        assert 'id="detail-panel"' in res.text, path
+        assert res.headers["x-app-shell"] == "1", path
+
+
+def test_a_non_page_url_does_not_get_the_shell(client):
+    assert client.get("/library/nonsense/deeper").status_code == 404
+    assert client.get("/login", follow_redirects=False).headers.get("x-app-shell") is None
 
 
 def test_page_routes_require_login():

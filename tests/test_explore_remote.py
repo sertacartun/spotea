@@ -57,8 +57,8 @@ def test_a_remote_row_carries_what_the_batch_endpoint_needs(client, fake_playlis
 
     assert 'data-video-id="aaaaaaaaaaa"' in text
     assert f'data-channel-id="{CHANNEL_ID}"' in text
-    # Nothing here has a Content row yet, so there is no /#player/{id} to point at.
-    assert "/#player/" not in text
+    # Nothing here has a Content row yet, so there is no /player/{id} to point at.
+    assert "/player/" not in text
     assert "data-content-id" not in text
 
 
