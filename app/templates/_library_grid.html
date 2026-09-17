@@ -1,7 +1,7 @@
 {# The search input stays in index.html to keep typed text.
    Pinned tiles and playlists render even when nobody is followed. #}
     <div class="channel-grid">
-      <a class="channel-card" href="/#new-uploads" data-detail-kind="new-uploads">
+      <a class="channel-card" href="/library/new-uploads" data-detail-kind="new-uploads">
         <span class="channel-card-avatar channel-card-icon is-new-uploads">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-upload" /></svg>
         </span>
@@ -10,7 +10,7 @@
           <span class="channel-card-count">{{ new_uploads_count }} release{{ '' if new_uploads_count == 1 else 's' }}</span>
         </span>
       </a>
-      <a class="channel-card" href="/#favorites" data-detail-kind="favorites">
+      <a class="channel-card" href="/library/favorites" data-detail-kind="favorites">
         <span class="channel-card-avatar channel-card-icon is-favorites">
           <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-heart" /></svg>
         </span>
@@ -19,7 +19,7 @@
           <span class="channel-card-count">{{ favorites_count }} song{{ '' if favorites_count == 1 else 's' }}</span>
         </span>
       </a>
-      <a class="channel-card" href="/#recently-played" data-detail-kind="recently-played">
+      <a class="channel-card" href="/library/recently-played" data-detail-kind="recently-played">
         <span class="channel-card-avatar channel-card-icon is-recently-played">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-clock" /></svg>
         </span>
@@ -29,7 +29,7 @@
         </span>
       </a>
       {# The server can't render this tile's contents: it is what this device saved (home/device.js). #}
-      <a class="channel-card" href="/#downloads" data-detail-kind="downloads">
+      <a class="channel-card" href="/library/downloads" data-detail-kind="downloads">
         <span class="channel-card-avatar channel-card-icon is-downloads">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-phone" /></svg>
         </span>
@@ -41,7 +41,7 @@
       </a>
       {% for playlist in playlists %}
       {% set playlist_count = playlist_track_counts.get(playlist.id, 0) %}
-      <a class="channel-card" href="/#user-playlist/{{ playlist.id }}" data-detail-kind="user-playlist" data-detail-id="{{ playlist.id }}">
+      <a class="channel-card" href="/library/playlists/{{ playlist.id }}" data-detail-kind="user-playlist" data-detail-id="{{ playlist.id }}">
         <span class="channel-card-avatar channel-card-icon is-user-playlist">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-list" /></svg>
         </span>
@@ -72,7 +72,7 @@
       {% set detail_id = artist.browse_id %}
       <a
         class="channel-card{{ ' is-preparing' if is_preparing }}"
-        href="/#{{ detail_kind }}/{{ detail_id }}"
+        href="/artist/{{ detail_id }}"
         data-detail-kind="{{ detail_kind }}"
         data-detail-id="{{ detail_id }}"
         {% if is_preparing %}data-preparing="true"{% endif %}
@@ -106,6 +106,6 @@
     <div class="empty-state">
       <p class="empty-state-title">You're not following anyone yet</p>
       <p class="empty-state-help">Follow an artist and their new releases collect here.</p>
-      <a class="btn-primary empty-state-cta" href="/#explore">Find artists</a>
+      <a class="btn-primary empty-state-cta" href="/explore">Find artists</a>
     </div>
     {% endif %}

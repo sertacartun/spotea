@@ -165,7 +165,7 @@ class PlaylistSearchResultOut(BaseModel):
 
 class MoodCategoryOut(BaseModel):
     title: str
-    params: str
+    slug: str
     section: str
 
 

@@ -76,8 +76,7 @@ def login_submit(
 
     _failed_login_attempts.discard(key)
     request.session[SESSION_KEY] = user.id
-    # #home overrides the tab localStorage remembers, so a fresh login lands on Home.
-    return RedirectResponse(url="/#home", status_code=303)
+    return RedirectResponse(url="/", status_code=303)
 
 
 @router.get("/register", response_class=HTMLResponse)
@@ -137,7 +136,7 @@ def register_submit(
     db.refresh(user)
 
     request.session[SESSION_KEY] = user.id
-    return RedirectResponse(url="/#home", status_code=303)
+    return RedirectResponse(url="/", status_code=303)
 
 
 @router.post("/logout")

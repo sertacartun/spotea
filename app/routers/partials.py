@@ -26,7 +26,7 @@ from app.services.remote_detail import (
     remote_release_context,
 )
 from app.templating import templates
-from app.youtube.urls import CHANNEL_ID_RE, MOOD_PARAMS_RE, PLAYLIST_ID_RE, RELEASE_ID_RE
+from app.youtube.urls import CHANNEL_ID_RE, MOOD_SLUG_MAX_LENGTH, MOOD_SLUG_RE, PLAYLIST_ID_RE, RELEASE_ID_RE
 
 router = APIRouter(prefix="/partials", tags=["partials"], dependencies=[Depends(require_login)])
 
@@ -192,13 +192,13 @@ def remote_release_fragment(browse_id: str, request: Request) -> Response:
     return templates.TemplateResponse(request, "_fragment_detail.html", context)
 
 
-@router.get("/detail/yt-mood/{params}", response_class=HTMLResponse)
-def remote_mood_fragment(params: str, request: Request, title: str | None = None) -> HTMLResponse:
-    """A mood's playlists. `title` comes from the client because the response has no header naming it."""
-    if not MOOD_PARAMS_RE.match(params):
+@router.get("/detail/yt-mood/{slug}", response_class=HTMLResponse)
+def remote_mood_fragment(slug: str, request: Request) -> HTMLResponse:
+    """A mood's playlists, by the URL name mood_slug() gave it."""
+    if len(slug) > MOOD_SLUG_MAX_LENGTH or not MOOD_SLUG_RE.match(slug):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
-    context = remote_mood_context(params, title)
+    context = remote_mood_context(slug)
     if context is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Could not open this")
     return templates.TemplateResponse(request, "_fragment_detail.html", context)

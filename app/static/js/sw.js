@@ -1,7 +1,12 @@
 // Network-first service worker: exists for installability and an offline
 // fallback, not offline-first — a cache-first strategy would fight no-cache static assets.
 // Bump the version whenever an old cache may hold entries that must be purged.
-const CACHE_NAME = "spotea-v6";
+const CACHE_NAME = "spotea-v7";
+
+// Every page URL (/explore, /artist/…) serves this same document, so one cached copy answers them all.
+const SHELL_URL = "/";
+// Set by app/routers/pages.py. Other navigations (/login) must not overwrite the cached shell.
+const SHELL_HEADER = "X-App-Shell";
 
 // Every module in the import graph must be here: one 404ing ES module blanks the
 // whole page. tests/test_static_js.py holds this list to the files on disk.
@@ -46,15 +51,15 @@ const API_PREFIXES = [
   // core.js polls this to detect reconnection; a cached answer would always say "online".
   "/health",
   "/profiles",
-  "/settings",
+  // Not "/settings": that GET is the Settings page now, and the API is PUT-only (never intercepted).
   "/storage",
   "/partials",
   "/recommendations",
   "/onboarding",
 ];
 
-// Bare routes like "/settings" have no trailing slash, so match the prefix
-// exactly or followed by "/" — never a plain startsWith("/settings/").
+// Bare routes like "/health" have no trailing slash, so match the prefix
+// exactly or followed by "/" — never a plain startsWith("/health/").
 function isApiPath(path) {
   return API_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
@@ -69,19 +74,23 @@ const UNREACHABLE_FOR_MS = 10000;
 
 let unreachableUntil = 0;
 
-function networkFirst(request) {
-  const shortcut = Date.now() < unreachableUntil ? caches.match(request) : Promise.resolve(null);
+// `cacheKey`: where the response is stored and looked up, the request itself unless given.
+function networkFirst(request, { cacheKey = request, cacheable = () => true } = {}) {
+  const shortcut = Date.now() < unreachableUntil ? caches.match(cacheKey) : Promise.resolve(null);
 
   return shortcut.then((shortcutted) => {
     if (shortcutted) return shortcutted;
 
     const network = fetch(request).then((response) => {
       unreachableUntil = 0;
-      const copy = response.clone();
-      caches
-        .open(CACHE_NAME)
-        .then((cache) => cache.put(request, copy))
-        .catch(() => {});
+      // Same rule as install: an expired session's login page must not become the offline shell.
+      if (response.ok && !response.redirected && cacheable(response)) {
+        const copy = response.clone();
+        caches
+          .open(CACHE_NAME)
+          .then((cache) => cache.put(cacheKey, copy))
+          .catch(() => {});
+      }
       return response;
     });
 
@@ -97,13 +106,13 @@ function networkFirst(request) {
         // Resolving undefined on a cache miss surfaces an ordinary network error.
         if (answered) return;
         answered = true;
-        caches.match(request).then(resolve);
+        caches.match(cacheKey).then(resolve);
       });
 
       setTimeout(() => {
         if (answered) return;
         unreachableUntil = Date.now() + UNREACHABLE_FOR_MS;
-        caches.match(request).then(answer);
+        caches.match(cacheKey).then(answer);
       }, NETWORK_TIMEOUT_MS);
     });
   });
@@ -146,6 +155,13 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   if (isApiPath(url.pathname)) return;
+
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      networkFirst(event.request, { cacheKey: SHELL_URL, cacheable: (response) => response.headers.has(SHELL_HEADER) })
+    );
+    return;
+  }
 
   event.respondWith(networkFirst(event.request));
 });

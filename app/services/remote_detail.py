@@ -3,13 +3,17 @@
 Kept out of page_context.py because these builders make slow network calls.
 """
 
+from datetime import datetime, timedelta
+
 from sqlalchemy.orm import Session
 
 from app.images import cached_avatar_or_hotlink
 from app.models import Artist
+from app.routes import detail_path
 from app.timeutil import utcnow
 from app.youtube.music import (
     ARTIST_PREVIEW_SONGS,
+    MoodCategory,
     fetch_artist,
     fetch_mood_categories,
     fetch_mood_playlists,
@@ -32,7 +36,7 @@ def _base_context(kind: str, remote_id: str, title: str, items: list) -> dict:
         "page": 1,
         "total_pages": 1,
         "start_index": 1,
-        "base_url": f"/#{kind}/{remote_id}",
+        "base_url": detail_path(kind, remote_id),
     }
 
 
@@ -118,7 +122,7 @@ def remote_artist_context(
         ),
         "songs": artist.tracks[:ARTIST_PREVIEW_SONGS],
         "songs_total": artist.track_count if artist.track_count > ARTIST_PREVIEW_SONGS else 0,
-        "songs_url": f"/#yt-artist-songs/{browse_id}",
+        "songs_url": detail_path("yt-artist-songs", browse_id),
         "albums": artist.albums,
         "singles": artist.singles,
         "related": artist.related,
@@ -177,22 +181,33 @@ def remote_release_context(browse_id: str) -> dict | None:
     return context
 
 
-def _mood_title(params: str) -> str | None:
-    """The category name for a params token, for reloads/deep links that lack the title query param."""
-    return next(
-        (category.title for category in fetch_mood_categories() if category.params == params),
-        None,
-    )
+# The mood menu rarely changes; remembering it keeps opening a mood at one request, not two.
+MOOD_CATEGORIES_TTL = timedelta(hours=12)
+
+_mood_categories: tuple[datetime, list[MoodCategory]] | None = None
 
 
-def remote_mood_context(params: str, title: str | None) -> dict | None:
+def _mood_by_slug(slug: str) -> MoodCategory | None:
+    """The category a /moods/{slug} URL names. A miss in the remembered menu re-fetches it, in case it changed."""
+    global _mood_categories
+    if _mood_categories is not None and utcnow() - _mood_categories[0] < MOOD_CATEGORIES_TTL:
+        found = next((category for category in _mood_categories[1] if category.slug == slug), None)
+        if found is not None:
+            return found
+
+    categories = fetch_mood_categories()
+    if categories:
+        _mood_categories = (utcnow(), categories)
+    return next((category for category in categories if category.slug == slug), None)
+
+
+def remote_mood_context(slug: str) -> dict | None:
     """A mood's playlists, rendered by _mood_panel.html since there is no single track list."""
-    if title is None:
-        title = _mood_title(params)
-        if title is None:
-            return None
+    category = _mood_by_slug(slug)
+    if category is None:
+        return None
 
-    playlists = fetch_mood_playlists(params)
+    playlists = fetch_mood_playlists(category.params)
     if not playlists:
         return None
 
@@ -200,7 +215,7 @@ def remote_mood_context(params: str, title: str | None) -> dict | None:
         "kind": "yt-mood",
         "remote": True,
         "artist": None,
-        "title": title,
+        "title": category.title,
         "back_label": "Explore",
         "playlists": playlists,
     }

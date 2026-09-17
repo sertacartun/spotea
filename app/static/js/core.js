@@ -1,32 +1,53 @@
-const VALID_TABS = ["home", "library", "explore", "settings"];
-const PLAYLIST_KINDS = ["favorites", "new-uploads", "recently-played", "downloads"];
-const ID_DETAIL_KINDS = [
-  "yt-playlist",
-  "yt-artist-songs",
-  "yt-artist",
-  "yt-release",
-  "yt-mood",
-  "user-playlist",
-];
+// Page URLs. Mirrors app/routes.py, which serves index.html at each of these, and index.html's head script.
+const TAB_PATHS = { home: "/", library: "/library", explore: "/explore", settings: "/settings" };
+const LIBRARY_LIST_KINDS = ["favorites", "new-uploads", "recently-played", "downloads"];
+// yt-artist-songs is /artist/{id}/songs, matched separately.
+const ID_PREFIXES = {
+  "user-playlist": "/library/playlists",
+  "yt-artist": "/artist",
+  "yt-release": "/album",
+  "yt-playlist": "/playlist",
+  "yt-mood": "/moods",
+};
 
-export function classifyHash(hash) {
-  const [path, query] = hash.split("?");
-  const page = query ? Number(query.replace("page=", "")) || 1 : 1;
+export function tabPath(tab) {
+  return TAB_PATHS[tab];
+}
 
-  const kind = ID_DETAIL_KINDS.find((candidate) => path.startsWith(`${candidate}/`));
-  if (kind) {
-    return { type: "detail", kind, id: path.slice(kind.length + 1), page };
+export function detailPath(kind, id, page = 1) {
+  let path;
+  if (LIBRARY_LIST_KINDS.includes(kind)) path = `/library/${kind}`;
+  else if (kind === "yt-artist-songs") path = `/artist/${id}/songs`;
+  else path = `${ID_PREFIXES[kind]}/${id}`;
+  return page > 1 ? `${path}?page=${page}` : path;
+}
+
+/** Ids are [\w-] everywhere, so a segment never needs decoding. */
+export function classifyPath(pathname, search = "") {
+  const path = pathname.replace(/\/+$/, "") || "/";
+  const page = Number(new URLSearchParams(search).get("page")) || 1;
+  const segments = path.split("/").slice(1);
+
+  const tab = Object.keys(TAB_PATHS).find((name) => TAB_PATHS[name] === path);
+  if (tab) return { type: "tab", tab };
+
+  if (segments.length === 2 && segments[0] === "library" && LIBRARY_LIST_KINDS.includes(segments[1])) {
+    return { type: "detail", kind: segments[1], id: null, page };
   }
-  if (PLAYLIST_KINDS.includes(path)) {
-    return { type: "detail", kind: path, id: null, page };
+  if (segments.length === 3 && segments[0] === "artist" && segments[2] === "songs") {
+    return { type: "detail", kind: "yt-artist-songs", id: segments[1], page };
   }
-  if (path.startsWith("player/")) {
-    return { type: "player", id: path.slice("player/".length) };
+  if (segments.length === 2 && segments[0] === "player") {
+    return { type: "player", id: segments[1] };
   }
-  if (VALID_TABS.includes(path)) {
-    return { type: "tab", tab: path };
-  }
+  const prefix = `/${segments.slice(0, -1).join("/")}`;
+  const kind = Object.keys(ID_PREFIXES).find((name) => ID_PREFIXES[name] === prefix);
+  if (kind && segments.at(-1)) return { type: "detail", kind, id: segments.at(-1), page };
   return { type: "unknown" };
+}
+
+export function classifyLocation() {
+  return classifyPath(location.pathname, location.search);
 }
 
 // Must be safe inside double-quoted attributes too, hence quotes are escaped.

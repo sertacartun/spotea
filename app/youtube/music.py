@@ -26,6 +26,7 @@ from app.youtube.urls import (
     VIDEO_ID_RE,
     absolute_thumbnail_url,
     cover_url_at_size,
+    mood_slug,
     playlist_id_from_browse_id,
 )
 
@@ -497,11 +498,15 @@ def _round_robin(lists: list[list], identity: str) -> list:
 
 @dataclass
 class MoodCategory:
-    """A mood/genre menu entry; `params` is an opaque token, the only way to request its playlists."""
+    """A mood/genre menu entry; `params` is an opaque token, the only way to request its playlists.
+
+    `slug` is what the page URL carries (/moods/feel-good), resolved back to `params` server-side.
+    """
 
     title: str
     params: str
     section: str
+    slug: str
 
 
 # ytmusicapi's parser raises on every "Genres" category (their grids mix in videos),
@@ -513,7 +518,7 @@ def fetch_mood_categories(section: str | None = MOOD_SECTION) -> list[MoodCatego
     """The moods (and optionally genres) YouTube Music offers, each tagged with its section."""
     sections = _call("mood categories", "get_mood_categories") or {}
     return [
-        MoodCategory(title=item["title"], params=item["params"], section=name)
+        MoodCategory(title=item["title"], params=item["params"], section=name, slug=mood_slug(item["title"]))
         for name, items in sections.items()
         if section is None or name == section
         for item in items

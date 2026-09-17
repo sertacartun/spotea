@@ -11,47 +11,54 @@
     // DOMContentLoaded, which flashes stale content for a frame on every
     // reload.
     //
-    // Nothing is remembered across a fresh open: the hash is written on every
+    // Nothing is remembered across a fresh open: the path is written on every
     // tab switch (see home/tabs.js), so a reload or a deep link still lands
-    // where it should, while opening the app with no hash at all — a PWA
-    // launch, a bookmark — always starts on Home. It used to fall back to a
-    // localStorage copy of the last tab instead, which meant an action taken
-    // from Settings dropped you back into Settings on the next load.
+    // where it should, while opening "/" — a PWA launch, a bookmark — always
+    // starts on Home.
     //
-    // An artist/playlist hash resolves to the "detail" panel instead — kept
-    // out of VALID_TABS itself so those routes can't get treated as a
-    // remembered tab. That includes every yt-* route, which are all the
-    // same panel showing something YouTube Music has that this app doesn't
-    // (see services/remote_detail.py). home/detail.js re-parses the hash
-    // after module load to actually fetch and fill the panel; this only has
-    // to get first paint right. A player/<id> hash is deliberately not
-    // handled here at all — it
-    // opens the overlay on top of whatever tab/detail this same logic
-    // resolves to, not a tab switch of its own.
+    // Detail paths (/library/…, /artist/…, /album/…, /playlist/…, /moods/…)
+    // paint the detail panel; home/detail.js re-parses the path after module
+    // load to actually fill it, this only has to get first paint right. A
+    // /player/<id> path paints Home: the overlay opens on top of it. The route
+    // table itself lives in core.js and app/routes.py; keep this in step.
     (function () {
-      var VALID_TABS = ["home", "library", "explore", "settings"];
-      // "downloads" is the device's own saved songs — a detail view like the
-      // three pinned playlists, except its rows come out of IndexedDB rather
-      // than the server (see home/device.js). It is in this list for exactly
-      // the same reason they are: so an open on #downloads paints the detail
-      // panel rather than Home for a frame.
-      var PLAYLIST_KINDS = ["favorites", "new-uploads", "recently-played", "downloads"];
-      var DETAIL_PREFIXES = ["yt-artist/", "yt-artist-songs/", "yt-release/", "yt-playlist/", "yt-mood/"];
-      var hash = location.hash.slice(1).split("?")[0];
-      var isDetail =
-        PLAYLIST_KINDS.indexOf(hash) !== -1 ||
-        DETAIL_PREFIXES.some(function (prefix) {
-          return hash.indexOf(prefix) === 0;
+      // Links from before real paths (/#yt-artist/UC…) become their page URL
+      // before anything routes. Old mood links carry an opaque token, not a
+      // name, so they can only land on Explore.
+      var hash = location.hash.slice(1);
+      if (hash && location.pathname === "/") {
+        var parts = hash.split("?");
+        var route = parts[0];
+        var path = null;
+        var LEGACY_PREFIXES = [
+          ["yt-artist-songs/", "/artist/", "/songs"],
+          ["yt-artist/", "/artist/", ""],
+          ["yt-release/", "/album/", ""],
+          ["yt-playlist/", "/playlist/", ""],
+          ["user-playlist/", "/library/playlists/", ""],
+          ["player/", "/player/", ""],
+        ];
+        if (route === "home") path = "/";
+        else if (["library", "explore", "settings"].indexOf(route) !== -1) path = "/" + route;
+        else if (["favorites", "new-uploads", "recently-played", "downloads"].indexOf(route) !== -1) path = "/library/" + route;
+        else if (route.indexOf("yt-mood/") === 0) path = "/explore";
+        LEGACY_PREFIXES.forEach(function (legacy) {
+          if (!path && route.indexOf(legacy[0]) === 0) path = legacy[1] + route.slice(legacy[0].length) + legacy[2];
         });
-      var tab = isDetail ? "detail" : VALID_TABS.indexOf(hash) !== -1 ? hash : "home";
-      document.documentElement.dataset.activeTab = tab;
-      // Which tab button stays selected under the detail panel — the yt-*
-      // routes belong to Explore, everything else to Library. Set here as
+        if (path) history.replaceState(null, "", path + (parts[1] ? "?" + parts[1] : ""));
+      }
+
+      var current = location.pathname.replace(/\/+$/, "");
+      var TABS = { "": "home", "/library": "library", "/explore": "explore", "/settings": "settings" };
+      var tab = TABS.hasOwnProperty(current) ? TABS[current] : null;
+      // Which tab button stays selected under the detail panel. Set here as
       // well as in home/detail.js so a deep link doesn't paint with no tab
       // selected for a frame.
-      if (isDetail) {
-        document.documentElement.dataset.detailHome = hash.indexOf("yt-") === 0 ? "explore" : "library";
-      }
+      var detailHome = null;
+      if (!tab && /^\/library\/./.test(current)) detailHome = "library";
+      else if (!tab && /^\/(artist|album|playlist|moods)\/./.test(current)) detailHome = "explore";
+      document.documentElement.dataset.activeTab = tab || (detailHome ? "detail" : "home");
+      if (detailHome) document.documentElement.dataset.detailHome = detailHome;
     })();
   </script>
 {% endblock %}

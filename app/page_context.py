@@ -18,6 +18,7 @@ from app.content_query import (
 from app.images import needs_thumbnail_caching
 from app.interests import ONBOARDING_MIN_INTERESTS, interest_chips, parse_interests
 from app.models import Artist, Content, Playlist, PlaylistItem, User
+from app.routes import TAB_PATHS, detail_path
 from app.services.artist_sync import cache_thumbnail, snapshot_releases
 from app.services.initial_sync import syncing_artist_ids
 from app.storage import backfill_file_sizes, storage_split
@@ -177,7 +178,7 @@ class PinnedPlaylist(NamedTuple):
     empty_cta: str
 
 
-EMPTY_CTA_HREF = "/#explore"
+EMPTY_CTA_HREF = TAB_PATHS["explore"]
 
 PLAYLIST_KINDS: dict[str, PinnedPlaylist] = {
     "favorites": PinnedPlaylist(
@@ -265,7 +266,7 @@ def user_playlist_detail_context(
         "page": page,
         "total_pages": total_pages,
         "start_index": start + 1,
-        "base_url": f"/#user-playlist/{playlist.id}",
+        "base_url": detail_path("user-playlist", playlist.id),
     }
 
 
@@ -319,6 +320,6 @@ def playlist_detail_context(db: Session, user_id: int, kind: str, page: int) -> 
         "page": page,
         "total_pages": total_pages,
         "start_index": (page - 1) * DEFAULT_PAGE_SIZE + 1,
-        # A real navigable hash route (ctrl-click), not the /partials fetch URL.
-        "base_url": f"/#{kind}",
+        # The page URL (ctrl-click opens it), not the /partials fetch URL.
+        "base_url": detail_path(kind),
     }

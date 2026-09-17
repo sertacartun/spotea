@@ -1,6 +1,7 @@
 """YouTube URL shapes and ID conventions — pure string work, no network."""
 
 import re
+import unicodedata
 from urllib.parse import urlsplit
 
 VIDEO_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{11}$")
@@ -13,8 +14,9 @@ CHANNEL_ID_RE = re.compile(r"^UC[\w-]{22}$")
 # Untrusted path input that goes straight into an API call; length isn't fixed, so bound it.
 RELEASE_ID_RE = re.compile(r"^MPREb_[\w-]{1,32}$")
 
-# Currently always 24 chars, but not guaranteed — bound rather than pin.
-MOOD_PARAMS_RE = re.compile(r"^[\w-]{1,32}$")
+# A mood's URL name, from mood_slug(); untrusted path input, so bounded.
+MOOD_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+MOOD_SLUG_MAX_LENGTH = 64
 
 CHANNEL_ID_URL_RE = re.compile(r"youtube\.com/channel/(UC[\w-]{22})")
 CHANNEL_ID_PARAM_RE = re.compile(r"channel_id=([\w-]+)")
@@ -133,3 +135,9 @@ def playlist_id_from_browse_id(browse_id: str | None) -> str | None:
         return None
     playlist_id = browse_id.removeprefix(_BROWSE_PLAYLIST_PREFIX)
     return playlist_id if PLAYLIST_ID_RE.match(playlist_id) else None
+
+
+def mood_slug(title: str) -> str:
+    """"Feel good" -> "feel-good": a readable, stable URL name, since a mood's params token is opaque."""
+    ascii_title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", ascii_title.lower()).strip("-")

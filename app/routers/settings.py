@@ -12,16 +12,14 @@ AUDIO_QUALITIES = ("high", "low")
 
 
 def _settings_out(user: User) -> SettingsOut:
-    """Full settings shape from both endpoints, since interests are normalized on the way in."""
+    """The full settings shape, since interests are normalized on the way in.
+
+    No GET: /settings is the Settings tab's page URL, and index.html already renders these values.
+    """
     return SettingsOut(
         audio_quality=user.audio_quality,
         interests=parse_interests(user.interests),
     )
-
-
-@router.get("", response_model=SettingsOut)
-def get_settings(user: User = Depends(get_current_user)) -> SettingsOut:
-    return _settings_out(user)
 
 
 @router.put("", response_model=SettingsOut)

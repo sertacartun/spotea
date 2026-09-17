@@ -3,7 +3,7 @@
   data-content-id="{{ item.id }}"
   data-status="{{ item.status }}"
 >
-  <a class="track-link" href="/#player/{{ item.id }}" aria-label="Play {{ item.title }}">
+  <a class="track-link" href="/player/{{ item.id }}" aria-label="Play {{ item.title }}">
     <span class="track-index">{{ index }}</span>
     <span class="track-thumb">
       {% set cover = item | cover %}

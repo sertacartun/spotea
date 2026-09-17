@@ -60,7 +60,7 @@ def test_service_worker_ignores_cross_origin_requests() -> None:
 
     # Exact expressions, since looser phrases also appear in sw.js's comments.
     check = "url.origin !== self.location.origin"
-    write = "cache.put(request, copy)"
+    write = "cache.put(cacheKey, copy)"
 
     assert check in source, (
         "sw.js no longer compares the request's origin, so it is intercepting "
@@ -87,7 +87,7 @@ def test_the_service_worker_falls_back_to_cache_when_the_network_hangs() -> None
     body = source[source.index("function networkFirst(") :]
     body = body[: body.index("\n}\n")]
     assert "setTimeout(" in body, "networkFirst no longer races the network against a clock"
-    assert "caches.match(request)" in body, "networkFirst never consults the cache"
+    assert "caches.match(cacheKey)" in body, "networkFirst never consults the cache"
     # One timeout for the whole launch: hung requests hold sockets (~6 per origin) and queue the shell.
     assert "unreachableUntil" in body, (
         "networkFirst no longer short-circuits once the server has been seen "
@@ -1271,11 +1271,11 @@ def test_a_hand_made_playlist_carries_its_id_in_the_detail_url() -> None:
         "hasId does not admit user-playlist, so its detail fetch drops the id"
     )
     core = CORE_JS.read_text()
-    kinds = core[core.index("const ID_DETAIL_KINDS = [") :]
-    kinds = kinds[: kinds.index("]")]
-    assert "user-playlist" in kinds, (
-        "classifyHash cannot parse #user-playlist/12, so a deep link or a "
-        "reload lands on the unknown-hash branch"
+    prefixes = core[core.index("const ID_PREFIXES = {") :]
+    prefixes = prefixes[: prefixes.index("}")]
+    assert '"user-playlist": "/library/playlists"' in prefixes, (
+        "classifyPath cannot parse /library/playlists/12, so a deep link or a "
+        "reload lands on the unknown-path branch"
     )
 
 
@@ -1441,3 +1441,45 @@ def test_the_next_track_is_sent_for_when_this_one_opens() -> None:
         "this the first pair of tracks prefetches nothing"
     )
     assert 'onPlayerEvent("timeupdate", prefetchUpcoming);' in registrations
+
+
+def test_the_client_route_table_matches_the_server_one() -> None:
+    """The server serves index.html at app/routes.py's paths; core.js must parse exactly those."""
+    from app import routes
+
+    core = CORE_JS.read_text()
+
+    def js_object(name: str) -> dict[str, str]:
+        block = core[core.index(f"const {name} = {{") :]
+        return dict(re.findall(r'"?([\w-]+)"?: "([^"]*)"', block[: block.index("}")]))
+
+    kinds = core[core.index("const LIBRARY_LIST_KINDS = [") :]
+    kinds = re.findall(r'"([\w-]+)"', kinds[: kinds.index("]")])
+
+    assert js_object("TAB_PATHS") == routes.TAB_PATHS
+    assert js_object("ID_PREFIXES") == routes._ID_PREFIXES
+    assert tuple(kinds) == routes.LIBRARY_LIST_KINDS
+
+
+def test_the_pre_paint_script_knows_every_detail_prefix() -> None:
+    """Otherwise a deep link paints Home for a frame before detail.js opens the panel."""
+    from app import routes
+
+    index = Path("app/templates/index.html").read_text()
+    explore = re.search(r"/\^\\/\((.*?)\)\\/\./", index).group(1).split("|")
+
+    for kind, prefix in routes._ID_PREFIXES.items():
+        if prefix.startswith("/library/"):
+            continue
+        assert prefix.lstrip("/") in explore, kind
+    assert r"/^\/library\/./" in index
+
+
+def test_page_links_route_in_place_rather_than_reloading() -> None:
+    """Real paths are real navigations: without the delegated handler every CTA reloads the app."""
+    source = (JS_DIR / "home" / "detail.js").read_text()
+
+    assert "interceptAppLinks();" in source
+    body = source[source.index("function interceptAppLinks()") :]
+    assert "event.defaultPrevented" in body, "the link router would run a second time after a panel's own handler"
+    assert "classifyPath(link.pathname, link.search)" in body

@@ -3,7 +3,7 @@
   data-content-id="{{ item.id }}"
   data-status="{{ item.status }}"
 >
-  <a class="thumb" href="/#player/{{ item.id }}" aria-label="Play {{ item.title }}">
+  <a class="thumb" href="/player/{{ item.id }}" aria-label="Play {{ item.title }}">
     {% set cover = item | cover %}
     {% if cover %}
     <img src="{{ cover }}" alt="" loading="lazy" />
@@ -11,13 +11,13 @@
   </a>
   <div class="card-body">
     <h3 class="card-title" title="{{ item.title }}">
-      <a class="card-link" href="/#player/{{ item.id }}">{{ item.title }}</a>
+      <a class="card-link" href="/player/{{ item.id }}">{{ item.title }}</a>
     </h3>
     <div class="card-meta-row">
       <div class="card-meta-text">
         {# No date: published_at is when the app first saw the track, not its release. #}
         <p class="card-channel" title="{{ item.display_artist }}">
-          <a class="card-link" href="/#player/{{ item.id }}">{{ item.display_artist }}</a>
+          <a class="card-link" href="/player/{{ item.id }}">{{ item.display_artist }}</a>
         </p>
       </div>
     </div>

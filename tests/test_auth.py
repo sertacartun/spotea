@@ -150,7 +150,7 @@ def test_register_creates_account_and_logs_in():
             follow_redirects=False,
         )
         assert res.status_code == 303
-        assert res.headers["location"] == "/#home"
+        assert res.headers["location"] == "/"
         assert anon.get("/").status_code == 200
 
 

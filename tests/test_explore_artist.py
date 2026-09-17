@@ -199,7 +199,7 @@ def test_the_profile_offers_the_full_song_list(client, fake_artist):
 
     res = client.get(f"/partials/detail/yt-artist/{BROWSE_ID}")
 
-    assert f"/#yt-artist-songs/{BROWSE_ID}" in res.text
+    assert f"/artist/{BROWSE_ID}/songs" in res.text
     assert "artist-see-all" in res.text
 
 

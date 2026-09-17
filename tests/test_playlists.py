@@ -204,7 +204,7 @@ def test_the_detail_context_matches_the_pinned_lists_shape(client, db_session):
         assert key in context, f"missing {key}"
     assert context["kind"] == "user-playlist"
     assert context["video_count"] == 1
-    assert context["base_url"] == f"/#user-playlist/{playlist_id}"
+    assert context["base_url"] == f"/library/playlists/{playlist_id}"
     # Only this kind carries these (see _detail_hero.html and _content_row.html).
     assert context["playlist_id"] == playlist_id
 
@@ -259,7 +259,7 @@ def test_library_renders_a_tile_per_playlist(client, db_session):
     res = client.get("/partials/library")
     assert res.status_code == 200
     assert "On the tile" in res.text
-    assert f'href="/#user-playlist/{playlist_id}"' in res.text
+    assert f'href="/library/playlists/{playlist_id}"' in res.text
     assert "1 song" in res.text
     assert 'id="new-playlist-btn"' in res.text
 
