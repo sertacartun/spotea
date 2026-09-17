@@ -6,11 +6,11 @@ from app.deps import get_current_user, get_db, require_login
 from app.interests import parse_interests
 from app.models import User
 from app.page_context import (
-    downloads_context,
     home_context,
     home_shelf_items,
     library_context,
     queue_thumbnail_caching,
+    storage_summary_context,
 )
 from app.services.refresh import queue_due_refresh
 from app.templating import templates
@@ -42,7 +42,7 @@ def home(
             "interests": interests,
             **home,
             **library_context(db, user.id),
-            **downloads_context(db, user.id),
+            **storage_summary_context(db, user.id, backfill=True),
         },
     )
 

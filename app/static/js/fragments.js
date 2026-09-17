@@ -6,7 +6,10 @@ import { noteConnection } from "./core.js";
 const FRAGMENTS = [
   { name: "home", targets: ["home-shelves"] },
   { name: "library", targets: ["library-grid"] },
-  { name: "storage-summary", targets: ["settings-storage-desc"] },
+  {
+    name: "storage-summary",
+    targets: ["settings-downloads-desc", "settings-downloads-actions", "settings-cache-desc", "settings-cache-actions"],
+  },
 ];
 
 const afterSwapCallbacks = [];
@@ -87,15 +90,6 @@ export async function refreshQueuePanel(ids) {
     return false;
   }
   const swapped = swapFragmentHtml(html);
-  if (swapped) {
-    for (const callback of afterSwapCallbacks) callback();
-  }
-  return swapped;
-}
-
-/** The Downloads list is large, so it is fetched only when that modal is opened or acted in. */
-export async function refreshDownloadsBody() {
-  const swapped = await refreshOne({ name: "downloads", targets: ["downloads-body"] });
   if (swapped) {
     for (const callback of afterSwapCallbacks) callback();
   }

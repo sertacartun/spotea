@@ -2,36 +2,19 @@
 // Range requests and Cache API keys on URL only, replaying the wrong range.
 
 const DB_NAME = "spotea-offline";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 // Separate stores: IndexedDB materialises whole records, so listing titles from
 // a combined store would load every Blob into memory.
 const META_STORE = "tracks";
 const BLOB_STORE = "blobs";
 
+// Lists this device keeps ("favorites", "playlist:12"). A track record's `lists` names the
+// ones holding it; a record without `lists` predates them and is only removed by hand.
+const LISTS_STORE = "lists";
+
 export function isSupported() {
   return typeof indexedDB !== "undefined";
-}
-
-// A device preference, not an account one. Lives here because the player reads
-// it too (a prefetched track's bytes are kept when it's on).
-const OFFLINE_PREF_KEY = "spotea-offline-playback";
-
-export function offlinePlaybackOn() {
-  try {
-    return localStorage.getItem(OFFLINE_PREF_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function rememberOfflinePlayback(on) {
-  try {
-    if (on) localStorage.setItem(OFFLINE_PREF_KEY, "1");
-    else localStorage.removeItem(OFFLINE_PREF_KEY);
-  } catch {
-    /* Nothing to remember it with; the switch still works for this session. */
-  }
 }
 
 let dbPromise = null;
@@ -45,6 +28,7 @@ function openDb() {
       const db = request.result;
       if (!db.objectStoreNames.contains(META_STORE)) db.createObjectStore(META_STORE, { keyPath: "id" });
       if (!db.objectStoreNames.contains(BLOB_STORE)) db.createObjectStore(BLOB_STORE, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(LISTS_STORE)) db.createObjectStore(LISTS_STORE, { keyPath: "key" });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -99,19 +83,8 @@ export async function requestPersistence() {
   }
 }
 
-export async function deviceUsage() {
-  const records = await listSaved();
-  const bytes = records.reduce((total, record) => total + (record.size || 0), 0);
-  let quota = null;
-  if (navigator.storage?.estimate) {
-    try {
-      quota = (await navigator.storage.estimate()).quota ?? null;
-    } catch {
-      quota = null;
-    }
-  }
-  // ids from the same read, so the total and the rows it covers can't disagree.
-  return { count: records.length, bytes, quota, ids: records.map((record) => record.id) };
+export async function savedTrackIds() {
+  return (await listSaved()).map((record) => record.id);
 }
 
 export async function listSaved() {
@@ -167,23 +140,16 @@ export async function openCoverUrl(contentId) {
   }
 }
 
-/** `signal` lets the sync give way to playback. */
-export async function saveTrack(contentId, track = {}, { signal } = {}) {
+/**
+ * `signal` lets the sync give way to playback. Covers go via same-origin /image-proxy:
+ * a cross-origin image Blob is opaque.
+ */
+export async function saveTrack(contentId, track = {}, { signal, list } = {}) {
   const id = Number(contentId);
 
   const res = await fetch(`/content/${id}/stream`, { signal });
   if (!res.ok) throw new Error(`Could not fetch this track (${res.status})`);
   const audio = await res.blob();
-
-  return storeTrack(id, audio, track);
-}
-
-/**
- * Keeps bytes the page already holds (the prefetch), so the sync doesn't refetch
- * them. Covers go via same-origin /image-proxy: a cross-origin image Blob is opaque.
- */
-export async function storeTrack(contentId, audio, track = {}) {
-  const id = Number(contentId);
 
   // Not given the abort signal: the audio is already down, don't discard it over artwork.
   let cover = null;
@@ -206,6 +172,7 @@ export async function storeTrack(contentId, audio, track = {}) {
     // Audio only, to match the server's per-item size.
     size: audio.size,
     savedAt: Date.now(),
+    lists: [list],
   };
 
   try {
@@ -234,9 +201,54 @@ export async function deleteTrack(contentId) {
   });
 }
 
-export async function clearAll() {
-  await transact([META_STORE, BLOB_STORE], "readwrite", (tx) => {
-    tx.objectStore(BLOB_STORE).clear();
-    tx.objectStore(META_STORE).clear();
+export async function keptLists() {
+  if (!isSupported()) return [];
+  try {
+    return await transact(LISTS_STORE, "readonly", (tx) => promisify(tx.objectStore(LISTS_STORE).getAll()));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * `ids` (with the `videoIds` they were made from) only for lists the server can't name,
+ * like an album: the device remembers what the list was when it was kept.
+ */
+export async function keepList(key, title, { ids = null, videoIds = null } = {}) {
+  await transact(LISTS_STORE, "readwrite", (tx) => {
+    tx.objectStore(LISTS_STORE).put({ key, title, ids, videoIds, keptAt: Date.now() });
+  });
+}
+
+/**
+ * Matches the device to a list's current tracks in one transaction: claims copies it
+ * now holds, releases the rest, and deletes copies no kept list holds any more.
+ * `ids` null means the list itself is gone (or unkept), so every copy is released.
+ * Resolves to the ids of this list's tracks already on the device.
+ */
+export async function reconcileList(key, ids) {
+  const wanted = ids ? new Set(ids.map(Number)) : new Set();
+  return transact([META_STORE, BLOB_STORE, LISTS_STORE], "readwrite", async (tx) => {
+    const metaStore = tx.objectStore(META_STORE);
+    const records = await promisify(metaStore.getAll());
+    const present = [];
+    for (const record of records) {
+      const holds = Array.isArray(record.lists) ? record.lists : null;
+      if (wanted.has(record.id)) {
+        present.push(record.id);
+        if (!holds?.includes(key)) metaStore.put({ ...record, lists: [...(holds || []), key] });
+        continue;
+      }
+      if (!holds?.includes(key)) continue;
+      const rest = holds.filter((held) => held !== key);
+      if (rest.length) {
+        metaStore.put({ ...record, lists: rest });
+      } else {
+        metaStore.delete(record.id);
+        tx.objectStore(BLOB_STORE).delete(record.id);
+      }
+    }
+    if (!ids) tx.objectStore(LISTS_STORE).delete(key);
+    return present;
   });
 }

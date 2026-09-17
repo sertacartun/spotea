@@ -201,32 +201,6 @@ def test_wire_scrollers_does_not_leak_a_listener_or_observer_per_row() -> None:
     )
 
 
-def test_downloads_modal_actions_refresh_its_own_list() -> None:
-    """refreshFragments() skips the Downloads list, so actions inside that modal must opt back in."""
-    source = (JS_DIR / "home" / "settings.js").read_text()
-
-    # Matched on the option alone: both calls pass other options too.
-    assert source.count("alsoDownloads: true") == 2, (
-        "expected exactly two confirmedAction calls (clear-storage, "
-        "remove-download) to opt into refreshing the open modal's own list"
-    )
-
-
-def test_refresh_fragments_default_sweep_does_not_include_the_downloads_body() -> None:
-    """The Downloads list is large and usually closed, so the default sweep must not refetch it."""
-    source = (JS_DIR / "fragments.js").read_text()
-    fragments_block = source[source.index("const FRAGMENTS") : source.index("];") + 2]
-
-    assert "downloads-body" not in fragments_block, (
-        "FRAGMENTS' default sweep includes downloads-body again — the "
-        "expensive modal list is back to being refetched on every action"
-    )
-    assert "refreshDownloadsBody" in source, (
-        "the on-demand downloads-body refresh (called on #open-downloads and "
-        "from settings.js's in-modal actions) is gone"
-    )
-
-
 def test_initial_tab_is_never_restored_from_local_storage() -> None:
     """A fresh open with no hash starts on Home."""
     index = Path("app/templates/index.html").read_text()
@@ -1051,8 +1025,8 @@ def test_offline_metadata_and_audio_live_in_separate_stores() -> None:
     """IndexedDB materialises whole records, so listing saved songs must not load their Blobs."""
     source = (JS_DIR / "offline.js").read_text()
 
-    assert source.count("createObjectStore(") == 2, (
-        "expected two object stores — metadata separate from the audio Blobs"
+    assert source.count("createObjectStore(") == 3, (
+        "expected three object stores — metadata and kept lists separate from the audio Blobs"
     )
     listing = source[source.index("async function listSaved()") :]
     listing = listing[: listing.index("\n}")]
@@ -1337,14 +1311,14 @@ def test_the_device_sync_gives_way_to_a_track_that_is_still_buffering() -> None:
     source = (JS_DIR / "home" / "device.js").read_text()
 
     check = source[
-        source.index("function playbackNeedsTheConnection() {") : source.index("let syncing = false;")
+        source.index("function playbackNeedsTheConnection() {") : source.index("function keyFor(source)")
     ]
     assert "audio.paused" in check and "HAVE_FUTURE_DATA" in check, (
         "the gate no longer asks whether the element is starving — anything "
         "coarser either never runs the sync or never gets out of its way"
     )
 
-    body = source[source.index("async function syncDevice(") : source.index("async function enableOfflinePlayback(")]
+    body = source[source.index("async function syncList(") : source.index("// One pass at a time")]
     gate = body.index("if (playbackNeedsTheConnection()) {")
     save = body.index("await saveTrack(")
     assert gate < save, "the sync starts a save before asking whether playback needs the connection"
@@ -1357,34 +1331,10 @@ def test_the_device_sync_gives_way_to_a_track_that_is_still_buffering() -> None:
         "this module doing what it was told"
     )
 
-    setup = source[source.index("export function setupDeviceStorage() {") :]
+    setup = source[source.index("export async function setupDeviceStorage() {") :]
     assert 'onPlayerEvent("waiting", () => saveAbort?.abort());' in setup, (
         "nothing calls the in-flight save off any more; `waiting` is the "
         "element saying it has run out, which is the exact signal"
-    )
-
-
-def test_a_prefetched_track_is_kept_rather_than_fetched_a_second_time() -> None:
-    """The sync stores the prefetch's Blob rather than refetching; metadata is read before the transfer."""
-    source = (JS_DIR / "home" / "overlay.js").read_text()
-
-    body = source[source.index("async function cacheUpcomingAudio(") :]
-    meta = body.index("const meta = upcomingTrack?.id === id ? upcomingTrack.data : null;")
-    fetched = body.index("await fetch(`/content/${id}/stream`")
-    stored = body.index("storeTrack(id, blob, {")
-    assert meta < fetched < stored, (
-        "the prefetch's metadata is read after its transfer, so a superseded "
-        "call can save one track's bytes under another track's name"
-    )
-    assert "if (meta && offlinePlaybackOn()) {" in body, (
-        "the prefetch now writes to the device whatever the user asked for — "
-        "keeping every track played is what the switch is for, not the default"
-    )
-
-    # Not awaited by the handoff: a full device must not cost the listener a track.
-    assert "storeTrack(id, blob, {" in body and "await storeTrack" not in body, (
-        "the device write is awaited into the prefetch's path, where a slow "
-        "or failing IndexedDB delays the handoff it exists to make instant"
     )
 
 

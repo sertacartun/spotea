@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.content_query import QUEUE_MAX_ITEMS
 from app.images import is_music_video, track_artwork, track_cover
 
 if TYPE_CHECKING:  # import cycle otherwise
@@ -97,13 +98,28 @@ class FavoriteOut(BaseModel):
     is_favorite: bool
 
 
-class StoredItemOut(BaseModel):
+class OfflineTrackOut(BaseModel):
     id: int
     title: str
     channel_title: str | None
-    size_bytes: int
-    thumbnail_url: str | None = None
-    duration_seconds: int | None = None
+    thumbnail_url: str | None
+    duration_seconds: int | None
+    status: str
+    is_unavailable: bool
+    # Waiting in the download queue: still "not_downloaded", but not stuck.
+    queued: bool
+
+
+class OfflineTracksIn(BaseModel):
+    """A list the server can't name (an album, a YouTube playlist): the device keeps its ids."""
+
+    # "list:<kind>:<id>", the device's name for it; pins are stored under it.
+    key: str = Field(pattern=r"^list:", max_length=200)
+    ids: list[int] = Field(max_length=QUEUE_MAX_ITEMS)
+
+
+class OfflineListOut(BaseModel):
+    tracks: list[OfflineTrackOut]
 
 
 class LyricLineOut(BaseModel):

@@ -11,6 +11,7 @@ from app.models import Artist, Content
 from app.storage import (
     PREVIEW_RETENTION,
     STALE_EXPORT_AGE,
+    reset_interrupted_downloads,
     sweep_orphans,
     sweep_stale_previews,
     sweep_startup_leftovers,
@@ -214,6 +215,22 @@ def test_sweep_startup_leftovers_removes_every_part_file(db_session):
     assert not part_one.exists()
     assert not part_two.exists()
     assert unrelated.exists()
+
+
+def test_a_download_a_restart_cut_off_can_be_downloaded_again(db_session):
+    """Left "downloading", every download path would skip the row for good."""
+    artist = _feed(db_session, "UCrestart00000000000000")
+    cut_off = Content(artist_id=artist.id, user_id=USER_ID, video_id="cutoff00001", title="t", status="downloading")
+    done = Content(artist_id=artist.id, user_id=USER_ID, video_id="finished001", title="t", status="ready")
+    db_session.add_all([cut_off, done])
+    db_session.commit()
+
+    assert reset_interrupted_downloads(db_session) == 1
+
+    db_session.refresh(cut_off)
+    db_session.refresh(done)
+    assert cut_off.status == "not_downloaded"
+    assert done.status == "ready"
 
 
 def _preview(db_session, artist, video_id, *, age_days, **kwargs):

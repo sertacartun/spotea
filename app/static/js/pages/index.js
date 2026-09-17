@@ -17,7 +17,6 @@ import { setupLyricsPanel } from "../home/lyrics.js";
 import { resumeOverlayIfNeeded, setupPlayerOverlay } from "../home/overlay.js";
 import { setupPlaylists } from "../home/playlists.js";
 import {
-  setupDownloadsOverlay,
   setupInterests,
   setupSettings,
   setupStorage,
@@ -55,7 +54,6 @@ setupExploreSearch();
 // After setupTabs: the tint samples a laid-out <img> and the header observer needs the visible panel.
 setupAmbientTint();
 setupRecommendations();
-setupDownloadsOverlay();
 setupDeviceStorage();
 setupStorage();
 setupSettings();

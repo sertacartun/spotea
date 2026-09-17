@@ -243,27 +243,18 @@
 
           <div class="settings-row">
             <div class="settings-row-info">
-              <span class="settings-row-label">Storage used</span>
-              <span class="settings-row-desc" id="settings-storage-desc">{% include "_storage_summary.html" %}</span>
+              <span class="settings-row-label">Downloads</span>
+              <span class="settings-row-desc" id="settings-downloads-desc">{% include "_downloads_desc.html" %}</span>
             </div>
-            <button type="button" id="open-downloads" class="btn-quiet">Manage downloads</button>
+            <div class="settings-row-actions" id="settings-downloads-actions">{% include "_downloads_actions.html" %}</div>
           </div>
 
-          {# A standing switch, not a one-off button: while on, new server downloads also land on this device
-             (home/device.js's syncDevice). #}
           <div class="settings-row">
             <div class="settings-row-info">
-              <span class="settings-row-label">Offline playback</span>
-              {# Filled by home/device.js from IndexedDB. The Downloads "Clear all" confirmation reads data-count. #}
-              <span class="settings-row-desc" id="device-summary-text" data-count="0">
-                Keep every download on this phone, so it plays with no connection.
-              </span>
+              <span class="settings-row-label">Cache</span>
+              <span class="settings-row-desc" id="settings-cache-desc">{% include "_cache_desc.html" %}</span>
             </div>
-            <label class="switch" for="offline-playback-toggle">
-              <input type="checkbox" id="offline-playback-toggle" class="switch-input" />
-              <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
-              <span class="visually-hidden">Offline playback</span>
-            </label>
+            <div class="settings-row-actions" id="settings-cache-actions">{% include "_cache_actions.html" %}</div>
           </div>
 
           <div class="settings-row">
@@ -311,20 +302,6 @@
       </div>
     </div>
   </div>
-
-  <div id="downloads-overlay" class="modal-overlay" hidden>
-    <div class="modal modal-downloads">
-      <div class="modal-header">
-        <h2>Downloaded audio</h2>
-        <button type="button" id="downloads-close" class="modal-close" aria-label="Close">×</button>
-      </div>
-
-      <div id="downloads-body">
-        {% include "_downloads.html" %}
-      </div>
-    </div>
-  </div>
-
 
   {# List built client-side from GET /playlists: membership depends on the track playing right now. #}
   <div id="playlist-picker-overlay" class="modal-overlay" hidden>

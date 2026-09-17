@@ -15,7 +15,11 @@
       <span class="track-title" title="{{ item.title }}">{{ item.title }}</span>
       {# No date: published_at is when the app first saw the track, not its release. #}
       {% if show_channel %}
-      <span class="track-artist">{{ item.display_artist }}</span>
+      <span class="track-artist">
+        {#- Shown by home/device.js (.is-on-device) when this device holds a copy. -#}
+        <svg class="track-on-device" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-label="On this device" role="img"><use href="#i-download" /></svg>
+        {{- item.display_artist -}}
+      </span>
       {% endif %}
     </span>
   </a>

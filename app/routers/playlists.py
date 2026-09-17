@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.deps import get_current_user, get_db, require_login
-from app.models import Content, Playlist, PlaylistItem, User
+from app.models import Content, OfflinePin, Playlist, PlaylistItem, User
 from app.page_context import playlist_track_counts
 from app.schemas import PlaylistTrackAdd, StatusOut, UserPlaylistCreate, UserPlaylistOut
 
@@ -102,6 +102,10 @@ def delete_playlist(
     playlist = _get_playlist_or_404(db, playlist_id, user.id)
     # Cascade removes the items only; the Content rows belong to the library.
     db.delete(playlist)
+    # A downloaded copy of this list stops holding its songs; they fall back to cache.
+    db.query(OfflinePin).filter(
+        OfflinePin.user_id == user.id, OfflinePin.list_key == f"playlist:{playlist_id}"
+    ).delete(synchronize_session=False)
     db.commit()
     return StatusOut(id=playlist_id, status="deleted")
 

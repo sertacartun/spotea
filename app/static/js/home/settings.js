@@ -1,86 +1,37 @@
-import { api, confirmDialog, setupOverlay, showToast } from "../core.js";
-import { refreshDownloadsBody, refreshFragments } from "../fragments.js";
-import { clearAll as clearDeviceCopies, deleteTrack } from "../offline.js";
-import { syncDeviceSummary } from "./device.js";
+import { api, confirmDialog, setupOverlay } from "../core.js";
+import { refreshFragments } from "../fragments.js";
 import { reloadRecommendations } from "./explore.js";
 import { activate } from "./tabs.js";
 
-export function setupDownloadsOverlay() {
-  setupOverlay("downloads-overlay", "downloads-close", ["open-downloads"]);
-  // The list is server-rendered; this just freshens it after opening without blocking.
-  document.getElementById("open-downloads")?.addEventListener("click", () => {
-    refreshDownloadsBody();
-  });
-}
-
-function clearDownloadsPrompt() {
-  const total = document.getElementById("storage-total")?.textContent.trim();
-  const scale = total ? ` (${total})` : "";
-  const onDevice = Number(document.getElementById("device-summary-text")?.dataset.count) > 0;
-  const device = onDevice ? " Anything kept on this device goes too." : "";
-  return (
-    `Delete every downloaded file${scale}?${device} ` +
-    "Your artists and saved songs stay, and anything you play downloads again."
+async function clearCache() {
+  const size = document.getElementById("settings-cache-desc")?.textContent.split(" across ")[0].trim();
+  const confirmed = await confirmDialog(
+    `Delete cached songs${size ? ` (${size})` : ""}? These are songs you played but didn't download; ` +
+      "they download again when you play them. Your downloads stay.",
+    "Clear cache"
   );
-}
-
-/** Confirm, call, re-render. `alsoDownloads` is needed from inside the Downloads
-    modal: refreshFragments() alone doesn't touch that modal's list. */
-async function confirmedAction(
-  message,
-  confirmLabel,
-  url,
-  { method, errorMessage },
-  { alsoDownloads = false, alsoDevice = null } = {}
-) {
-  if (!(await confirmDialog(message, confirmLabel))) return;
-  const { ok } = await api(url, { method, errorMessage });
-  if (!ok) return;
-  // Drop the device copy too, or its bytes are stranded with no UI handle left.
-  if (alsoDevice) {
-    await alsoDevice().catch(() => {});
-    syncDeviceSummary();
-  }
-  // Not a reload: that would close the Downloads modal under the user.
-  refreshFragments();
-  if (alsoDownloads) refreshDownloadsBody();
+  if (!confirmed) return;
+  const { ok } = await api("/storage/cache", { method: "DELETE", errorMessage: "Could not clear the cache" });
+  if (ok) refreshFragments();
 }
 
 export function setupStorage() {
-  document.getElementById("clear-recently-played")?.addEventListener("click", () =>
-    confirmedAction(
+  document.getElementById("clear-recently-played")?.addEventListener("click", async () => {
+    const confirmed = await confirmDialog(
       "Clear your recently played history? This only affects the Home shelf — nothing gets deleted.",
-      "Clear",
-      "/content/recently-played",
-      { method: "DELETE", errorMessage: "Could not clear recently played" }
-    )
-  );
+      "Clear"
+    );
+    if (!confirmed) return;
+    const { ok } = await api("/content/recently-played", {
+      method: "DELETE",
+      errorMessage: "Could not clear recently played",
+    });
+    if (ok) refreshFragments();
+  });
 
-  // Delegated from #downloads-body: refreshFragments() replaces its children
-  // wholesale, so listeners on #clear-storage/#storage-list would go stale.
-  document.getElementById("downloads-body")?.addEventListener("click", (event) => {
-    if (event.target.closest("#clear-storage")) {
-      confirmedAction(
-        clearDownloadsPrompt(),
-        "Clear all",
-        "/storage",
-        { method: "DELETE", errorMessage: "Could not clear downloads" },
-        { alsoDownloads: true, alsoDevice: clearDeviceCopies }
-      );
-      return;
-    }
-
-    const removeBtn = event.target.closest(".storage-remove");
-    if (removeBtn) {
-      const contentId = removeBtn.dataset.contentId;
-      confirmedAction(
-        "Remove this download? You can get it back by playing it again.",
-        "Remove",
-        `/content/${contentId}`,
-        { method: "DELETE", errorMessage: "Could not remove this download" },
-        { alsoDownloads: true, alsoDevice: () => deleteTrack(contentId) }
-      );
-    }
+  // Delegated: the storage fragment swap replaces #clear-cache.
+  document.getElementById("settings-cache-actions")?.addEventListener("click", (event) => {
+    if (event.target.closest("#clear-cache")) clearCache();
   });
 }
 

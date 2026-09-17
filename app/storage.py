@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
-from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import Artist, Content, PlaylistItem
+from app.models import Artist, Content, OfflinePin, PlaylistItem
 from app.timeutil import utcnow
 
 # Distinct from yt-dlp's ".part": an export temp file is live while the export downloads.
@@ -19,29 +19,7 @@ EXPORT_TEMP_SUFFIX = ".export.tmp"
 
 
 @dataclass
-class StoredItem:
-    id: int
-    title: str
-    channel_title: str | None
-    size_bytes: int
-    # For offline copies in the browser, which can't fetch cover/duration later.
-    thumbnail_url: str | None = None
-    duration_seconds: int | None = None
-
-
-@dataclass
-class StorageUsage:
-    items: list[StoredItem]
-    total_bytes: int
-
-    @property
-    def count(self) -> int:
-        return len(self.items)
-
-
-@dataclass
 class UsageSummary:
-    """Duck-types StorageUsage's `total_bytes`/`count` for the shared summary template."""
 
     total_bytes: int
     count: int
@@ -56,47 +34,22 @@ def _size_on_disk(file_path: str | None) -> int:
         return 0
 
 
-def collect_usage(db: Session, user_id: int) -> StorageUsage:
-    """Commits: rows with a NULL file_size_bytes are measured once and written back."""
+def backfill_file_sizes(db: Session, user_id: int) -> None:
+    """Measures ready rows with no stored size (downloaded before the column existed, or a
+    failed stat) once and writes it back, so storage_split can stay a plain SUM."""
     rows = (
         db.query(Content)
-        .options(joinedload(Content.artist))
-        .filter(Content.user_id == user_id, Content.status == "ready")
-        .order_by(Content.downloaded_at.desc())
+        .filter(
+            Content.user_id == user_id,
+            Content.status == "ready",
+            Content.file_size_bytes.is_(None),
+        )
         .all()
     )
-
-    items: list[StoredItem] = []
-    needs_backfill = False
     for row in rows:
-        if row.file_size_bytes is None:
-            row.file_size_bytes = _size_on_disk(row.file_path)
-            needs_backfill = True
-        items.append(
-            StoredItem(
-                id=row.id,
-                title=row.title,
-                channel_title=row.display_artist,
-                size_bytes=row.file_size_bytes,
-                thumbnail_url=row.thumbnail_url,
-                duration_seconds=row.duration_seconds,
-            )
-        )
-
-    if needs_backfill:
+        row.file_size_bytes = _size_on_disk(row.file_path)
+    if rows:
         db.commit()
-
-    return StorageUsage(items=items, total_bytes=sum(item.size_bytes for item in items))
-
-
-def usage_summary(db: Session, user_id: int) -> UsageSummary:
-    """SUM/COUNT only, without collect_usage's per-row work; never writes, so NULL sizes count as 0."""
-    total_bytes, count = (
-        db.query(func.coalesce(func.sum(Content.file_size_bytes), 0), func.count(Content.id))
-        .filter(Content.user_id == user_id, Content.status == "ready")
-        .one()
-    )
-    return UsageSummary(total_bytes=total_bytes, count=count)
 
 
 def purge_content(db: Session, content: Content) -> None:
@@ -108,24 +61,81 @@ def purge_content(db: Session, content: Content) -> None:
     db.query(PlaylistItem).filter(PlaylistItem.content_id == content.id).delete(
         synchronize_session=False
     )
+    db.query(OfflinePin).filter(OfflinePin.content_id == content.id).delete(synchronize_session=False)
     db.delete(content)
 
 
-def clear_all(db: Session, user_id: int) -> int:
-    rows = db.query(Content).filter(Content.user_id == user_id, Content.status == "ready").all()
+def is_pinned():
+    return select(OfflinePin.id).where(OfflinePin.content_id == Content.id).exists()
 
+
+@dataclass
+class StorageSplit:
+    """Settings' two storage rows: downloads (pinned by a downloaded list) and cache (the rest)."""
+
+    downloads: UsageSummary
+    cache: UsageSummary
+
+
+def storage_split(db: Session, user_id: int) -> StorageSplit:
+    """Never writes, so NULL sizes count as 0 until backfill_file_sizes has run."""
+    pinned = is_pinned()
+    total_bytes = func.coalesce(func.sum(Content.file_size_bytes), 0)
+    rows = (
+        db.query(pinned.label("pinned"), total_bytes, func.count(Content.id))
+        .filter(Content.user_id == user_id, Content.status == "ready")
+        .group_by(pinned)
+        .all()
+    )
+    by_kind = {bool(is_pinned): UsageSummary(total_bytes=size, count=count) for is_pinned, size, count in rows}
+    empty = UsageSummary(total_bytes=0, count=0)
+    return StorageSplit(downloads=by_kind.get(True, empty), cache=by_kind.get(False, empty))
+
+
+def _forget_file(row: Content) -> None:
+    """The row stays in the library; only its file goes, so the next play downloads it again."""
+    if row.file_path:
+        Path(row.file_path).unlink(missing_ok=True)
+    row.status = "not_downloaded"
+    row.file_path = None
+    # Reset too: a stale size would make the next backfill_file_sizes skip the row.
+    row.file_size_bytes = None
+    row.error_message = None
+    row.downloaded_at = None
+
+
+def clear_cache(db: Session, user_id: int) -> int:
+    """Every file no downloaded list holds, whatever its age."""
+    rows = (
+        db.query(Content)
+        .filter(Content.user_id == user_id, Content.status == "ready", ~is_pinned())
+        .all()
+    )
     for row in rows:
-        if row.file_path:
-            Path(row.file_path).unlink(missing_ok=True)
-        row.status = "not_downloaded"
-        row.file_path = None
-        row.file_size_bytes = None
-        row.error_message = None
-        row.downloaded_at = None
-
+        _forget_file(row)
     db.commit()
     sweep_orphans(db)
+    return len(rows)
 
+
+CACHE_RETENTION = timedelta(days=7)
+
+
+def sweep_cache(db: Session) -> int:
+    """Cached files a week past their last play, or past their download if never played (a queue prefetch)."""
+    cutoff = utcnow() - CACHE_RETENTION
+    rows = (
+        db.query(Content)
+        .filter(
+            Content.status == "ready",
+            ~is_pinned(),
+            func.coalesce(Content.last_played_at, Content.downloaded_at, Content.added_at) < cutoff,
+        )
+        .all()
+    )
+    for row in rows:
+        _forget_file(row)
+    db.commit()
     return len(rows)
 
 
@@ -137,6 +147,18 @@ def sweep_startup_leftovers() -> int:
         part_file.unlink(missing_ok=True)
         removed += 1
     return removed
+
+
+def reset_interrupted_downloads(db: Session) -> int:
+    """Call only at startup. A restart mid-download leaves the row "downloading" with nothing
+    running it, and every path that would download it again skips a row in that state."""
+    reset = (
+        db.query(Content)
+        .filter(Content.status == "downloading")
+        .update({"status": "not_downloaded", "error_message": None}, synchronize_session=False)
+    )
+    db.commit()
+    return reset
 
 
 STALE_EXPORT_AGE = timedelta(hours=1)
@@ -189,6 +211,8 @@ def sweep_stale_previews(db: Session) -> int:
             Content.status != "ready",
             Content.last_played_at.is_(None),
             Content.is_favorite.is_(False),
+            # Still queued for a downloaded list.
+            ~is_pinned(),
         )
         .all()
     )

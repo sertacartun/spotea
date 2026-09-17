@@ -28,8 +28,8 @@
 - ✨ **Recommendations based on who you follow.** Explore suggests songs and artists from your library.
 - 📝 **Synced lyrics.** Lyrics scroll along with the song.
 - 🎶 **Your own playlists.** Plus Favorites and Recently Played.
-- 📥 **Downloads you own.** Audio is saved to your disk and can be exported as one zip.
-- ✈️ **Offline playback.** Keep songs on your phone and play them with no connection.
+- 📥 **Download lists to your phone.** Favorites, your playlists, albums and more play with no connection; downloads stay on your disk for good and export as one zip.
+- 🧹 **Played songs are a cache.** Anything you only played is cleared a week after its last play.
 - 📱 **Installs like an app.** Add it to your home screen on iOS or Android.
 
 <br clear="right">

@@ -78,7 +78,7 @@ def _run_download(content_id: int, video_id: str, quality: str, user_id: int) ->
     finally:
         _download_progress.discard(content_id)
 
-        # A stat failure shouldn't lose the download; collect_usage backfills the size later.
+        # A stat failure shouldn't lose the download; backfill_file_sizes fills the size in later.
     try:
         size_bytes = file_path.stat().st_size
     except OSError:
@@ -93,6 +93,40 @@ def _run_download(content_id: int, video_id: str, quality: str, user_id: int) ->
         # It has been playable, so whatever made it unavailable no longer holds.
         is_unavailable=False,
     )
+
+
+def download_queued(content_id: int) -> None:
+    """The download queue's step: start_download's guards, then the download inline on the queue's thread."""
+    with SessionLocal() as db:
+        content = (
+            db.query(Content)
+            .options(joinedload(Content.artist))
+            .filter(Content.id == content_id)
+            .first()
+        )
+        if content is None or content.status == "downloading" or content.is_unavailable:
+            return
+        if content.status == "ready" and content.file_path and Path(content.file_path).exists():
+            return
+
+        _apply_song_version(db, content, content.user_id)
+        if not VIDEO_ID_RE.match(content.video_id):
+            return
+
+        content.status = "downloading"
+        content.error_message = None
+        db.commit()
+        video_id, thumbnail_url, user_id = content.video_id, content.thumbnail_url, content.user_id
+        quality = db.get(User, user_id).audio_quality
+
+    try:
+        _run_download(content_id, video_id, quality, user_id)
+    except Exception:
+        # _run_download only settles the errors it expects; don't leave the row "downloading" forever.
+        _set_download_outcome(content_id, status="error", error_message="Download failed")
+        raise
+    if needs_thumbnail_caching(thumbnail_url):
+        cache_thumbnail(video_id, thumbnail_url)
 
 
 # Literal-prefixed routes stay above the /{content_id} catch-all so they aren't shadowed.

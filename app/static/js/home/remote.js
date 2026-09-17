@@ -39,6 +39,31 @@ function remoteRows() {
   return [...document.querySelectorAll("#detail-panel .track-row-remote")];
 }
 
+/**
+ * Turns the listing's rows into library rows (previews, no YouTube cost). Resolves to
+ * { items, data } with data.content_ids in items' order, or null (already reported).
+ * Rows with no channel can't become library rows and are left out of items.
+ */
+export async function materializeRemoteRows(rows = remoteRows(), errorMessage = "Could not read this list") {
+  const items = rows
+    .filter((row) => row.dataset.channelId)
+    .map((row) => ({
+      video_id: row.dataset.videoId,
+      channel_id: row.dataset.channelId,
+      title: row.dataset.title,
+      thumbnail_url: row.dataset.thumbnailUrl || null,
+      duration_seconds: row.dataset.durationSeconds ? Number(row.dataset.durationSeconds) : null,
+      channel_title: row.dataset.channelTitle || null,
+      artist_credit: row.dataset.artistCredit || null,
+    }));
+  if (!items.length) {
+    showToast("Nothing to play here");
+    return null;
+  }
+  const { ok, data } = await api("/explore/tracks/batch", { method: "POST", body: { items }, errorMessage });
+  return ok ? { items, data } : null;
+}
+
 /** Ignores a double tap rather than sending a second batch that races the first. */
 let listStartInFlight = false;
 
@@ -51,28 +76,9 @@ export async function playRemoteList(source, { startVideoId = null, button = nul
   listStartInFlight = true;
   if (button) button.disabled = true;
   try {
-    const items = rows
-      .filter((row) => row.dataset.channelId)
-      .map((row) => ({
-        video_id: row.dataset.videoId,
-        channel_id: row.dataset.channelId,
-        title: row.dataset.title,
-        thumbnail_url: row.dataset.thumbnailUrl || null,
-        duration_seconds: row.dataset.durationSeconds ? Number(row.dataset.durationSeconds) : null,
-        channel_title: row.dataset.channelTitle || null,
-        artist_credit: row.dataset.artistCredit || null,
-      }));
-    if (!items.length) {
-      showToast("Nothing to play here");
-      return;
-    }
-
-    const { ok, data } = await api("/explore/tracks/batch", {
-      method: "POST",
-      body: { items },
-      errorMessage: "Could not start this list",
-    });
-    if (!ok) return;
+    const made = await materializeRemoteRows(rows, "Could not start this list");
+    if (!made) return;
+    const { items, data } = made;
 
     // Positional: add_video_batch answers in the order it was sent.
     const startIndex = startVideoId

@@ -1,0 +1,5 @@
+{%- if downloads.count -%}
+{% with usage = downloads %}{% include "_storage_summary.html" %}{% endwith %}
+{%- else -%}
+Download a playlist, album or Favorites and its songs stay here for good.
+{%- endif -%}

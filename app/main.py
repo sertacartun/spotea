@@ -21,13 +21,14 @@ from app.routers import auth as auth_router
 from app.routers import content as content_router
 from app.routers import debug as debug_router
 from app.routers import explore as explore_router
+from app.routers import offline as offline_router
 from app.routers import pages as pages_router
 from app.routers import partials as partials_router
 from app.routers import playlists as playlists_router
 from app.routers import recommendations as recommendations_router
 from app.routers import settings as settings_router
 from app.routers import storage as storage_router
-from app.storage import sweep_startup_leftovers
+from app.storage import reset_interrupted_downloads, sweep_startup_leftovers
 
 # uvicorn leaves the root logger at WARNING, which silently drops every app logger.info().
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")
@@ -156,6 +157,10 @@ async def lifespan(app: FastAPI):
     removed = sweep_startup_leftovers()
     if removed:
         logger.info("Removed %d abandoned .part file(s) from a previous run", removed)
+    with SessionLocal() as db:
+        reset = reset_interrupted_downloads(db)
+    if reset:
+        logger.info("Reset %d download(s) a previous run left unfinished", reset)
 
     scheduler.start()
     try:
@@ -195,6 +200,7 @@ app.include_router(artists_router.router)
 app.include_router(explore_router.router)
 app.include_router(content_router.router)
 app.include_router(playlists_router.router)
+app.include_router(offline_router.router)
 app.include_router(storage_router.router)
 app.include_router(settings_router.router)
 app.include_router(recommendations_router.router)
