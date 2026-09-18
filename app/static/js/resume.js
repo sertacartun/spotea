@@ -1,3 +1,5 @@
+import { showUpdateBanner } from "./core.js";
+
 const RESUME_KEY = "spotea-resume";
 
 // bfcache restores stale server-rendered DOM without contacting the server, so force a real reload.
@@ -62,17 +64,17 @@ export function consumeResumeState(contentId) {
 }
 
 // Registered from every page so install works anywhere. An installed PWA can run for days
-// without navigating, so updates must be polled explicitly and applied via controllerchange.
+// without navigating, so updates must be polled explicitly.
 export function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
 
-  // A first-ever install also fires controllerchange (clients.claim()); don't reload for that.
+  // A first-ever install also fires controllerchange (clients.claim()); that one means nothing.
   const hadController = Boolean(navigator.serviceWorker.controller);
-  let reloading = false;
+  // This used to reload here. A reload mid-track assigns audio.src again and iOS reads the
+  // teardown as the page being done with audio, so it stops playing and clears Now Playing —
+  // for an update nobody asked for. The banner offers the reload instead.
   navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (!hadController || reloading) return;
-    reloading = true;
-    window.location.reload();
+    if (hadController) showUpdateBanner();
   });
 
   window.addEventListener("load", () => {

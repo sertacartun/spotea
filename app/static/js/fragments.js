@@ -6,6 +6,7 @@ import { noteConnection } from "./core.js";
 const FRAGMENTS = [
   { name: "home", targets: ["home-shelves"] },
   { name: "library", targets: ["library-grid"] },
+  { name: "about", targets: ["settings-about"] },
   {
     name: "storage-summary",
     targets: ["settings-downloads-desc", "settings-downloads-actions", "settings-cache-desc", "settings-cache-actions"],

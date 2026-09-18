@@ -8,6 +8,7 @@ from fastapi import BackgroundTasks
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
+from app.config import settings
 from app.content_query import (
     DEFAULT_PAGE_SIZE,
     count_content,
@@ -21,8 +22,10 @@ from app.models import Artist, Content, Playlist, PlaylistItem, User
 from app.routes import TAB_PATHS, detail_path
 from app.services.artist_sync import cache_thumbnail, snapshot_releases
 from app.services.initial_sync import syncing_artist_ids
+from app.services.update_check import available_update, is_enabled, is_instance_owner
 from app.storage import backfill_file_sizes, storage_split
 from app.timeutil import utcnow
+from app.version import APP_VERSION, RELEASES_URL
 
 HOME_SHELF_LIMIT = 12
 HOME_CHANNEL_LIMIT = 12
@@ -166,6 +169,25 @@ def storage_summary_context(db: Session, user_id: int, *, backfill: bool = False
         backfill_file_sizes(db, user_id)
     split = storage_split(db, user_id)
     return {"downloads": split.downloads, "cache": split.cache}
+
+
+def about_context(db: Session, user_id: int) -> dict:
+    """Settings' About row. Server-rendered so the version is right even with no network.
+
+    No upstream call: available_update reads the row services/update_check.py last wrote.
+    """
+    is_owner = is_instance_owner(db, user_id)
+    update = available_update(db) if is_owner else None
+    return {
+        "app_version": APP_VERSION,
+        "update_version": update[0] if update else None,
+        "update_url": update[1] if update else RELEASES_URL,
+        # The toggle is owner-only (nobody else's preference would mean anything — they're never
+        # told an update exists either way) and only exists at all when UPDATE_CHECK is on:
+        # settings.update_check is the deploy-time kill switch, not the toggle's own state.
+        "show_update_check_toggle": is_owner and settings.update_check,
+        "update_check_enabled": is_enabled(db) if is_owner else False,
+    }
 
 
 class PinnedPlaylist(NamedTuple):

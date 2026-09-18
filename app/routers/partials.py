@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.deps import get_current_user, get_db, require_login
 from app.models import User
 from app.page_context import (
+    about_context,
     home_context,
     library_context,
     playlist_detail_context,
@@ -76,6 +77,16 @@ def storage_summary_fragment(
         return templates.TemplateResponse(
         request, "_fragment_storage_summary.html", storage_summary_context(db, user.id)
     )
+
+
+@router.get("/about", response_class=HTMLResponse)
+def about_fragment(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    """Settings' version row, so an update found after load shows without a reload."""
+    return templates.TemplateResponse(request, "_fragment_about.html", about_context(db, user.id))
 
 
 @router.get("/detail/playlist/{kind}", response_class=HTMLResponse)

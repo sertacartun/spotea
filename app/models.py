@@ -227,3 +227,24 @@ class OfflinePin(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     list_key: Mapped[str] = mapped_column(String(200))
     content_id: Mapped[int] = mapped_column(ForeignKey("content.id"))
+
+
+class UpdateCheck(Base):
+    """Whether this instance asks GitHub about new releases, and the last answer it got. One row, id 1.
+
+    Instance-wide rather than per user: what upstream has released is the same fact for
+    everyone on this server, and asking once per window is the whole point.
+    A table, not columns on users: `create_all` adds missing tables but never missing columns.
+    `checked_at` is stamped even when the request fails, so a GitHub outage can't turn every
+    foreground return into another attempt."""
+
+    __tablename__ = "update_checks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # The owner's Settings toggle. Off means services/update_check.py never contacts GitHub at
+    # all — not "contacts it but hides the answer" — for whoever turned it off on privacy grounds.
+    enabled: Mapped[bool] = mapped_column(default=True)
+    checked_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # NULL = asked, no answer yet (no releases published, rate limited, offline).
+    latest_version: Mapped[str | None] = mapped_column(String(50), default=None)
+    release_url: Mapped[str | None] = mapped_column(String(500), default=None)

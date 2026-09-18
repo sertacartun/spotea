@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     music_chart_countries: str = DEFAULT_CHART_COUNTRIES
     # Deprecated; still read because extra="ignore" would otherwise drop an old .env value silently.
     music_chart_country: str | None = None
+    # Once per 12-hour window the server asks GitHub whether a newer Spotea was released, and
+    # tells the first-registered account. Off, nothing this app does ever leaves the machine.
+    update_check: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 

@@ -6,6 +6,7 @@ from app.deps import get_current_user, get_db, require_login
 from app.interests import parse_interests
 from app.models import User
 from app.page_context import (
+    about_context,
     home_context,
     home_shelf_items,
     library_context,
@@ -43,6 +44,7 @@ def app_shell(
             **home,
             **library_context(db, user.id),
             **storage_summary_context(db, user.id, backfill=True),
+            **about_context(db, user.id),
         },
         headers={SHELL_HEADER: "1"},
     )

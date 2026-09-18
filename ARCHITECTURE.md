@@ -64,6 +64,7 @@ app/
   timeutil.py        naive-UTC helpers, the 00:00/12:00 UTC refresh boundary
   formatting.py      filename/size/duration formatting
   templating.py      Jinja environment
+  version.py         APP_VERSION and the repo's release URLs; bumped by hand per release
 
   routers/
     pages.py         GET / — the whole app is one document
@@ -76,6 +77,7 @@ app/
     storage.py       clear all, export zip
     auth.py          register, login, logout
     debug.py         playback breadcrumbs the server can't otherwise see
+    updates.py       /updates — is this page, or this server, behind?
 
   services/
     artist_follow.py   "is this an artist?" — the one throat every follow goes through
@@ -83,6 +85,7 @@ app/
     initial_sync.py    the background first sync, and its progress registry
     remote_detail.py   artist / release / playlist panels
     recommendations.py the Explore batch and its cache
+    update_check.py    asks GitHub for the newest release, twice a day, per install
 
   youtube/
     music.py         the ytmusicapi client — search, artist, release, charts, moods

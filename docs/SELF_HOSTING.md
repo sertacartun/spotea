@@ -45,6 +45,18 @@ docker compose up -d --build
 
 Rebuilds don't touch `./data`.
 
+Spotea tells you when there is something to pull: once every 12 hours the
+server asks GitHub for the newest release and, if it is newer than the one
+running, says so in **Settings → About**, with a link to the release notes.
+Only the first account registered on the instance sees it — on a server
+shared with a household, nobody else can run the command anyway.
+
+That check is one request per install, made by the server. The app never
+contacts GitHub from anyone's browser, and sends nothing about you or your
+library. The owner can turn it off from **Settings → About** — no .env edit
+or restart — or shut off the whole feature at deploy time with
+`UPDATE_CHECK=false`.
+
 <details>
 <summary>Upgrading from an older version</summary>
 
@@ -193,6 +205,7 @@ None of them is required.
 | `HOST_PORT` | `8000` | Port Docker publishes the app on. `127.0.0.1:8000` limits it to the machine itself (Docker only) |
 | `SESSION_HTTPS_ONLY` | `false` | Sends the login cookie over HTTPS only. Turn it on once you use an HTTPS URL; with it on, logging in over plain HTTP silently fails |
 | `SECRET_KEY` | generated | Key that signs login sessions. When unset, one is generated on first start and kept in `secret_key` next to `STORAGE_DIR` |
+| `UPDATE_CHECK` | `true` | Whether the feature exists at all: asking GitHub once every 12 hours whether a newer Spotea was released, shown in Settings to the first account registered. `false` removes it, including its own Settings toggle. Leaving it `true` still lets that toggle turn the check off at runtime |
 | `MUSIC_CHART_COUNTRIES` | `US,GB,CA,AU,IE,NZ` | Countries for Explore's Charts shelf, comma separated. Each one adds its "Trending 20" playlist. `ZZ` is YouTube Music's global chart, which is weighted by market size |
 | `AUDIO_FORMAT` | `m4a` | Format yt-dlp saves audio in. `m4a` is YouTube's own stream, so saving it needs no conversion; other formats like `mp3` have to be converted and take longer |
 | `DATABASE_URL` | `sqlite:////app/data/spotea.db` | SQLAlchemy database URL |
