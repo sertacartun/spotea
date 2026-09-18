@@ -942,8 +942,12 @@ html[data-active-tab="detail"] .tab-panel[data-tab-panel="detail"] {
   cursor: default;
 }
 
+/* No margin of its own: .explore-search-head's own padding-bottom, plus
+   .channel-search's margin-bottom above the input, already match the sticky
+   head's top gap (.layout's padding) — a separate margin here on top of both
+   was tripling the gap below the search box versus above it. */
 #recommendations-body {
-  margin-top: 1.75rem;
+  margin-top: 0;
 }
 
 .rec-card .card-title {
