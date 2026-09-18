@@ -19,12 +19,12 @@ def test_a_missing_added_column_is_created_on_an_existing_database():
 
     import pytest
 
-    from app.main import _ADDED_CONTENT_COLUMNS, _add_missing_columns
+    from app.main import _ADDED_COLUMNS, _add_missing_columns
 
     if sqlite3.sqlite_version_info < (3, 35):
         pytest.skip("ALTER TABLE DROP COLUMN needs SQLite 3.35+ to set the test up")
 
-    column, _ddl = _ADDED_CONTENT_COLUMNS[0]
+    column, _ddl = _ADDED_COLUMNS["content"][0]
 
     def columns():
         with engine.connect() as conn:
@@ -44,13 +44,51 @@ def test_a_missing_added_column_is_created_on_an_existing_database():
     assert column in columns()
 
 
-def test_every_added_column_is_nullable():
-    """Added to tables that already have rows, so NOT NULL would fail on any non-empty database."""
-    from app.main import _ADDED_CONTENT_COLUMNS
+def test_a_missing_not_null_column_is_backfilled_on_an_existing_row():
+    """The exact bug this regresses: update_checks shipped, then grew `enabled` in the same
+    unreleased branch. A database already holding a row from before that column existed must
+    not crash every read that touches it (app.services.update_check.available_update and
+    friends all do `db.get(UpdateCheck, ...)`, which selects every mapped column)."""
+    import sqlite3
 
-    for column, ddl in _ADDED_CONTENT_COLUMNS:
-        assert "NOT NULL" not in ddl.upper(), f"{column} is declared NOT NULL"
-        assert "DEFAULT" not in ddl.upper(), f"{column} carries a DEFAULT, which needs a considered migration"
+    import pytest
+
+    from app.main import _add_missing_columns
+
+    if sqlite3.sqlite_version_info < (3, 35):
+        pytest.skip("ALTER TABLE DROP COLUMN needs SQLite 3.35+ to set the test up")
+
+    with engine.begin() as conn:
+        # A row from before `enabled` existed — the exact shape the real database was in.
+        # Dropping the column afterward removes it from underneath the row it already has.
+        conn.exec_driver_sql(
+            "INSERT INTO update_checks (id, enabled, checked_at) VALUES (1, 1, '2026-01-01 00:00:00')"
+        )
+        conn.exec_driver_sql("ALTER TABLE update_checks DROP COLUMN enabled")
+
+    def row():
+        with engine.connect() as conn:
+            return conn.exec_driver_sql("SELECT id, enabled FROM update_checks").fetchone()
+
+    with pytest.raises(Exception, match="no such column"):
+        row()
+
+    _add_missing_columns()
+
+    fetched = row()
+    assert fetched is not None, "the bootstrap row must still be there, not recreated"
+    assert fetched[1] == 1, "backfilled to enabled — the same default a fresh row gets"
+
+
+def test_every_added_not_null_column_carries_a_default():
+    """SQLite's ALTER TABLE ADD COLUMN refuses NOT NULL without a DEFAULT to backfill existing
+    rows; a nullable one, like content.artist_credit, needs neither and backfills to NULL."""
+    from app.main import _ADDED_COLUMNS
+
+    for table, columns in _ADDED_COLUMNS.items():
+        for column, ddl in columns:
+            if "NOT NULL" in ddl.upper():
+                assert "DEFAULT" in ddl.upper(), f"{table}.{column} is NOT NULL but carries no DEFAULT"
 
 
 def test_an_obsolete_column_is_dropped_from_an_existing_database():

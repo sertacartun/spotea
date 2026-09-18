@@ -218,6 +218,38 @@ def test_register_rejects_a_too_short_username():
     assert res.status_code == 400
 
 
+def test_a_session_naming_a_deleted_user_does_not_loop(db_session):
+    """A real incident: an admin merging/renumbering accounts left a signed-in session naming a
+    user id that no longer existed. get_current_user correctly raised NotAuthenticated, but the
+    handler left the session as-is — and login_page/register_page only check whether a session
+    exists, not whether its user still does, so the next request bounced straight back to "/",
+    which failed the same way, forever. iOS Safari surfaced this as "Load cannot follow more
+    than 20 redirections".
+
+    A throwaway account, not the shared session-scoped bootstrap user (conftest.DEFAULT_USER_ID)
+    — deleting that one would strand every later test that logs in as it.
+    """
+    from app.models import User
+
+    with TestClient(app) as client:
+        client.post(
+            "/register",
+            data={"username": "disappearing", "password": "supersecret", "confirm_password": "supersecret"},
+        )
+
+        user = db_session.query(User).filter(User.username == "disappearing").one()
+        db_session.delete(user)
+        db_session.commit()
+
+        first = client.get("/", follow_redirects=False)
+        assert first.status_code == 303
+        assert first.headers["location"] == "/login"
+
+        # The session the redirect left behind must actually be gone — not just this one hop.
+        second = client.get("/login", follow_redirects=False)
+        assert second.status_code == 200, "still holding the stale session, about to bounce back to /"
+
+
 def test_a_username_is_stored_and_matched_lowercased(db_session):
     """The column has no case-insensitive collation; the router's normalization is what matches."""
     from app.models import User

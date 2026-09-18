@@ -1,7 +1,7 @@
 // Network-first service worker: exists for installability and an offline
 // fallback, not offline-first — a cache-first strategy would fight no-cache static assets.
 // Bump the version whenever an old cache may hold entries that must be purged.
-const CACHE_NAME = "spotea-v7";
+const CACHE_NAME = "spotea-v8";
 
 // Every page URL (/explore, /artist/…) serves this same document, so one cached copy answers them all.
 const SHELL_URL = "/";
@@ -53,6 +53,8 @@ const API_PREFIXES = [
   "/profiles",
   // Not "/settings": that GET is the Settings page now, and the API is PUT-only (never intercepted).
   "/storage",
+  // Must never be answered from cache: a stale version is exactly the thing it reports on.
+  "/updates",
   "/partials",
   "/recommendations",
   "/onboarding",

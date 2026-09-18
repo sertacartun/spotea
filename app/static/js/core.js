@@ -168,6 +168,17 @@ export function watchConnection() {
   probeConnection();
 }
 
+/**
+ * Raises the "the server is ahead of this page" banner.
+ *
+ * Exported rather than local because two unrelated things notice the same fact: the
+ * version poll in home/settings.js, and a new service worker taking over in resume.js.
+ */
+export function showUpdateBanner() {
+  const banner = document.getElementById("update-banner");
+  if (banner) banner.hidden = false;
+}
+
 export function debounce(fn, delay) {
   let timer;
   return (...args) => {

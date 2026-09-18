@@ -1,4 +1,4 @@
-import { api, confirmDialog, setupOverlay, showToast } from "../core.js";
+import { api, confirmDialog, setupOverlay, showToast, showUpdateBanner } from "../core.js";
 import { onFragmentsSwapped, refreshFragments } from "../fragments.js";
 import { reloadRecommendations } from "./explore.js";
 import { activate } from "./tabs.js";
@@ -250,4 +250,67 @@ export function setupSettings() {
     });
   });
 
+}
+
+
+// One request answers both staleness questions (see app/routers/updates.py): whether this
+// document is older than the server that served it, and whether the server itself is older
+// than what the project has released. The server decides when to actually ask GitHub.
+let updateCheckInFlight = false;
+
+/** Shared by the automatic poll and the manual button: both get back the same UpdateStatus shape. */
+function applyUpdateStatus(data) {
+  if (data.version && data.version !== document.body.dataset.appVersion) showUpdateBanner();
+
+  // Non-owners are never sent a `latest`, so the dot and the About row stay quiet for them.
+  const available = Boolean(data.latest);
+  if (available === document.body.classList.contains("has-update")) return;
+  document.body.classList.toggle("has-update", available);
+  // The check can land long after the page was rendered; re-render the row rather than write it.
+  refreshFragments();
+}
+
+async function checkForUpdate() {
+  if (updateCheckInFlight || document.hidden || document.body.classList.contains("is-offline")) return;
+  updateCheckInFlight = true;
+  try {
+    const { ok, data } = await api("/updates");
+    if (ok && data) applyUpdateStatus(data);
+  } finally {
+    updateCheckInFlight = false;
+  }
+}
+
+/** Asks on open and on every return to the foreground, the only regular event an installed PWA gets. */
+export function setupUpdateWatch() {
+  document.getElementById("update-reload")?.addEventListener("click", () => window.location.reload());
+  checkForUpdate();
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) checkForUpdate();
+  });
+}
+
+// Settings' "Check for updates" toggle: not a check itself, only permission for the twice-a-day
+// one in check_if_due to run at all. Delegated, not bound directly — the toggle lives inside a
+// fragment (app/templates/_settings_about.html) that refreshFragments() replaces wholesale.
+export function setupUpdateCheckToggle() {
+  document.addEventListener("change", async (event) => {
+    const toggle = event.target.closest("#update-check-toggle");
+    if (!toggle) return;
+
+    const enabled = toggle.checked;
+    toggle.disabled = true;
+    try {
+      const { ok, data } = await api("/updates/settings", {
+        method: "PUT",
+        body: { enabled },
+        errorMessage: "Could not save that",
+      });
+      if (ok && data) applyUpdateStatus(data);
+      else toggle.checked = !enabled; // the server didn't take it; don't leave the switch lying
+    } finally {
+      // Gone already if applyUpdateStatus re-rendered the row (available flipped along with it).
+      if (document.body.contains(toggle)) toggle.disabled = false;
+    }
+  });
 }

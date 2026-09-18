@@ -3,13 +3,19 @@
 import asyncio
 
 from app import scheduler
+from app.version import APP_VERSION
 
 
 def test_health_reports_ok_while_everything_runs(client):
     res = client.get("/health")
 
     assert res.status_code == 200
-    assert res.json() == {"status": "ok", "database": True, "scheduler": True}
+    assert res.json() == {
+        "status": "ok",
+        "database": True,
+        "scheduler": True,
+        "version": APP_VERSION,
+    }
 
 
 def test_health_is_503_when_the_refresh_loop_has_died(client, monkeypatch):

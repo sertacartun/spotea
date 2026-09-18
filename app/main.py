@@ -11,6 +11,7 @@ from sqlalchemy import text
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import scheduler
+from app.auth import SESSION_KEY
 from app.config import resolve_secret_key, settings
 from app.database import Base, SessionLocal, engine
 from app.deps import NotAuthenticated, require_login
@@ -28,7 +29,9 @@ from app.routers import playlists as playlists_router
 from app.routers import recommendations as recommendations_router
 from app.routers import settings as settings_router
 from app.routers import storage as storage_router
+from app.routers import updates as updates_router
 from app.storage import reset_interrupted_downloads, sweep_startup_leftovers
+from app.version import APP_VERSION
 
 # uvicorn leaves the root logger at WARNING, which silently drops every app logger.info().
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s: %(message)s")
@@ -86,24 +89,30 @@ def _drop_removed_columns() -> None:
         logger.info("Dropped obsolete columns: %s", ", ".join(dropped))
 
 
-# Must stay nullable with no default, so `create_all` and ALTER TABLE agree without a backfill.
-_ADDED_CONTENT_COLUMNS = (
-    ("artist_credit", "VARCHAR(300)"),
-)
+# A NOT NULL column needs a DDL-level DEFAULT here — SQLite's ALTER TABLE ADD COLUMN requires
+# one to backfill a table that already has rows, unlike `create_all`'s fresh-table DDL, which
+# gets away with a Python-side-only default (see UpdateCheck.enabled). A nullable one, like
+# content.artist_credit, needs neither and backfills to NULL.
+_ADDED_COLUMNS: dict[str, tuple[tuple[str, str], ...]] = {
+    "content": (("artist_credit", "VARCHAR(300)"),),
+    "update_checks": (("enabled", "BOOLEAN NOT NULL DEFAULT 1"),),
+}
 
 
 def _add_missing_columns() -> None:
-    """Add _ADDED_CONTENT_COLUMNS to an older database: `create_all` adds tables but never columns."""
+    """Add _ADDED_COLUMNS to an older database: `create_all` adds tables but never columns."""
+    added: list[str] = []
     with engine.begin() as conn:
-        present = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(content)")}
-        missing = [(c, t) for c, t in _ADDED_CONTENT_COLUMNS if c not in present]
-        if not missing:
-            return
+        for table, columns in _ADDED_COLUMNS.items():
+            present = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+            for column, ddl_type in columns:
+                if column in present:
+                    continue
+                conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}")
+                added.append(f"{table}.{column}")
 
-        for column, ddl_type in missing:
-            conn.exec_driver_sql(f"ALTER TABLE content ADD COLUMN {column} {ddl_type}")
-
-    logger.info("Added missing content columns: %s", ", ".join(c for c, _ in missing))
+    if added:
+        logger.info("Added missing columns: %s", ", ".join(added))
 
 
 def _rename_email_to_username() -> None:
@@ -204,6 +213,7 @@ app.include_router(offline_router.router)
 app.include_router(storage_router.router)
 app.include_router(settings_router.router)
 app.include_router(recommendations_router.router)
+app.include_router(updates_router.router)
 app.include_router(debug_router.router)
 app.include_router(partials_router.router)
 app.include_router(pages_router.router)
@@ -211,6 +221,13 @@ app.include_router(pages_router.router)
 
 @app.exception_handler(NotAuthenticated)
 async def handle_not_authenticated(request: Request, exc: NotAuthenticated) -> RedirectResponse:
+    # A session can hold a user id that no longer exists (an account merged or deleted from
+    # under it) — get_current_user raises this, but login_page/register_page only check
+    # whether a session exists, not whether its user still does. Left in place, that session
+    # would bounce forever between "/" (fails here) and "/login" (sees a session, sends it
+    # right back). Clearing it here, the one place every such failure passes through, is what
+    # breaks the loop regardless of which route noticed first.
+    request.session.pop(SESSION_KEY, None)
     return RedirectResponse(url="/login", status_code=303)
 
 
@@ -221,7 +238,8 @@ def health(response: Response) -> dict[str, object]:
     healthy = all(checks.values())
     if not healthy:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    return {"status": "ok" if healthy else "degraded", **checks}
+    # Outside `checks`: a version is never a failure, and `healthy` is all(checks.values()).
+    return {"status": "ok" if healthy else "degraded", **checks, "version": APP_VERSION}
 
 
 def _database_reachable() -> bool:

@@ -20,6 +20,8 @@ import {
   setupInterests,
   setupSettings,
   setupStorage,
+  setupUpdateCheckToggle,
+  setupUpdateWatch,
 } from "../home/settings.js";
 import { setupTabs } from "../home/tabs.js";
 import { installVisibilityBreadcrumb, setupFavorite, setupPlayer } from "../player.js";
@@ -64,4 +66,7 @@ setupLibrarySearch();
 setupPreparingArtists();
 setupHorizontalScrollers();
 setupReleaseSync();
+// After watchConnection: an offline check would only fail, and it skips while the banner is up.
+setupUpdateWatch();
+setupUpdateCheckToggle();
 setupMobileMenu();

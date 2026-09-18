@@ -249,3 +249,15 @@ class UserPlaylistOut(BaseModel):
 
 class PlaylistTrackAdd(BaseModel):
     content_id: int
+
+
+class UpdateStatus(BaseModel):
+    """`version` is what this server runs; `latest` a newer release upstream, or None."""
+
+    version: str
+    latest: str | None = None
+    release_url: str
+
+
+class UpdateCheckSettingsIn(BaseModel):
+    enabled: bool

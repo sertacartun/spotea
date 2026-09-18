@@ -1,4 +1,5 @@
 {% extends "_base.html" %}
+{% set body_class = "has-update" if update_version else "" %}
 
 {% block title %}Spotea{% endblock %}
 
@@ -131,10 +132,19 @@
     </button>
     <button type="button" class="tab-btn" data-tab="settings" role="tab" aria-selected="false">
       <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-settings" /></svg>
-      <span class="tab-label">Settings</span>
+      {# Shown only while body carries .has-update; the label wraps it so it rides beside the text. #}
+      <span class="tab-label">Settings<i class="tab-dot" aria-hidden="true"></i></span>
     </button>
     </div>
   </nav>
+  </div>
+
+  {# Raised when the server reports a version this document wasn't rendered by, or when a new
+     service worker takes over. Never reloads on its own: that would yank the page out from
+     under whatever is playing, which iOS reads as the app giving up audio. #}
+  <div class="update-banner" id="update-banner" role="status" hidden>
+    <span>A newer version of Spotea is running on the server.</span>
+    <button type="button" id="update-reload" class="btn-quiet">Reload</button>
   </div>
 
   <div class="offline-banner" id="offline-banner" role="status" hidden>
@@ -260,6 +270,12 @@
             </div>
             <button type="button" id="clear-recently-played" class="btn-danger">Clear</button>
           </div>
+        </section>
+
+        <section class="settings-group">
+          <h2>About</h2>
+
+          <div id="settings-about">{% include "_settings_about.html" %}</div>
         </section>
       </div>
     </section>
