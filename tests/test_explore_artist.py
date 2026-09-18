@@ -6,7 +6,13 @@ from app.models import Artist
 from app.services import remote_detail
 from app.timeutil import utcnow
 from app.youtube.models import VideoSearchResult
-from app.youtube.music import ArtistProfile, ArtistRelease, ReleaseDetail
+from app.youtube.music import (
+    ARTIST_PROFILE_TRACK_LIMIT,
+    ARTIST_TRACK_LIMIT,
+    ArtistProfile,
+    ArtistRelease,
+    ReleaseDetail,
+)
 
 USER_ID = 1
 BROWSE_ID = "UCNaGLJRPE3ohleIDM7RFtlQ"
@@ -58,7 +64,7 @@ def _profile(**overrides):
 @pytest.fixture
 def fake_artist(monkeypatch):
     def install(profile):
-        monkeypatch.setattr(remote_detail, "fetch_artist", lambda browse_id: profile)
+        monkeypatch.setattr(remote_detail, "fetch_artist", lambda browse_id, track_limit=None: profile)
 
     return install
 
@@ -227,6 +233,22 @@ def test_the_full_song_list_keeps_the_artists_follow_button(client, fake_artist)
 
     assert f"https://www.youtube.com/channel/{TOPIC_ID}" in res.text
     assert "detail-play-all" in res.text
+
+
+def test_the_profile_asks_for_a_page_not_the_whole_catalogue(client, monkeypatch):
+    """The profile only shows ARTIST_PREVIEW_SONGS; "see all" is what pays for the full fetch."""
+    seen = []
+
+    def fake(browse_id, track_limit=None):
+        seen.append(track_limit)
+        return _profile()
+
+    monkeypatch.setattr(remote_detail, "fetch_artist", fake)
+
+    client.get(f"/partials/detail/yt-artist/{BROWSE_ID}")
+    client.get(f"/partials/detail/yt-artist-songs/{BROWSE_ID}")
+
+    assert seen == [ARTIST_PROFILE_TRACK_LIMIT, ARTIST_TRACK_LIMIT]
 
 
 def test_a_release_opens_as_a_track_list(client, monkeypatch):

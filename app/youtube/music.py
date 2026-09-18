@@ -9,10 +9,13 @@ import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta
 
+from requests.structures import CaseInsensitiveDict
 from ytmusicapi import YTMusic
 
 from app.images import cached_avatar_or_hotlink, proxied_image_url
+from app.timeutil import utcnow
 from app.youtube.models import (
     PLAYLIST_ITEM_LIMIT,
     SEARCH_RESULT_LIMIT,
@@ -56,11 +59,17 @@ ARTIST_TRACK_LIMIT = 200
 # Taken from the Top songs playlist, not the artist page's preview, whose entries have no duration.
 ARTIST_PREVIEW_SONGS = 10
 
+# The profile view only shows ARTIST_PREVIEW_SONGS. get_playlist's first page already returns up to
+# ~100 songs for free (see _artist_songs); limit=0 stops there instead of paying for the extra
+# continuation request ARTIST_TRACK_LIMIT would trigger on a catalogue over 100 songs.
+ARTIST_PROFILE_TRACK_LIMIT = 0
+
 ARTIST_RELEASE_LIMIT = 10
 
 
 # YTMusic's requests.Session isn't thread-safe, so one client per thread. Construction is free, but a
-# client's first call downloads the music.youtube.com homepage (~375 KB) for a visitor id.
+# client's first call downloads the music.youtube.com homepage (~375 KB) for a visitor id — cached
+# per client as ytmusicapi's own `base_headers`, so only a *new* client pays it.
 _local = threading.local()
 
 # Unauthenticated requests: a larger burst risks 429s.
@@ -71,12 +80,38 @@ POOL_SIZE = 8
 # Work submitted here must not submit to it again, or it can deadlock waiting on its own workers.
 pool = ThreadPoolExecutor(max_workers=POOL_SIZE, thread_name_prefix="youtube-music")
 
+# A visitor id barely changes; sharing one recently-fetched copy across threads means a request
+# handled by a cold thread (a fresh worker anyio spun up) skips its own homepage fetch too, not just
+# a warm client's *second* call — mirrors the _mood_categories TTL cache in remote_detail.py.
+SHARED_HEADERS_TTL = timedelta(hours=12)
+_shared_headers: tuple[datetime, CaseInsensitiveDict] | None = None
+
+
+def _cached_headers() -> CaseInsensitiveDict | None:
+    """Another thread's still-fresh visitor id to seed a new client with, or None if there isn't one."""
+    if _shared_headers is None or utcnow() - _shared_headers[0] > SHARED_HEADERS_TTL:
+        return None
+    return CaseInsensitiveDict(_shared_headers[1])
+
+
+def _remember_headers(client: YTMusic) -> None:
+    """After a real call, a client's now-computed base_headers are saved for the next new thread."""
+    global _shared_headers
+    headers = client.__dict__.get("base_headers")
+    if headers:
+        _shared_headers = (utcnow(), headers)
+
 
 def _client() -> YTMusic:
     client = getattr(_local, "client", None)
     if client is None:
         # No `language` (see module docstring); no `location`, so it's inferred from the request IP.
         client = YTMusic()
+        cached = _cached_headers()
+        if cached is not None:
+            # Preloads ytmusicapi's own base_headers cached_property, skipping this client's
+            # homepage fetch entirely (see SHARED_HEADERS_TTL above).
+            client.__dict__["base_headers"] = cached
         _local.client = client
     return client
 
@@ -84,7 +119,10 @@ def _client() -> YTMusic:
 def _call(description: str, method: str, *args, level: int = logging.WARNING, **kwargs):
     """One ytmusicapi call, any failure flattened to None (network, YTMusicError, KeyError on reshape)."""
     try:
-        return getattr(_client(), method)(*args, **kwargs)
+        client = _client()
+        result = getattr(client, method)(*args, **kwargs)
+        _remember_headers(client)
+        return result
     except Exception:
         logger.log(level, "YouTube Music %s failed", description, exc_info=level > logging.INFO)
         return None
@@ -571,18 +609,19 @@ class ArtistProfile:
     related: list[ChannelSearchResult] = field(default_factory=list)
 
 
-def _artist_songs(songs: dict, all_songs: bool) -> tuple[list[dict], int | None]:
+def _artist_songs(songs: dict, track_limit: int | None) -> tuple[list[dict], int | None]:
     """An artist's songs from the "Top songs" playlist (the page only previews five), plus reported total.
 
-    Costs a second request, hence `all_songs`. The count travels separately because parse failures
-    make the list shorter than the playlist.
+    Costs a second request, hence `track_limit`: None skips it (only the five-song preview, with
+    no duration data), otherwise it's forwarded to get_playlist as its `limit`. The count travels
+    separately because parse failures make the list shorter than the playlist.
     """
     preview = songs.get("results") or []
     browse_id = songs.get("browseId")
-    if not all_songs or not browse_id:
+    if track_limit is None or not browse_id:
         return preview, None
 
-    playlist = _call("artist top songs", "get_playlist", browse_id, limit=ARTIST_TRACK_LIMIT)
+    playlist = _call("artist top songs", "get_playlist", browse_id, limit=track_limit)
     tracks = (playlist or {}).get("tracks")
     if not tracks:
         return preview, None
@@ -647,8 +686,12 @@ def _related_artists(section: dict | None) -> list[ChannelSearchResult]:
     return [result for result in results if result is not None]
 
 
-def fetch_artist(browse_id: str, all_songs: bool = True) -> ArtistProfile | None:
+def fetch_artist(browse_id: str, track_limit: int | None = ARTIST_TRACK_LIMIT) -> ArtistProfile | None:
     """One artist's page, or None — also for non-music channels, so it's safe to try on any channel id.
+
+    `track_limit` is forwarded to _artist_songs: None for the header alone (a follow, a sync), or
+    ARTIST_PROFILE_TRACK_LIMIT for the profile view (see its comment above) — the default fetches
+    everything, for the "see all" list.
 
     Videos aren't merged into `tracks`: most duplicate songs under a different (OMV) id and have no
     duration. The returned `browse_id` may differ from the one asked for (see _redirected_artist).
@@ -659,7 +702,7 @@ def fetch_artist(browse_id: str, all_songs: bool = True) -> ArtistProfile | None
 
     artist, browse_id = _redirected_artist(artist, browse_id)
 
-    songs, reported_count = _artist_songs(artist.get("songs") or {}, all_songs)
+    songs, reported_count = _artist_songs(artist.get("songs") or {}, track_limit)
     tracks: list[VideoSearchResult] = []
     seen: set[str] = set()
     for track in _song_results(songs):

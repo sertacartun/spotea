@@ -40,7 +40,7 @@ def _resolve_artist(channel_id: str) -> tuple[str, str, str]:
 
     Topic and official channel ids both resolve here; the browse id stored is the page that has the music.
     """
-    artist = fetch_artist(channel_id, all_songs=False)
+    artist = fetch_artist(channel_id, track_limit=None)
     if artist is None:
         raise NotAnArtistError("This channel isn't an artist on YouTube Music")
 

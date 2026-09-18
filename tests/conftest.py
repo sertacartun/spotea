@@ -92,7 +92,7 @@ def _clean_tables(_init_schema):
 @pytest.fixture(autouse=True)
 def _no_artist_lookup(monkeypatch):
     """Following anything triggers a live YouTube Music artist lookup; default it to "not an artist"."""
-    monkeypatch.setattr(artist_follow, "fetch_artist", lambda browse_id, all_songs=True: None)
+    monkeypatch.setattr(artist_follow, "fetch_artist", lambda browse_id, track_limit=None: None)
 
 
 @pytest.fixture

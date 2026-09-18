@@ -68,9 +68,9 @@ def _track(video_id="trackaaaaaa", title="A Track"):
 
 
 def _stub_artist_lookup(monkeypatch, profile, calls=None):
-    def fake(browse_id, all_songs=True):
+    def fake(browse_id, track_limit=None):
         if calls is not None:
-            calls.append((browse_id, all_songs))
+            calls.append((browse_id, track_limit))
         return profile
 
     monkeypatch.setattr(artist_follow_module, "fetch_artist", fake)
@@ -121,7 +121,7 @@ def test_a_url_with_no_channel_in_it_never_reaches_youtube_music(db_session, mon
 
 
 def test_a_non_artist_channel_is_a_400_not_a_500(client, monkeypatch):
-    monkeypatch.setattr(artist_follow_module, "fetch_artist", lambda browse_id, all_songs=True: None)
+    monkeypatch.setattr(artist_follow_module, "fetch_artist", lambda browse_id, track_limit=None: None)
 
     res = client.post("/artists", json={"channel_url": f"https://www.youtube.com/channel/{OFFICIAL_ID}"})
 
@@ -134,7 +134,7 @@ def test_following_the_channel_of_an_artist_already_followed_is_a_duplicate(db_s
     follow_artist(db_session, f"https://www.youtube.com/channel/{TOPIC_ID}", USER_ID, sync=False)
 
     monkeypatch.setattr(
-        "app.services.artist_follow.fetch_artist", lambda browse_id, all_songs=True: _artist()
+        "app.services.artist_follow.fetch_artist", lambda browse_id, track_limit=None: _artist()
     )
     res = client.post("/artists", json={"channel_url": f"https://www.youtube.com/channel/{OFFICIAL_ID}"})
 
@@ -164,7 +164,7 @@ def test_the_track_list_is_not_paid_for_on_a_follow(db_session, monkeypatch):
 
     follow_artist(db_session, f"https://www.youtube.com/channel/{OFFICIAL_ID}", USER_ID, sync=False)
 
-    assert calls == [(OFFICIAL_ID, False)]
+    assert calls == [(OFFICIAL_ID, None)]
 
 
 def _followed(db_session, **kwargs):
@@ -186,7 +186,7 @@ def test_a_sync_records_the_catalogue_without_importing_it(db_session, monkeypat
     monkeypatch.setattr(
         artist_sync,
         "fetch_artist",
-        lambda browse_id, all_songs=True: _artist(singles=[_release(), _release("MPREb_bbbbbbbbbbb")]),
+        lambda browse_id, track_limit=None: _artist(singles=[_release(), _release("MPREb_bbbbbbbbbbb")]),
     )
 
     artist = _followed(db_session)
@@ -205,7 +205,7 @@ def test_every_sync_replaces_the_snapshot_with_what_the_page_lists_now(db_sessio
     monkeypatch.setattr(
         artist_sync,
         "fetch_artist",
-        lambda browse_id, all_songs=True: _artist(
+        lambda browse_id, track_limit=None: _artist(
             singles=[_release("MPREb_new00000000", title="New Single"), _release()]
         ),
     )
@@ -223,7 +223,7 @@ def test_every_sync_replaces_the_snapshot_with_what_the_page_lists_now(db_sessio
 
 def test_monthly_listeners_is_refreshed_on_every_sync(db_session, monkeypatch):
     monkeypatch.setattr(
-        artist_sync, "fetch_artist", lambda browse_id, all_songs=True: _artist(monthly_listeners="2.4M")
+        artist_sync, "fetch_artist", lambda browse_id, track_limit=None: _artist(monthly_listeners="2.4M")
     )
 
     artist = _followed(db_session, release_snapshot="[]")
@@ -249,7 +249,7 @@ def test_related_artists_is_refreshed_on_every_sync(db_session, monkeypatch):
     monkeypatch.setattr(
         artist_sync,
         "fetch_artist",
-        lambda browse_id, all_songs=True: _artist(
+        lambda browse_id, track_limit=None: _artist(
             related=[_related("UCrelatedbbbbbbbbbbbbbbb", "Related Two")]
         ),
     )
@@ -264,7 +264,7 @@ def test_related_artists_is_refreshed_on_every_sync(db_session, monkeypatch):
 
 
 def test_an_artist_with_no_related_artists_clears_a_stale_list(db_session, monkeypatch):
-    monkeypatch.setattr(artist_sync, "fetch_artist", lambda browse_id, all_songs=True: _artist(related=[]))
+    monkeypatch.setattr(artist_sync, "fetch_artist", lambda browse_id, track_limit=None: _artist(related=[]))
 
     artist = _followed(db_session, release_snapshot="[]")
     artist.related_artists = json.dumps([{"channel_id": "UCstale", "title": "Stale"}])
@@ -279,7 +279,7 @@ def test_top_tracks_is_refreshed_on_every_sync(db_session, monkeypatch):
     monkeypatch.setattr(
         artist_sync,
         "fetch_artist",
-        lambda browse_id, all_songs=True: _artist(tracks=[_track("trackbbbbbbb2", "New Preview")]),
+        lambda browse_id, track_limit=None: _artist(tracks=[_track("trackbbbbbbb2", "New Preview")]),
     )
 
     artist = _followed(db_session, release_snapshot="[]")
@@ -295,7 +295,7 @@ def test_top_tracks_is_refreshed_on_every_sync(db_session, monkeypatch):
 
 
 def test_an_unreadable_artist_page_is_a_skip_not_a_failure(db_session, monkeypatch, caplog):
-    monkeypatch.setattr(artist_sync, "fetch_artist", lambda browse_id, all_songs=True: None)
+    monkeypatch.setattr(artist_sync, "fetch_artist", lambda browse_id, track_limit=None: None)
 
     artist = _followed(db_session, release_snapshot="[]")
     with caplog.at_level(logging.WARNING):
@@ -445,7 +445,7 @@ def test_adding_a_feed_answers_before_it_fetches_anything(client, monkeypatch):
     scheduled: list[int] = []
 
     monkeypatch.setattr(
-        artist_follow_module, "fetch_artist", lambda browse_id, all_songs=True: _artist()
+        artist_follow_module, "fetch_artist", lambda browse_id, track_limit=None: _artist()
     )
     monkeypatch.setattr(
         artist_sync, "fetch_artist_data",
@@ -463,7 +463,7 @@ def test_adding_a_feed_answers_before_it_fetches_anything(client, monkeypatch):
 def test_the_card_is_already_filling_in_when_the_response_lands(client, monkeypatch):
     """The background task isn't guaranteed to start before the client's first fragment request."""
     monkeypatch.setattr(
-        artist_follow_module, "fetch_artist", lambda browse_id, all_songs=True: _artist()
+        artist_follow_module, "fetch_artist", lambda browse_id, track_limit=None: _artist()
     )
     monkeypatch.setattr(artists_router, "run_initial_sync_task", lambda artist_id: None)
 
@@ -523,7 +523,7 @@ def test_library_marks_a_feed_that_is_still_being_fetched(client, db_session):
 
 def test_an_old_snapshot_is_rewritten_in_the_new_shape(db_session, monkeypatch):
     monkeypatch.setattr(
-        artist_sync, "fetch_artist", lambda browse_id, all_songs=True: _artist(singles=[_release()])
+        artist_sync, "fetch_artist", lambda browse_id, track_limit=None: _artist(singles=[_release()])
     )
     artist = _followed(db_session)
     artist.release_snapshot = '["MPREb_aaaaaaaaaaa"]'
@@ -567,7 +567,7 @@ def test_syncs_run_on_the_shared_youtube_pool_not_a_pool_of_their_own(db_session
 
     workers = []
 
-    def fake(browse_id, all_songs=True):
+    def fake(browse_id, track_limit=None):
         workers.append(threading.current_thread())
         return _artist()
 
