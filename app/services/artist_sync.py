@@ -46,7 +46,7 @@ class ArtistFetchResult:
 
 def fetch_artist_data(browse_id: str, avatar_url: str | None) -> ArtistFetchResult:
     """The network half of a sync; touches no SQLAlchemy state, so safe in a thread pool."""
-    artist = fetch_artist(browse_id, all_songs=False)
+    artist = fetch_artist(browse_id, track_limit=None)
     if artist is None:
         # A sync is meant to survive one unreadable artist.
         logger.warning("Artist %s: no page to read", browse_id)

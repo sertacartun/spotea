@@ -13,6 +13,8 @@ from app.routes import detail_path
 from app.timeutil import utcnow
 from app.youtube.music import (
     ARTIST_PREVIEW_SONGS,
+    ARTIST_PROFILE_TRACK_LIMIT,
+    ARTIST_TRACK_LIMIT,
     MoodCategory,
     fetch_artist,
     fetch_mood_categories,
@@ -21,6 +23,11 @@ from app.youtube.music import (
     fetch_release,
 )
 from app.youtube.urls import CHANNEL_PAGE_URL_TEMPLATE
+
+# These run on the request's own thread, never on music.pool: the pool's eight workers are sized to
+# rate-limit background fan-out (a release sync, a recommendations batch), and a panel open queueing
+# behind a full one measured 2.8s of pure waiting. Sharing the visitor id (see music._shared_headers)
+# is what makes a fresh thread cheap here, so there is nothing left to gain from the pool's warmth.
 
 
 def _base_context(kind: str, remote_id: str, title: str, items: list) -> dict:
@@ -78,12 +85,12 @@ def _followed_artist_id(db: Session, user_id: int, channel_id: str) -> int | Non
     return followed.id if followed else None
 
 
-def _artist_or_channel(db: Session, user_id: int, browse_id: str):
+def _artist_or_channel(db: Session, user_id: int, browse_id: str, track_limit: int):
     """The artist behind an id plus their hero/follow context, or None if nothing playable.
 
     Follow targets the Topic channel (releases only), falling back to the official channel, then browse id.
     """
-    artist = fetch_artist(browse_id)
+    artist = fetch_artist(browse_id, track_limit=track_limit)
     if artist is None or not artist.tracks:
         return None
 
@@ -103,7 +110,7 @@ def remote_artist_context(
     db: Session, user_id: int, browse_id: str
 ) -> dict | None:
     """An artist's profile shelves; the songs are a preview of remote_artist_songs_context."""
-    resolved = _artist_or_channel(db, user_id, browse_id)
+    resolved = _artist_or_channel(db, user_id, browse_id, ARTIST_PROFILE_TRACK_LIMIT)
     if resolved is None:
         return None
     artist, hero = resolved
@@ -137,7 +144,7 @@ def remote_artist_songs_context(
     db: Session, user_id: int, browse_id: str
 ) -> dict | None:
     """The artist's full track list, the profile's "See all", with the same hero and Follow."""
-    resolved = _artist_or_channel(db, user_id, browse_id)
+    resolved = _artist_or_channel(db, user_id, browse_id, ARTIST_TRACK_LIMIT)
     if resolved is None:
         return None
     artist, hero = resolved

@@ -1,5 +1,6 @@
 """Explore's remote playlist detail panel and POST /explore/tracks/batch; fetches are faked."""
 
+import threading
 from pathlib import Path
 
 import pytest
@@ -65,6 +66,24 @@ def test_a_remote_row_carries_what_the_batch_endpoint_needs(client, fake_playlis
 def test_a_remote_playlist_has_no_pagination(client, fake_playlist):
     # One flat fetch, and no cheap way to ask YouTube for "page 2".
     assert "pagination" not in client.get(f"/partials/detail/yt-playlist/{PLAYLIST_ID}").text
+
+
+def test_a_panel_open_never_queues_behind_the_background_pool(client, monkeypatch):
+    """music.pool's eight workers rate-limit background fan-out; a waiting person must not join that
+    queue — measured at 2.8s of pure waiting behind a full one."""
+    seen_threads = []
+
+    def fetch(playlist_id):
+        seen_threads.append(threading.current_thread().name)
+        return PlaylistDetail(
+            playlist_id=playlist_id, title="X", video_count=1, items=[_track("aaaaaaaaaaa")]
+        )
+
+    monkeypatch.setattr("app.services.remote_detail.fetch_playlist", fetch)
+
+    client.get(f"/partials/detail/yt-playlist/{PLAYLIST_ID}")
+
+    assert seen_threads and not seen_threads[0].startswith("youtube-music")
 
 
 def test_browsing_stores_nothing(client, db_session, fake_playlist):

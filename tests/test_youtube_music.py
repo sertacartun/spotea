@@ -1,6 +1,7 @@
 """app/youtube/music.py without the network; response bodies are trimmed live captures."""
 
 import logging
+from datetime import timedelta
 from urllib.parse import quote
 
 import pytest
@@ -487,7 +488,7 @@ def test_a_short_catalogue_is_not_reported_as_truncated(client):
     assert artist.track_count == 56
 
 
-def test_all_songs_false_does_not_pay_for_the_track_list(client):
+def test_track_limit_none_does_not_pay_for_the_track_list(client):
     """A follow only needs the page header, not the track list."""
     fake = client(
         get_artist={
@@ -497,10 +498,27 @@ def test_all_songs_false_does_not_pay_for_the_track_list(client):
         }
     )
 
-    artist = music.fetch_artist("UCNaGLJRPE3ohleIDM7RFtlQ", all_songs=False)
+    artist = music.fetch_artist("UCNaGLJRPE3ohleIDM7RFtlQ", track_limit=None)
 
     assert artist.channel_id == "UC6OI7Crv96jgra5pwJNDFRQ"
     assert [call[0] for call in fake.calls] == ["get_artist"]
+
+
+def test_the_profile_view_skips_the_continuation_request(client):
+    """track_limit=0 keeps get_playlist to the first page: real durations for the preview, without
+    paying for the continuation ARTIST_TRACK_LIMIT would trigger on a catalogue over 100 songs."""
+    tracks = [{**SONG, "videoId": f"_efHZg9D{n:03d}"} for n in range(80)]
+    fake = client(
+        get_artist={"name": "Someone", "songs": {"browseId": "VLx", "results": []}},
+        get_playlist={"tracks": tracks, "trackCount": 150},
+    )
+
+    artist = music.fetch_artist("UCx", track_limit=music.ARTIST_PROFILE_TRACK_LIMIT)
+
+    assert len(artist.tracks) == 80
+    # The reported total is read off the page header, not off how many were fetched.
+    assert artist.track_count == 150
+    assert ("get_playlist", ("VLx",), {"limit": 0}) in fake.calls
 
 
 def test_a_channel_that_is_not_an_artist_is_none(client, caplog):
@@ -718,7 +736,7 @@ def test_a_vevo_channel_is_followed_through_to_the_real_artist_page(client):
     """A VEVO channel's artist page has a name but no songs, so follow through to the real artist."""
     fake = client(get_artist=lambda browse_id: VEVO_PAGE if browse_id == VEVO_ID else REAL_ARTIST_PAGE)
 
-    profile = music.fetch_artist(VEVO_ID, all_songs=False)
+    profile = music.fetch_artist(VEVO_ID, track_limit=None)
 
     assert profile.topic_channel_id == ARTIST_TOPIC_ID
     # The redirect carries the real id; the VEVO id would reopen the songless page.
@@ -730,7 +748,7 @@ def test_an_artist_page_with_songs_is_never_asked_for_twice(client):
     """Only a page with nothing to offer pays for the redirect request."""
     fake = client(get_artist=REAL_ARTIST_PAGE)
 
-    music.fetch_artist(REAL_ARTIST_ID, all_songs=False)
+    music.fetch_artist(REAL_ARTIST_ID, track_limit=None)
 
     assert len(fake.calls) == 1
 
@@ -739,7 +757,7 @@ def test_a_page_with_no_songs_and_no_redirect_is_left_alone(client):
     """No music and nowhere to redirect: the caller still gets the page."""
     fake = client(get_artist={"name": "Nobody", "channelId": REAL_ARTIST_ID, "songs": {"results": []}})
 
-    profile = music.fetch_artist(REAL_ARTIST_ID, all_songs=False)
+    profile = music.fetch_artist(REAL_ARTIST_ID, track_limit=None)
 
     assert profile.topic_channel_id is None
     assert len(fake.calls) == 1
@@ -762,7 +780,7 @@ def test_the_topic_channel_is_matched_regardless_of_case(client):
         }
     )
 
-    profile = music.fetch_artist("UCaNrhBiXsXIM2epDl_kEzgQ", all_songs=False)
+    profile = music.fetch_artist("UCaNrhBiXsXIM2epDl_kEzgQ", track_limit=None)
 
     assert profile.topic_channel_id == ARTIST_TOPIC_ID
 
@@ -1120,3 +1138,36 @@ def test_pool_workers_keep_their_client_between_batches():
     second = set(music.pool.map(lambda _: id(music._client()), range(music.POOL_SIZE * 5)))
 
     assert len(first | second) <= music.POOL_SIZE
+
+
+def test_a_new_thread_reuses_another_threads_fresh_visitor_id(monkeypatch):
+    """A cold thread (a fresh anyio worker, say) still skips its own homepage fetch when some other
+    thread already paid it recently — that's the whole point of sharing it."""
+    monkeypatch.setattr(music, "_shared_headers", (music.utcnow(), {"X-Goog-Visitor-Id": "shared-vid"}))
+    music._local.__dict__.pop("client", None)
+
+    client = music._client()
+
+    assert client.base_headers["X-Goog-Visitor-Id"] == "shared-vid"
+
+
+def test_an_expired_shared_visitor_id_is_not_reused(monkeypatch):
+    stale = music.utcnow() - music.SHARED_HEADERS_TTL - timedelta(seconds=1)
+    monkeypatch.setattr(music, "_shared_headers", (stale, {"X-Goog-Visitor-Id": "shared-vid"}))
+    music._local.__dict__.pop("client", None)
+
+    client = music._client()
+
+    # Untouched: a real fetch would only happen on first actual use, which this test never makes.
+    assert "base_headers" not in client.__dict__
+
+
+def test_a_call_remembers_its_clients_visitor_id_for_the_next_thread(client, monkeypatch):
+    """The other half of the pair above: a real call's now-computed visitor id becomes the shared one."""
+    monkeypatch.setattr(music, "_shared_headers", None)
+    fake = client(get_artist={"name": "Someone", "songs": {}})
+    fake.base_headers = {"X-Goog-Visitor-Id": "just-fetched"}
+
+    music._call("artist", "get_artist", "UCx")
+
+    assert music._shared_headers[1]["X-Goog-Visitor-Id"] == "just-fetched"
