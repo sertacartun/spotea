@@ -23,9 +23,11 @@
   <link rel="stylesheet" href="/static/css/style.css" />
 {%- block head_extra %}{% endblock %}
 </head>
-{# data-app-version: what this document was rendered by. core.js compares it with the running
-   server's version, which is how a PWA open for days learns it is behind. #}
-<body data-app-version="{{ app_version }}"{% if body_class %} class="{{ body_class }}"{% endif %}>
+{# data-app-version: what this document was rendered by; core.js compares it with the running
+   server's version, which is how a PWA open for days learns it is behind. data-rendered-at:
+   when. The service worker can serve a shell cached days ago, and nothing in the page would
+   otherwise know; fragments.js compares that one. #}
+<body data-app-version="{{ app_version }}" data-rendered-at="{{ rendered_at_ms() }}"{% if body_class %} class="{{ body_class }}"{% endif %}>
 {%- include "_icons.html" %}
 {%- block body %}{% endblock %}
 {%- block scripts %}{% endblock %}

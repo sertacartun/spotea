@@ -228,6 +228,11 @@ async function handleUnfollow(artistId, button) {
     return;
   }
   closeDetail();
+  // This artist's own panel is cached under its URL and still carries the Unfollow button and
+  // the follow state the server has just changed; reopening them would show yesterday's answer.
+  // Cleared wholesale, like the follow path does: one entry keyed on a browse id can be reached
+  // through several ids (VEVO redirects, Topic vs official channel).
+  remoteFragmentCache.clear();
   refreshFragments();
 }
 

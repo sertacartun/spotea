@@ -1,4 +1,5 @@
 import { watchConnection } from "../core.js";
+import { installStalenessRefresh } from "../fragments.js";
 import { setupAmbientTint } from "../home/ambient.js";
 import { setupDeviceStorage, setupOfflineMode } from "../home/device.js";
 import { handleInitialRoute, setupDetailPanel } from "../home/detail.js";
@@ -43,6 +44,9 @@ setupPlayerOverlay();
 // After setupPlayer, which creates the audio element onPlayerEvent binds to; before
 // watchConnection, whose first act announces the offline state.
 setupOfflineMode();
+// Before watchConnection, whose first act announces the current state: this has to see that
+// announcement to know whether the app booted offline, or it would miss the way back.
+installStalenessRefresh();
 // Early: offline, the banner is the context for every failure that follows.
 watchConnection();
 setupLyricsPanel();
