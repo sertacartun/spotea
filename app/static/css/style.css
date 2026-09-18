@@ -2579,14 +2579,16 @@ button.track-link {
   display: none;
 }
 
-/* Quiet by default; red only on hover, so the costliest action isn't the loudest. */
+/* Quiet by default; red only on hover, so the costliest action isn't the loudest. Same
+   full-strength label as the .btn-quiet and .settings-select it shares a row with — "quiet"
+   is the colour it turns, not a dimmer label that reads as disabled. */
 .btn-danger {
   background: var(--bg-control);
   border: 1px solid transparent;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-4);
-  font-size: var(--text-md);
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -2596,10 +2598,11 @@ button.track-link {
   background-image: var(--hover-lift);
 }
 
+/* A disabled button still matches :hover, so both hover steps are undone here. */
 .btn-danger:disabled {
   opacity: 0.5;
   cursor: default;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   background-image: none;
 }
 
