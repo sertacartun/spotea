@@ -1521,3 +1521,70 @@ def test_the_export_is_shared_without_awaiting_anything_first() -> None:
     assert 'err.name === "NotAllowedError"' in source, (
         "a refused share is reported as a generic failure, so nobody learns to tap again"
     )
+
+
+def test_a_late_fragment_response_cannot_overwrite_a_newer_one() -> None:
+    """Several refreshes run at once (a track starting, the preparing poll, an unfollow) and their
+    responses arrive in any order. Without a generation check the older answer wins and puts back
+    what the newer one removed — the unfollowed artist reappearing on Home."""
+    source = (JS_DIR / "fragments.js").read_text()
+
+    # Not _function_body_of: refreshOne destructures its argument, so the first "{" is the
+    # parameter list, not the body.
+    start = source.index("async function refreshOne(")
+    body = source[start : source.index("export async function refreshFragments(")]
+    assert "generations.set(name, generation)" in body, "refreshOne no longer claims a generation"
+    check = "if (generations.get(name) !== generation) return false;"
+    assert check in body, "refreshOne swaps whatever arrives, however stale"
+    assert body.index("await fetch(") < body.index(check), (
+        "the generation is checked before the response is awaited, which checks nothing"
+    )
+    assert body.index(check) < body.index("return swapFragmentHtml(html)"), (
+        "the swap happens before the staleness check"
+    )
+
+
+def test_the_queue_panel_also_drops_a_superseded_answer() -> None:
+    """Reordering twice quickly sends two id lists; the later one describes the queue."""
+    source = (JS_DIR / "fragments.js").read_text()
+
+    body = _function_body(source, "refreshQueuePanel")
+    assert 'generations.get("queue") !== generation' in body
+
+
+def test_a_cache_served_document_refreshes_itself_once() -> None:
+    """sw.js serves a shell cached days ago whenever the network is slow, and only a full
+    navigation replaces it — which an SPA hardly ever makes."""
+    source = (JS_DIR / "fragments.js").read_text()
+
+    body = _function_body(source, "installStalenessRefresh")
+    assert "document.body.dataset.renderedAt" in body, "nothing reads how old this document is"
+    assert "refreshFragments()" in body
+
+    index = (JS_DIR / "pages" / "index.js").read_text()
+    assert "installStalenessRefresh();" in index, "the staleness check is never installed"
+    assert index.index("installStalenessRefresh();") < index.index("watchConnection();"), (
+        "installed after watchConnection, so it misses the announcement telling it the app "
+        "booted offline — and then never refreshes on the way back"
+    )
+
+
+def test_coming_back_online_rereads_the_shelves() -> None:
+    """core.js's only other listener for this handles going offline; nothing handled the return."""
+    source = (JS_DIR / "fragments.js").read_text()
+
+    body = _function_body(source, "installStalenessRefresh")
+    assert "CONNECTION_CHANGED" in body
+    assert "if (wasOffline && !offline) refreshFragments();" in body, (
+        "either the return from offline is missed, or every boot refreshes twice"
+    )
+
+
+def test_unfollowing_drops_the_artists_cached_panel() -> None:
+    """The panel is cached under its URL with the Unfollow button and the follow state in it."""
+    source = (JS_DIR / "home" / "detail.js").read_text()
+
+    body = _function_body_of(source, "handleUnfollow")
+    assert "remoteFragmentCache.clear();" in body, (
+        "reopening the artist after unfollowing serves the cached panel, still offering Unfollow"
+    )

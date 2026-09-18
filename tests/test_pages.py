@@ -1,8 +1,13 @@
 """Shallow smoke tests that the server-rendered pages render (routers/pages.py)."""
 
+import re
+import time
 from datetime import datetime, timedelta
 
+from fastapi.testclient import TestClient
+
 from app.interests import ONBOARDING_MIN_INTERESTS
+from app.main import app
 from app.models import Artist, Content
 from app.timeutil import utcnow
 
@@ -213,3 +218,27 @@ def test_the_player_card_wraps_its_column_and_its_panel(client):
     main = body.index('class="player-main"')
     panel = body.index('id="queue-panel"')
     assert card < main < panel
+
+
+def test_every_document_says_when_it_was_rendered():
+    """The client can't otherwise tell a fresh page from a service-worker shell cached days ago."""
+    with TestClient(app) as anon:
+        login_page = anon.get("/login")
+
+    match = re.search(r'data-rendered-at="(\d+)"', login_page.text)
+    assert match, "the shell carries no render timestamp"
+
+    rendered_at_ms = int(match.group(1))
+    # Epoch milliseconds, not seconds: the client subtracts it from Date.now().
+    assert abs(time.time() * 1000 - rendered_at_ms) < 60_000
+
+
+def test_the_render_timestamp_moves_between_renders(client):
+    """A global constant would freeze at import and every document would look brand new."""
+    stamps = set()
+    for _ in range(2):
+        page = client.get("/")
+        stamps.add(re.search(r'data-rendered-at="(\d+)"', page.text).group(1))
+        time.sleep(0.01)
+
+    assert len(stamps) == 2, "every render reports the same timestamp"
