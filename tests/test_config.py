@@ -1,3 +1,6 @@
+import re
+from pathlib import Path
+
 import pytest
 
 from app.config import DEFAULT_CHART_COUNTRIES, PLACEHOLDER_SECRET_KEYS, Settings, resolve_secret_key
@@ -88,3 +91,13 @@ def test_an_empty_key_file_is_replaced(tmp_path):
 
     assert len(key) == 64
     assert key_file.read_text() == key
+
+
+def test_docker_compose_passes_every_setting_through():
+    """docker-compose.yml lists settings by name (old Compose can't take an optional env_file),
+    so a field added to Settings without a line there would silently ignore .env in Docker."""
+    compose = (Path(__file__).parent.parent / "docker-compose.yml").read_text()
+    block = compose.split("    environment:\n", 1)[1]
+    listed = set(re.findall(r"^      - (\w+)$", block.split("\n    restart:", 1)[0], re.MULTILINE))
+
+    assert listed == {name.upper() for name in Settings.model_fields}
