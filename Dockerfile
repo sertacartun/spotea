@@ -17,9 +17,15 @@ WORKDIR /app
 # Installed from the upstream zip release directly (via Python's stdlib)
 # rather than apt (no `deno` package in Debian) or curl+unzip (not in the
 # base image, and not worth adding just for this).
+#
+# The asset is picked by platform.machine() because the image is built for
+# arm64 too (.github/workflows/docker.yml): a hardcoded x86_64 binary built
+# fine there and then couldn't execute, which yt-dlp swallows as "no JS
+# runtime" instead of failing. deno only ships x86_64 and aarch64 Linux
+# builds, so any other architecture now 404s here, at build time.
 RUN python3 -c "\
-import io, os, urllib.request, zipfile; \
-data = urllib.request.urlopen('https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip').read(); \
+import io, os, platform, urllib.request, zipfile; \
+data = urllib.request.urlopen(f'https://github.com/denoland/deno/releases/latest/download/deno-{platform.machine()}-unknown-linux-gnu.zip').read(); \
 zipfile.ZipFile(io.BytesIO(data)).extract('deno', '/usr/local/bin'); \
 os.chmod('/usr/local/bin/deno', 0o755)"
 

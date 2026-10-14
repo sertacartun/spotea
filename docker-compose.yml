@@ -5,10 +5,23 @@ services:
       - "${HOST_PORT:-8000}:8000"
     volumes:
       - ./data:/app/data
-    # Optional: with no .env the defaults run as-is and SECRET_KEY is generated into ./data.
-    env_file:
-      - path: .env
-        required: false
+    # Every setting app/config.py reads, taken from .env when it sets one and
+    # left unset otherwise, so with no .env the app's own defaults run as-is
+    # and SECRET_KEY is generated into ./data. Not `env_file: {path: .env,
+    # required: false}`: that form needs Compose 2.24+, and the older Compose
+    # some NAS UIs still ship rejects the whole file ("env_file.0 must be a
+    # string"). tests/test_config.py keeps this list in step with Settings.
+    environment:
+      - SECRET_KEY
+      - DATABASE_URL
+      - STORAGE_DIR
+      - AVATARS_DIR
+      - THUMBNAILS_DIR
+      - AUDIO_FORMAT
+      - SESSION_HTTPS_ONLY
+      - MUSIC_CHART_COUNTRIES
+      - MUSIC_CHART_COUNTRY
+      - UPDATE_CHECK
     restart: unless-stopped
     # Small self-hosted deployment (single SQLite DB, no other services or
     # deploy/swarm config in this file), but downloads/yt-dlp
