@@ -51,6 +51,30 @@ Open **http://localhost:8000** and create your account. That's it.
 
 To update later: `git pull && docker compose up -d --build`. Your music in `./data` stays.
 
+### Without git (NAS, Portainer, …)
+
+Prebuilt images for amd64 and arm64 are on GitHub Container Registry, so a single compose file is enough. Paste this into your NAS's Compose/Project screen, or save it as `docker-compose.yml` in an empty folder and run `docker compose up -d`:
+
+```yaml
+services:
+  spotea:
+    image: ghcr.io/sertacartun/spotea:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      # Portainer and some NAS UIs need an absolute path here,
+      # e.g. /volume1/docker/spotea/data:/app/data on Synology.
+      - ./data:/app/data
+    restart: unless-stopped
+```
+
+Open **http://&lt;your-server&gt;:8000** and create your account. Any setting from the [configuration table](docs/SELF_HOSTING.md#configuration) goes under `environment:`.
+
+To update later: `docker compose pull && docker compose up -d`, or your NAS's "pull image" / "recreate" action.
+
+> [!NOTE]
+> If you add `user: "UID:GID"` (common on Synology and Unraid), create the `data` folder first and give that user ownership of it. Otherwise the app can't write its files and keeps restarting.
+
 ## More
 
 - [Self-hosting guide](docs/SELF_HOSTING.md): HTTPS with Tailscale, configuration, running without Docker
