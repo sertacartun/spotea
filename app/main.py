@@ -31,6 +31,7 @@ from app.routers import settings as settings_router
 from app.routers import storage as storage_router
 from app.routers import updates as updates_router
 from app.storage import reset_interrupted_downloads, sweep_startup_leftovers
+from app.trusted_header import TrustedHeaderAuthMiddleware
 from app.version import APP_VERSION
 
 # uvicorn leaves the root logger at WARNING, which silently drops every app logger.info().
@@ -180,6 +181,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Spotea", lifespan=lifespan)
 
+# Added before SessionMiddleware, so it runs inside it and can use request.session. Off unless configured.
+app.add_middleware(TrustedHeaderAuthMiddleware, settings=settings)
 app.add_middleware(
     SessionMiddleware,
     secret_key=resolve_secret_key(settings),

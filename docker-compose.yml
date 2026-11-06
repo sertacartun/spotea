@@ -22,6 +22,9 @@ services:
       - MUSIC_CHART_COUNTRIES
       - MUSIC_CHART_COUNTRY
       - UPDATE_CHECK
+      - TRUSTED_AUTH_HEADER
+      - TRUSTED_PROXY_IPS
+      - TRUSTED_AUTH_AUTO_CREATE
     restart: unless-stopped
     # Small self-hosted deployment (single SQLite DB, no other services or
     # deploy/swarm config in this file), but downloads/yt-dlp

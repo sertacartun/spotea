@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     # Once per 12-hour window the server asks GitHub whether a newer Spotea was released, and
     # tells the first-registered account. Off, nothing this app does ever leaves the machine.
     update_check: bool = True
+    # Single sign-on behind an authenticating reverse proxy (Authentik, Authelia, oauth2-proxy...): the
+    # name of the header carrying the username, e.g. X-Authentik-Username. Unset (the default) = off.
+    trusted_auth_header: str | None = None
+    # Comma-separated IPs/CIDRs of that proxy as the app sees it; the header is ignored from anyone else.
+    trusted_proxy_ips: str = ""
+    # Create an account on first sight of a username the app doesn't know yet (else: log in only).
+    trusted_auth_auto_create: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
