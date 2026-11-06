@@ -176,6 +176,27 @@ step 4 above.
 > the login form is rate limited. On a public URL, anyone who finds it can
 > create an account and download to your disk.
 
+### Behind a single sign-on proxy
+
+If an authenticating reverse proxy (Authentik, Authelia, oauth2-proxy…) already
+logs your users in, Spotea can trust the username it passes in a header, so
+nobody has to sign in twice. It is off by default.
+
+```dotenv
+TRUSTED_AUTH_HEADER=X-Authentik-Username
+# The proxy's address as Spotea sees it; with Docker that is usually the bridge gateway.
+TRUSTED_PROXY_IPS=172.17.0.1
+# Optional: create the account the first time an unknown username shows up.
+TRUSTED_AUTH_AUTO_CREATE=true
+```
+
+> [!CAUTION]
+> The header is only believed from `TRUSTED_PROXY_IPS`, but the proxy must also
+> **set** it on every request (nginx `proxy_set_header`, not a pass-through), so
+> that a browser can never send its own. Keep the app unreachable except through
+> the proxy (`HOST_PORT=127.0.0.1:8000`). Accounts created this way get a random
+> password nobody knows: they can only be entered through the proxy.
+
 ## Running without Docker
 
 Requires Python 3.12+ and `ffmpeg`.
@@ -206,6 +227,9 @@ None of them is required.
 | `SESSION_HTTPS_ONLY` | `false` | Sends the login cookie over HTTPS only. Turn it on once you use an HTTPS URL; with it on, logging in over plain HTTP silently fails |
 | `SECRET_KEY` | generated | Key that signs login sessions. When unset, one is generated on first start and kept in `secret_key` next to `STORAGE_DIR` |
 | `UPDATE_CHECK` | `true` | Whether the feature exists at all: asking GitHub once every 12 hours whether a newer Spotea was released, shown in Settings to the first account registered. `false` removes it, including its own Settings toggle. Leaving it `true` still lets that toggle turn the check off at runtime |
+| `TRUSTED_AUTH_HEADER` | unset | Single sign-on: name of the header in which an authenticating reverse proxy passes the username, e.g. `X-Authentik-Username`. Unset turns the feature off. See [Behind a single sign-on proxy](#behind-a-single-sign-on-proxy) |
+| `TRUSTED_PROXY_IPS` | empty | Comma-separated IPs or CIDR ranges the header is accepted from. Empty means the header is never trusted |
+| `TRUSTED_AUTH_AUTO_CREATE` | `false` | Create an account the first time the proxy names a user Spotea doesn't know yet. Off, such users must register first and are then signed in automatically |
 | `MUSIC_CHART_COUNTRIES` | `US,GB,CA,AU,IE,NZ` | Countries for Explore's Charts shelf, comma separated. Each one adds its "Trending 20" playlist. `ZZ` is YouTube Music's global chart, which is weighted by market size |
 | `AUDIO_FORMAT` | `m4a` | Format yt-dlp saves audio in. `m4a` is YouTube's own stream, so saving it needs no conversion; other formats like `mp3` have to be converted and take longer |
 | `DATABASE_URL` | `sqlite:////app/data/spotea.db` | SQLAlchemy database URL |
